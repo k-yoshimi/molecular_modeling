@@ -1,63 +1,106 @@
 # Import necessary modules
+import re
+import numpy as np
 import tomllib
+from scipy.spatial.transform import Rotation as R
 from ase import Atoms
 from ase.io import write
+from itertools import product
 
-# Load input
-with open("input.toml", "rb") as f:
-    input = tomllib.load(f)
+# Load input from TOML file
+with open("input/input.toml", "rb") as f:
+    input_data = tomllib.load(f)
 
-# Load TOML configuration from file
-with open("benzene.toml", "rb") as f:
+# Load TOML configuration for each molecule
+with open("input/benzene.toml", "rb") as f:
     config_benzene = tomllib.load(f)
-with open("naphthalene.toml", "rb") as f:
+with open("input/naphthalene.toml", "rb") as f:
     config_naphthalene = tomllib.load(f)
 
-# Map molecule names to their loaded config dicts
+# Map molecule names to their configuration dictionaries
 config_map = {
     config_benzene["molecule_name"]: config_benzene,
     config_naphthalene["molecule_name"]: config_naphthalene,
 }
 
-# Scale lattice vectors according to supercell_repeat
-raw_cell = input["cell"]                # [[a1,a2,a3], [b1,b2,b3], [c1,c2,c3]]
-repeats  = input["supercell_repeat"]    # [nx, ny, nz]
+# Pattern to split symbol and count, e.g. "C6" -> ("C", "6")
+pattern = re.compile(r"^([A-Z][a-z]?)(\d+)$")
 
-# Multiply each cell vector by its corresponding repeat factor
-scaled_cell = [
-    [coord * rep for coord in vec]
-    for vec, rep in zip(raw_cell, repeats)
-]
+# Extract parameters
+molecules       = input_data.get("molecules", [])
+center_of_mass  = input_data.get("center_of_mass", [])
+rotations       = input_data.get("rotation", [])
+repeats         = input_data.get("supercell_repeat", [1,1,1])
+raw_cell        = np.array(input_data.get("cell", []))
 
-# Prepare lists for all symbols and positions
-all_symbols = []
-all_positions = []
+# Preprocess shorthand expansion for a given molecule config
+def expand_symbols(symbols):
+    result = []
+    for spec in symbols:
+        m = pattern.match(spec)
+        if m:
+            result.extend([m.group(1)] * int(m.group(2)))
+        else:
+            result.append(spec)
+    return result
 
-# Loop over the sequence in input.toml, pairing each molecule with its center-of-mass offset
-for mol_name, com in zip(input["molecules"], input["center_of_mass"]):
-    # Retrieve the corresponding config
-    cfg = config_map.get(mol_name)
-    if cfg is None:
-        raise ValueError(f"Unknown molecule: {mol_name}")
-    
-    # Extend symbols and positions with translation
-    for symbol, pos in zip(cfg["symbols"], cfg["positions"]):
-        # Translate each position by the center-of-mass vector
-        translated_pos = [
-            pos[0] + com[0],
-            pos[1] + com[1],
-            pos[2] + com[2],
-        ]
-        all_symbols.append(symbol)
-        all_positions.append(translated_pos)
+# Function to compute positions for a molecule (rotated+translated)
+def compute_positions(cfg, com, angles):
+    pos = np.array(cfg["positions"])
+    rot = R.from_euler('xyz', angles, degrees=True)
+    return rot.apply(pos) + np.array(com)
 
-# Create ASE Atoms with the stretched cell
+# Prepare substitution dictionaries keyed by (i,j,k,mol_idx)
+mol_subs = {}
+for sub in input_data.get("molecule_substitutions", []):
+    key = tuple(sub["cell_index"]) + (sub["molecule_index"],)
+    mol_subs[key] = sub["new_molecule"]
+
+atom_subs = {}
+for sub in input_data.get("atom_substitutions", []):
+    key = tuple(sub["cell_index"]) + (sub["molecule_index"], sub["atom_index"])
+    atom_subs[key] = sub["new_symbol"]
+
+# Build supercell lists
+super_symbols = []
+super_positions = []
+nx, ny, nz = repeats
+
+for (i, j, k) in product(range(nx), range(ny), range(nz)):
+    # compute cell translation
+    shift = i*raw_cell[0] + j*raw_cell[1] + k*raw_cell[2]
+    # loop over molecules in base cell
+    for mol_idx, mol_name in enumerate(molecules):
+        # determine actual molecule after substitution
+        key_mol = (i, j, k, mol_idx)
+        use_name = mol_subs.get(key_mol, mol_name)
+        cfg = config_map[use_name]
+
+        # compute base positions and symbols
+        angles = rotations[mol_idx]
+        com    = center_of_mass[mol_idx]
+        pos_arr = compute_positions(cfg, com, angles)
+        syms = expand_symbols(cfg["symbols"])
+
+        # append each atom, apply atom-level substitution if any
+        for atom_idx, (sym, pos) in enumerate(zip(syms, pos_arr)):
+            # global substitution key for atom
+            key_atom = (i, j, k, mol_idx, atom_idx)
+            final_sym = atom_subs.get(key_atom, sym)
+            super_symbols.append(final_sym)
+            super_positions.append(list(pos + shift))
+
+# Define scaled cell for supercell
+scaled_cell = (raw_cell.T * repeats).T.tolist()
+
+# Build ASE Atoms object
 system = Atoms(
-    symbols=all_symbols,
-    positions=all_positions,
+    symbols=super_symbols,
+    positions=super_positions,
     cell=scaled_cell,
-    pbc=True        # enable periodic boundary conditions
+    pbc=True
 )
+
 # Print the summary
 print("Scaled cell vectors:", scaled_cell)
 print(system)
@@ -66,6 +109,7 @@ print(system)
 pseudopotentials = {
     'C': 'C.pbe-nc.UPF',
     'H': 'H.pbe-nc.UPF',
+    'Si': 'Si.pbe-nc.UPF'
 }
 
 # Set Quantum ESPRESSO namelist parameters
