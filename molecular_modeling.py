@@ -23,9 +23,6 @@ config_map = {
     config_naphthalene["molecule_name"]: config_naphthalene,
 }
 
-# Pattern to split symbol and count, e.g. "C6" -> ("C", "6")
-pattern = re.compile(r"^([A-Z][a-z]?)(\d+)$")
-
 # Extract parameters
 molecules       = input_data.get("molecules", [])
 center_of_mass  = input_data.get("center_of_mass", [])
@@ -34,14 +31,20 @@ repeats         = input_data.get("supercell_repeat", [1,1,1])
 raw_cell        = np.array(input_data.get("cell", []))
 
 # Preprocess shorthand expansion for a given molecule config
-def expand_symbols(symbols):
+def expand_symbols(tokens):
+    """
+    Expand a list of chemical-symbol tokens like ["C6","H6"] or ["C6H6"]
+    into a flat list of individual symbols: ["C","C",...,"H","H",...].
+    """
+    # Regex: element = uppercase + optional lowercase, count = digits (optional)
+    pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
     result = []
-    for spec in symbols:
-        m = pattern.match(spec)
-        if m:
-            result.extend([m.group(1)] * int(m.group(2)))
-        else:
-            result.append(spec)
+    for token in tokens:
+        # findall returns list of (element, count_str) tuples
+        for element, count_str in pattern.findall(token):
+            count = int(count_str) if count_str else 1
+            # repeat each element count times
+            result.extend([element] * count)
     return result
 
 # Function to compute positions for a molecule (rotated+translated)
@@ -105,11 +108,15 @@ system = Atoms(
 print("Scaled cell vectors:", scaled_cell)
 print(system)
 
-# Define pseudopotentials for each element; ensure these UPF files exist
+# Define pseudopotentials for each element
+# 1. Get unique chemical species symbols
+# get_chemical_symbols() returns a list of strings, so use set() to remove duplicates
+unique_species = sorted(set(system.get_chemical_symbols()))
+# 2. Dynamically create the pseudopotentials dictionary
+# Apply the ".pbe-nc.UPF" suffix to all species
 pseudopotentials = {
-    'C': 'C.pbe-nc.UPF',
-    'H': 'H.pbe-nc.UPF',
-    'Si': 'Si.pbe-nc.UPF'
+    elem: f"{elem}.pbe-nc.UPF"
+    for elem in unique_species
 }
 
 # Set Quantum ESPRESSO namelist parameters

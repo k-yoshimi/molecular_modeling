@@ -1,7 +1,7 @@
 molecule_name = "naphthalene"
 
 symbols = [
-  "C10", "H8", 
+  "C10H8", 
 ]
 
 positions = [
