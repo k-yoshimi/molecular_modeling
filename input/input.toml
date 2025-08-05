@@ -29,14 +29,17 @@ molecule_index = 1
 new_molecule   = "benzene"
 rotation_override = [0.0, 0.0, 45.0]
 
+[[global_atom_substitutions]]
+old_symbol = "H"
+new_symbol = "He"
+
+[[molecule_atom_substitutions]]
+cell_index     = [0, 0, 1]
+molecule_index = 1
+new_symbols    = ["Si6O6"] 
+
 [[atom_substitutions]]
 cell_index     = [0, 0, 0]
 molecule_index = 1
 atom_index     = 1
-new_symbol     = "Si"
-
-[[atom_substitutions]]
-cell_index     = [0, 0, 1]
-molecule_index = 1
-atom_index     = 2
-new_symbol     = "Si"
+new_symbol     = "Fe"

@@ -29,6 +29,7 @@ center_of_mass  = input_data.get("center_of_mass", [])
 rotations       = input_data.get("rotation", [])
 repeats         = input_data.get("supercell_repeat", [1,1,1])
 raw_cell        = np.array(input_data.get("cell", []))
+use_fractional  = input_data.get("use_fractional", False)
 
 # Preprocess shorthand expansion for a given molecule config
 def expand_symbols(tokens):
@@ -53,16 +54,29 @@ def compute_positions(cfg, com, angles):
     rot = R.from_euler('xyz', angles, degrees=True)
     return rot.apply(pos) + np.array(com)
 
-# Prepare substitution dictionaries keyed by (i,j,k,mol_idx)
-mol_subs = {}
-for sub in input_data.get("molecule_substitutions", []):
-    key = tuple(sub["cell_index"]) + (sub["molecule_index"],)
-    mol_subs[key] = sub["new_molecule"]
+# Build dictionaries for per-cell molecule substitutions
+mol_subs = {
+    tuple(s["cell_index"]) + (s["molecule_index"],): s["new_molecule"]
+    for s in input_data.get("molecule_substitutions", [])
+}
 
-atom_subs = {}
-for sub in input_data.get("atom_substitutions", []):
-    key = tuple(sub["cell_index"]) + (sub["molecule_index"], sub["atom_index"])
-    atom_subs[key] = sub["new_symbol"]
+# Build dictionaries for per-cell, per-atom substitutions
+atom_subs = {
+    tuple(s["cell_index"]) + (s["molecule_index"], s["atom_index"]): s["new_symbol"]
+    for s in input_data.get("atom_substitutions", [])
+}
+
+# Build dictionary for global atom substitutions
+global_atom_subs = {
+    s["old_symbol"]: s["new_symbol"]
+    for s in input_data.get("global_atom_substitutions", [])
+}
+
+# Build dictionary for molecule-level (all atoms) substitutions
+molecule_atom_subs = {
+    tuple(s["cell_index"]) + (s["molecule_index"],): s["new_symbols"]
+    for s in input_data.get("molecule_atom_substitutions", [])
+}
 
 # Build supercell lists
 super_symbols = []
@@ -70,28 +84,39 @@ super_positions = []
 nx, ny, nz = repeats
 
 for (i, j, k) in product(range(nx), range(ny), range(nz)):
-    # compute cell translation
-    shift = i*raw_cell[0] + j*raw_cell[1] + k*raw_cell[2]
-    # loop over molecules in base cell
+    # Compute translation for this cell
+    shift = i * raw_cell[0] + j * raw_cell[1] + k * raw_cell[2]
+
     for mol_idx, mol_name in enumerate(molecules):
-        # determine actual molecule after substitution
         key_mol = (i, j, k, mol_idx)
+        # 1) molecule_substitutions
         use_name = mol_subs.get(key_mol, mol_name)
         cfg = config_map[use_name]
 
-        # compute base positions and symbols
+        # Compute positions and base symbols
         angles = rotations[mol_idx]
-        com    = center_of_mass[mol_idx]
+        com = center_of_mass[mol_idx]
         pos_arr = compute_positions(cfg, com, angles)
         syms = expand_symbols(cfg["symbols"])
 
-        # append each atom, apply atom-level substitution if any
+        # 2) Apply global atom substitutions
+        syms = [global_atom_subs.get(sym, sym) for sym in syms]
+
+        # 3) Apply molecule-level (all atoms) substitutions
+        override_tokens = molecule_atom_subs.get(key_mol)
+        if override_tokens is not None:
+            expanded = expand_symbols(override_tokens)
+            assert len(expanded) == len(syms), (
+                f"Expected {len(syms)} atoms, but got {len(expanded)}"
+            )
+            syms = expanded
+
+        # 4) Loop over atoms and apply cell/molecule/atom-specific substitutions
         for atom_idx, (sym, pos) in enumerate(zip(syms, pos_arr)):
-            # global substitution key for atom
-            key_atom = (i, j, k, mol_idx, atom_idx)
-            final_sym = atom_subs.get(key_atom, sym)
+            final_sym = atom_subs.get((i, j, k, mol_idx, atom_idx), sym)
             super_symbols.append(final_sym)
             super_positions.append(list(pos + shift))
+
 
 # Define scaled cell for supercell
 scaled_cell = (raw_cell.T * repeats).T.tolist()
