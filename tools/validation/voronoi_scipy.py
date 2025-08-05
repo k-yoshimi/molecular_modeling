@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 # 1) Load benzene.toml
-with open("../input/benzene.toml", "rb") as f:
+with open("../../input/benzene.toml", "rb") as f:
     data = tomllib.load(f)
 cryst = data["crystal_information"][0]
 
