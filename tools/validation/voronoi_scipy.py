@@ -76,7 +76,7 @@ ax = fig.add_subplot(projection='3d')
 # extract the atom positions list
 positions = np.array(data["positions"])
 
-# --- Prepare the figure and 3D axes ---
+# --- Prepare figure & axes ---
 fig = plt.figure(figsize=(8, 8))
 ax = fig.add_subplot(projection='3d')
 
@@ -123,12 +123,26 @@ ax.set_ylim(ymin, ymax)
 ax.set_zlim(zmin, zmax)
 
 # --- Labels and legend ---
-ax.set_xlabel('X (Å)')
-ax.set_ylabel('Y (Å)')
-ax.set_zlabel('Z (Å)')
-ax.legend()
+ax.set_xlabel('X (Å)', fontsize=16, labelpad=10)
+ax.set_ylabel('Y (Å)', fontsize=16, labelpad=10)
+ax.set_zlabel('Z (Å)', fontsize=16, labelpad=10)
 
-# --- Save to PNG ---
-plt.tight_layout()
-plt.savefig('voronoi_with_atoms.png', dpi=300, bbox_inches='tight')
+ax.zaxis.set_label_coords(1.05, 0.5)
+ax.tick_params(axis='both', which='major', labelsize=14)
+ax.legend(prop={'size':18})
+
+plt.subplots_adjust(
+    left   = 0.05,   # left margin
+    right  = 0.85,   # right margin
+    bottom = 0.05,   # bottom margin
+    top    = 0.95    # top margin
+)
+
+plt.savefig(
+    'voronoi_with_atoms.png',
+    dpi         = 300,
+    bbox_inches = 'tight',
+    pad_inches  = 0.6
+)
+
 # plt.show()  # if you ever run with a display
