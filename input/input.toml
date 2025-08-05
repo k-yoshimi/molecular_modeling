@@ -36,7 +36,7 @@ new_symbol = "He"
 [[molecule_atom_substitutions]]
 cell_index     = [0, 0, 1]
 molecule_index = 1
-new_symbols    = ["Si6O6"] 
+new_symbols    = ["Si6O6", ] 
 
 [[atom_substitutions]]
 cell_index     = [0, 0, 0]
