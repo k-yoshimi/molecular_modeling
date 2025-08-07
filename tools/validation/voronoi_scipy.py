@@ -11,15 +11,14 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 # 1) Load benzene.toml
 with open("../../input/benzene.toml", "rb") as f:
     data = tomllib.load(f)
-cryst = data["crystal_information"][0]
 
 # 2) Build lattice matrix (columns are a, b, c vectors)
-lvecs = np.array(cryst["lattice_vectors"])    # shape=(3,3), rows are vectors
+lvecs = np.array(data["lattice_vectors"])    # shape=(3,3), rows are vectors
 B = lvecs.T                                  # shape=(3,3)
 B_inv = np.linalg.inv(B)
 
 # 3) Get center‐of‐mass positions in Cartesian and fractional
-coms_cart = np.array(cryst["center_of_mass"])              # (M,3)
+coms_cart = np.array(data["center_of_mass"])              # (M,3)
 coms_frac = (B_inv @ coms_cart.T).T                        # fractional coords
 
 # 4) Create periodic images: offsets in {-1,0,1}³

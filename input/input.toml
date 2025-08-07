@@ -43,3 +43,4 @@ cell_index     = [0, 0, 0]
 molecule_index = 1
 atom_index     = 1
 new_symbol     = "Fe"
+

@@ -50,7 +50,18 @@ def expand_symbols(tokens):
 
 # Function to compute positions for a molecule (rotated+translated)
 def compute_positions(cfg, com, angles):
+    # Load raw positions from molecule dictionary
     pos = np.array(cfg["positions"])
+
+    # If positions are given in fractional coordinates relative to the
+    # molecule’s lattice_vectors, convert them to Cartesian.
+    if cfg.get("use_fractional", True):
+        # lattice_vectors is a list of three vectors [[ax,ay,az],...]
+        lattice = np.array(cfg["lattice_vectors"])
+        # fractional -> Cartesian: f1*a + f2*b + f3*c
+        pos = pos.dot(lattice)
+
+    # Apply rotation and then translate by center-of-mass
     rot = R.from_euler('xyz', angles, degrees=True)
     return rot.apply(pos) + np.array(com)
 
