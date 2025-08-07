@@ -37,6 +37,6 @@ num_molecules = 2
 
 # center of mass of each molecule
 center_of_mass = [
-  [ 0.000000,  0.000000,  0.000000],  # center of mass for molecule 1
-  [-1.346636,  2.719800,  3.592182],  # center of mass for molecule 2
+  [ 0.000000,  0.000000,  0.000000],
+  [-1.346636,  2.719800,  3.592182],
 ]
