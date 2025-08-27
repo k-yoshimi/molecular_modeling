@@ -132,3 +132,90 @@ def wrap_angles_deg(x: np.ndarray) -> np.ndarray:
     y = (np.asarray(x, float) + 180.0) % 360.0 - 180.0
     y[np.isclose(y, 180.0)] = -180.0
     return y
+
+def polyhedron_volume(poly: Polyhedron) -> float:
+    """Compute the (absolute) volume of a closed triangular (or polygonal) mesh.
+
+    Faces may be triangles or n-gons. n-gons are triangulated by a simple fan
+    around the first vertex in the face. Uses the tetrahedron-sum formula:
+        V = 1/6 * Σ v0 · (v1 × v2)
+    """
+    v = np.asarray(poly.verts, float)
+    f = np.asarray(poly.faces, int)
+
+    # Triangulate if needed
+    if f.ndim != 2 or f.shape[0] == 0:
+        return 0.0
+    if f.shape[1] == 3:
+        tri = f
+    else:
+        tri_list = []
+        for face in f:
+            face = np.asarray(face, int)
+            # fan triangulation: (f0, fk, fk+1)
+            for k in range(1, len(face) - 1):
+                tri_list.append([face[0], face[k], face[k + 1]])
+        if not tri_list:
+            return 0.0
+        tri = np.asarray(tri_list, int)
+
+    # Sum signed volumes of tetrahedra (0, v1, v2, v3)
+    # Using einsum for speed/clarity
+    cross = np.cross(v[tri[:, 1]], v[tri[:, 2]])
+    vol6 = np.einsum("ij,ij->i", v[tri[:, 0]], cross).sum()
+    return float(abs(vol6) / 6.0)
+
+
+def check_system_voronoi_volume_tiling(
+    system: Atoms,
+    groups: Optional[List[List[int]]] = None,
+    *,
+    rel_tol: float = 1e-3,
+    abs_tol: float = 1e-6,
+    verbose: bool = True,
+) -> dict:
+    """Check whether the sum of system Voronoi cell volumes equals the supercell volume.
+
+    Returns a dict with totals and errors. Prints a short report if verbose=True.
+    """
+    from .build_molecule_groups import build_molecule_groups  # local import to avoid cycles
+
+    if groups is None:
+        groups = build_molecule_groups(system)
+
+    # Build Voronoi cells for all sites (central cells clipped to unit cell)
+    cells = compute_system_voronoi_cells(system, groups)
+
+    # Sum volumes
+    vols = [polyhedron_volume(c) for c in cells]
+    sum_vol = float(np.sum(vols))
+
+    # Supercell volume
+    cell = system.get_cell().array
+    cell_vol = float(abs(np.linalg.det(cell)))
+
+    # Errors
+    diff = sum_vol - cell_vol
+    rel_err = (abs(diff) / cell_vol) if cell_vol > 0 else np.nan
+    ok = (abs(diff) <= abs_tol) or (rel_err <= rel_tol)
+
+    report = {
+        "sum_voronoi_volume": sum_vol,
+        "cell_volume": cell_vol,
+        "abs_diff": float(diff),
+        "rel_error": float(rel_err),
+        "tolerances": {"abs_tol": abs_tol, "rel_tol": rel_tol},
+        "ok": bool(ok),
+        "site_volumes": vols,  # per-site volumes (useful for debugging)
+    }
+
+    if verbose:
+        print("\n[Voronoi tiling volume check]")
+        print(f"  Sum of Voronoi cell volumes for the system : {sum_vol:.6f} Å^3")
+        print(f"  System volume                              : {cell_vol:.6f} Å^3")
+        print(f"  Abs diff                                   : {diff:.6e} Å^3")
+        print(f"  Rel error                                  : {rel_err:.6e}")
+        print(f"  Result                                     : {'PASS' if ok else 'FAIL'} "
+              f"(abs_tol={abs_tol:g}, rel_tol={rel_tol:g})")
+
+    return report
