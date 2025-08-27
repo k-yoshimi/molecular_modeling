@@ -6,12 +6,12 @@ from .render_voronoi_overlays import render_voronoi_overlays
 from .write_structure import write_structure
 
 def main():
-    system = build_system_from_toml()
+    system = build_system_from_toml(verbose=True)
     groups = build_molecule_groups(system)
     system = optimize_voronoi_overlap(system)
     check_system_voronoi_volume_tiling(system, groups, rel_tol=1e-3, abs_tol=1e-6, verbose=True)
     render_voronoi_overlays(system, out_dir="./voronoi_pngs")
-    write_structure(system)  
+    write_structure(system, outdir="./structure_out", verbose=True)
     return
 
 if __name__ == "__main__":

@@ -1,81 +1,59 @@
+from pathlib import Path
 from ase.atoms import Atoms
 from ase.io import write
 
-def write_structure(system: Atoms) -> None:
+def write_structure(system: Atoms, *, outdir: str | Path = ".", verbose: bool = True):
     """Write multiple simulator-friendly files from an ASE Atoms object."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
 
-    # Define pseudopotentials for each element
-    # 1. Get unique chemical species symbols
-    # get_chemical_symbols() returns a list of strings, so use set() to remove duplicates
     unique_species = sorted(set(system.get_chemical_symbols()))
-    # 2. Dynamically create the pseudopotentials dictionary
-    # Apply the ".pbe-nc.UPF" suffix to all species
-    pseudopotentials = {
-        elem: f"{elem}.pbe-nc.UPF"
-        for elem in unique_species
-    }
-    
-    # Set Quantum ESPRESSO namelist parameters
+    pseudopotentials = {elem: f"{elem}.pbe-nc.UPF" for elem in unique_species}
+
     input_data = {
-        'control': {
-            'calculation': 'scf',        # single-point energy calculation
-            'prefix':      'molecule',   # output file prefix
-            'outdir':      './tmp',      # working directory
-        },
-        'system': {
-            'ecutwfc':  40,    # plane-wave cutoff energy in Ry
-            'ecutrho': 320,    # charge density cutoff in Ry
-        },
-        'electrons': {
-            'conv_thr': 1e-8,  # convergence threshold for electronic SCF
-        }
+        'control': {'calculation': 'scf', 'prefix': 'molecule', 'outdir': './tmp'},
+        'system':  {'ecutwfc': 40, 'ecutrho': 320},
+        'electrons': {'conv_thr': 1e-8},
     }
-    
-    # Define k-point grid (Gamma-point only)
     kpoints = (1, 1, 1)
-    
-    # Write Quantum ESPRESSO input file (PWscf)
-    write('qe.in',
-          system,
-          format='espresso-in',
-          pseudopotentials=pseudopotentials,
-          input_data=input_data,
-          kpoints=kpoints)
-    
-    print("Quantum ESPRESSO input file 'qe.in' has been generated.")
-    
-    # Generate input files for VASP calculations
-    # --- 1. Write POSCAR file ---
-    # Use direct (fractional) coordinates
-    write('POSCAR', system, format='vasp', direct=True)
-    
-    # --- 2. Define INCAR parameters ---
-    incar_settings = {
-        'PREC':     'Accurate',    # precision level
-        'ENCUT':    300,           # plane-wave cutoff energy [eV]
-        'EDIFF':    1e-6,          # electronic convergence criterion
-        'ISMEAR':   0,             # Gaussian smearing
-        'SIGMA':    0.05,          # smearing width [eV]
-        'IBRION':   -1,            # no ionic relaxation (static run)
-        'NSW':      0,             # number of ionic steps
-        'LWAVE':    True,          # write WAVECAR
-        'LCHARG':   True,          # write CHGCAR
-    }
-    
-    with open('INCAR', 'w') as f:
-        for key, val in incar_settings.items():
-            f.write(f"{key} = {val}\n")
-    
-    # --- 3. Write KPOINTS file (Gamma-point only) ---
-    with open('KPOINTS', 'w') as f:
-        f.write("Gamma-point sampling\n")    # comment line
-        f.write("0\n")                       # 0 means automatic generation
-        f.write("Gamma\n")                   # centering
-        f.write("1 1 1\n")                   # k-point grid
-        f.write("0 0 0\n")                   # shift
-    
-    # Generate input files for VESTA
-    write('POSCAR.vasp', system, format='vasp', direct=True)
-    write('structure.cif', system, format='cif')
+
+    # QE
+    qe_in = outdir / "qe.in"
+    write(qe_in.as_posix(), system, format='espresso-in',
+          pseudopotentials=pseudopotentials, input_data=input_data, kpoints=kpoints)
+    written.append(qe_in.as_posix())
+
+    # VASP
+    poscar = outdir / "POSCAR"
+    write(poscar.as_posix(), system, format='vasp', direct=True)
+    written.append(poscar.as_posix())
+
+    incar = outdir / "INCAR"
+    with open(incar, "w", encoding="utf-8") as f:
+        for k, v in {
+            'PREC': 'Accurate', 'ENCUT': 300, 'EDIFF': 1e-6, 'ISMEAR': 0, 'SIGMA': 0.05,
+            'IBRION': -1, 'NSW': 0, 'LWAVE': True, 'LCHARG': True,
+        }.items():
+            f.write(f"{k} = {v}\n")
+    written.append(incar.as_posix())
+
+    kpoints_file = outdir / "KPOINTS"
+    with open(kpoints_file, "w", encoding="utf-8") as f:
+        f.write("Gamma-point sampling\n0\nGamma\n1 1 1\n0 0 0\n")
+    written.append(kpoints_file.as_posix())
+
+    # Exports
+    poscar_vasp = outdir / "POSCAR.vasp"
+    write(poscar_vasp.as_posix(), system, format='vasp', direct=True)
+    written.append(poscar_vasp.as_posix())
+
+    cif = outdir / "structure.cif"
+    write(cif.as_posix(), system, format='cif')
+    written.append(cif.as_posix())
+
+    if verbose:
+        names = ", ".join(Path(p).name for p in written)
+        print(f"[write_structure] Structure input and export files have been written ({names}).")
 
     return

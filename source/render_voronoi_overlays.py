@@ -225,3 +225,4 @@ def render_voronoi_overlays(
         plt.close(fig)
 
         print(f"[render] saved: {out_path}")
+    print("")

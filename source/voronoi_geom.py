@@ -217,5 +217,6 @@ def check_system_voronoi_volume_tiling(
         print(f"  Rel error                                  : {rel_err:.6e}")
         print(f"  Result                                     : {'PASS' if ok else 'FAIL'} "
               f"(abs_tol={abs_tol:g}, rel_tol={rel_tol:g})")
+        print("")
 
     return report
