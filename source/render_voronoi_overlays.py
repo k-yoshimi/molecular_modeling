@@ -210,7 +210,7 @@ def render_voronoi_overlays(
 
         # Plot system cell and rotated dictionary cell
         _plot_polyhedron(ax, sys_cell, facecolor="C0", edgecolor="k", alpha=0.25, lw=0.4, label="system Voronoi")
-        _plot_polyhedron(ax, dict_rot_placed, facecolor="C1", edgecolor="k", alpha=0.50, lw=0.4, label="dictionary (rot+placed)")
+        _plot_polyhedron(ax, dict_rot_placed, facecolor="C1", edgecolor="k", alpha=0.50, lw=0.4, label="dictionary (rot)")
 
         _set_axes_equal_from_points(ax, all_pts)
         ax.set_xlabel("x (Å)")
