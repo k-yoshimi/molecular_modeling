@@ -1,13 +1,17 @@
 # voronoi_geom.py
-# Geometry helpers.
+# Geometry helpers (Cartesian-first, union-seed Voronoi).
 from __future__ import annotations
 from typing import List, Sequence, Optional
 import numpy as np
-from scipy.spatial import Voronoi
+from scipy.spatial import Voronoi, HalfspaceIntersection, ConvexHull
 import trimesh
 from ase.atoms import Atoms
 from scipy.spatial.transform import Rotation as R
 
+
+# =========================
+# Basic shapes & converters
+# =========================
 
 class Polyhedron:
     """Minimal placeholder for a polyhedron shape."""
@@ -18,10 +22,8 @@ class Polyhedron:
 
 def _build_unit_cell_box_mesh(cell: np.ndarray) -> trimesh.Trimesh:
     """Create a convex mesh of the *unit* cell parallelepiped defined by `cell` (3x3, rows=a,b,c)."""
-    # corners in fractional coords {0,1}^3
     corners_frac = np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)], dtype=float)
     corners_cart = corners_frac @ cell  # (8,3)
-    # convex hull of the 8 corners gives the parallelepiped as a triangular mesh
     hull = trimesh.convex.convex_hull(corners_cart)
     return hull
 
@@ -55,6 +57,10 @@ def polyhedron_to_trimesh(poly: Polyhedron) -> "trimesh.Trimesh":
     return trimesh.Trimesh(vertices=verts, faces=faces, process=True)
 
 
+# =======================================
+# System Voronoi via periodic tiling (±1)
+# =======================================
+
 def compute_voronoi_cells_from_coms(cell: np.ndarray, coms_cart: np.ndarray) -> List["Polyhedron"]:
     """
     Build Voronoi cells for COM points under periodicity by tiling {-1,0,1}^3 and
@@ -85,7 +91,7 @@ def compute_voronoi_cells_from_coms(cell: np.ndarray, coms_cart: np.ndarray) -> 
         region_idx = vor.point_region[pt_idx]
         vert_ids = vor.regions[region_idx]
         if (vert_ids is None) or (len(vert_ids) == 0) or (-1 in vert_ids):
-            # fallback: small cube around COM
+            # fallback: small cube around COM (robust against unbounded regions)
             c = coms_cart[m]
             span = 0.5
             verts = c + np.array([
@@ -116,6 +122,10 @@ def compute_voronoi_cells_from_coms(cell: np.ndarray, coms_cart: np.ndarray) -> 
     return cells
 
 
+# ============================
+# Rigid motions & small helpers
+# ============================
+
 def rotate_and_place_polyhedron(
     poly: Polyhedron,
     euler_deg: Sequence[float],
@@ -124,8 +134,7 @@ def rotate_and_place_polyhedron(
 ) -> Polyhedron:
     """Rotate poly about `src_center` (dictionary COM), then translate to `dst_center` (site COM)."""
     rot = R.from_euler('xyz', np.asarray(euler_deg, float), degrees=True)
-    verts = poly.verts
-    rotated = rot.apply(verts - src_center) + dst_center
+    rotated = rot.apply(poly.verts - src_center) + dst_center
     return Polyhedron(rotated, poly.faces.copy())
 
 
@@ -140,8 +149,7 @@ def compute_system_voronoi_cells(system: Atoms, groups: List[List[int]]) -> List
 def rotate_polyhedron(poly: Polyhedron, euler_deg: Sequence[float], center: np.ndarray) -> Polyhedron:
     """Rotate polyhedron (XYZ Euler degrees) about a given center."""
     rot = R.from_euler('xyz', np.asarray(euler_deg, float), degrees=True)
-    shifted = poly.verts - center
-    rotated = rot.apply(shifted) + center
+    rotated = rot.apply(poly.verts - center) + center
     return Polyhedron(rotated, poly.faces.copy())
 
 
@@ -152,143 +160,230 @@ def wrap_angles_deg(x: np.ndarray) -> np.ndarray:
     return y
 
 
-def polyhedron_volume(poly: Polyhedron) -> float:
-    """Compute the (absolute) volume of a closed triangular (or polygonal) mesh.
+# ======================
+# Generic volume helper
+# ======================
 
-    Faces may be triangles or n-gons. n-gons are triangulated by a simple fan
-    around the first vertex in the face. Uses the tetrahedron-sum formula:
-        V = 1/6 * Σ v0 · (v1 × v2)
-    """
+def polyhedron_volume(poly: Polyhedron) -> float:
+    """Compute the (absolute) volume of a closed triangular/polygonal mesh via tetrahedra sum."""
     v = np.asarray(poly.verts, float)
     f = np.asarray(poly.faces, int)
-
-    # Triangulate if needed
     if f.ndim != 2 or f.shape[0] == 0:
         return 0.0
-    if f.shape[1] == 3:
-        tri = f
-    else:
+    if f.shape[1] != 3:
+        # fan triangulation
         tri_list = []
         for face in f:
             face = np.asarray(face, int)
-            # fan triangulation: (f0, fk, fk+1)
             for k in range(1, len(face) - 1):
                 tri_list.append([face[0], face[k], face[k + 1]])
         if not tri_list:
             return 0.0
         tri = np.asarray(tri_list, int)
-
-    # Sum signed volumes of tetrahedra (0, v1, v2, v3)
+    else:
+        tri = f
     cross = np.cross(v[tri[:, 1]], v[tri[:, 2]])
     vol6 = np.einsum("ij,ij->i", v[tri[:, 0]], cross).sum()
     return float(abs(vol6) / 6.0)
 
 
-def _safe_volume(mesh: "trimesh.Trimesh", fallback_poly: Polyhedron) -> float:
-    """Return a reliable volume for mesh; fall back to analytic volume if needed."""
-    vol = float(mesh.volume) if hasattr(mesh, "volume") else 0.0
-    if not np.isfinite(vol) or vol <= 0.0 or not mesh.is_volume:
-        return polyhedron_volume(fallback_poly)
-    return vol
+# ==========================================
+# Cartesian-only Voronoi union machinery
+# ==========================================
 
-
-# Inside test for convex polyhedra (half-space test)
-def _convex_poly_halfspace(points: np.ndarray, poly: Polyhedron, tol: float = 1e-9) -> np.ndarray:
+def _lattice_translations_cart(A: np.ndarray, rng: int = 1) -> np.ndarray:
     """
-    Return a boolean mask of shape (len(points),) indicating whether each point lies
-    inside the convex polyhedron.
-
-    Assumes triangular faces; for n-gons we rely on prior fan triangulation,
-    and face normals are computed from the resulting triangles.
+    Build translation vectors for a +/- rng supercell using Cartesian lattice A.
+    A: (3,3) with rows a,b,c in Å (Cartesian)
+    Returns: ((2*rng+1)^3, 3)
     """
-    V = np.asarray(poly.verts, float)
-    F = _triangulate_faces(np.asarray(poly.faces, int))  # (T, 3)
-    if F.size == 0:
-        return np.zeros(points.shape[0], dtype=bool)
-
-    P0 = V[F[:, 0]]                      # (T, 3)
-    E1 = V[F[:, 1]] - V[F[:, 0]]         # (T, 3)
-    E2 = V[F[:, 2]] - V[F[:, 0]]         # (T, 3)
-    N  = np.cross(E1, E2)                # (T, 3) raw face normals (orientation not yet fixed)
-
-    # Make normals outward-facing: flip sign so that the mesh centroid lies on the "inside"
-    centroid = V.mean(axis=0)            # crude interior point
-    s = np.einsum("ij,ij->i", N, centroid - P0)
-    N[s > 0] *= -1.0
-
-    # For each point P, it's inside iff n · (P − P0) <= tol for all planes
-    # Shapes: (T,3) with (N,3) → (T,N)
-    diff = points[None, :, :] - P0[:, None, :]
-    val  = np.einsum("tni,ti->tn", diff, N)
-    inside = (val <= tol).all(axis=0)
-    return inside
+    A = np.asarray(A, float)
+    a, b, c = A
+    shifts = [i*a + j*b + k*c for i in range(-rng, rng+1)
+                               for j in range(-rng, rng+1)
+                               for k in range(-rng, rng+1)]
+    return np.asarray(shifts, float)
 
 
-def _mc_iou_convex(a: Polyhedron, b: Polyhedron, samples: int = 100000, seed: int = 12345) -> float:
-    """Monte Carlo IoU for (approximately) convex polyhedra.
-    Uses a half-space test for point-in-poly; does not depend on trimesh.contains.
+def _unique_rows(x: np.ndarray, atol: float = 1e-8) -> np.ndarray:
+    """Remove near-duplicate rows by rounding to a tolerance grid."""
+    x = np.asarray(x, float)
+    grid = np.round(x / atol).astype(np.int64)
+    _, idx = np.unique(grid, axis=0, return_index=True)
+    return x[np.sort(idx)]
+
+
+def _voronoi_cell_vertices_halfspaces_cart(p_ref: np.ndarray, others: np.ndarray) -> np.ndarray:
     """
-    mins = np.minimum(a.verts.min(axis=0), b.verts.min(axis=0))
-    maxs = np.maximum(a.verts.max(axis=0), b.verts.max(axis=0))
-    # Return 0 if the shared bounding box is invalid/degenerate
-    if not np.all(np.isfinite(mins)) or not np.all(np.isfinite(maxs)) or np.any(maxs <= mins):
+    Compute vertices of the Voronoi cell (Cartesian Å) for p_ref given 'others'
+    via intersection of perpendicular-bisector halfspaces.
+    """
+    p = np.asarray(p_ref, float)
+    Q = np.asarray(others, float)
+
+    halfspaces = []
+    for q in Q:
+        n = q - p
+        if float(n @ n) < 1e-20:
+            continue  # skip duplicates
+        c = 0.5 * float(n @ (p + q))  # plane offset
+        a = n
+        b = -c
+        halfspaces.append(np.r_[a, b])
+
+    if len(halfspaces) == 0:
+        return np.empty((0, 3), float)
+
+    halfspaces = np.asarray(halfspaces, float)
+    interior = p + 1e-10 * np.array([0.1234, -0.5678, 0.91011], float)  # strict interior point
+    hs = HalfspaceIntersection(halfspaces, interior)
+    return hs.intersections  # (M,3)
+
+
+def _build_system_seeds_cart(A_sys: np.ndarray, coms_sys_cart: np.ndarray, rng: int = 1) -> np.ndarray:
+    """System seeds = all system COMs replicated by translations of A_sys over +/- rng."""
+    T_sys = _lattice_translations_cart(A_sys, rng=rng)
+    seeds_sys = (coms_sys_cart[None, :, :] + T_sys[:, None, :]).reshape(-1, 3)
+    return seeds_sys
+
+
+def _build_dict_seeds_cart(
+    A_dict: np.ndarray,
+    coms_dict_cart: np.ndarray,
+    angles_deg: Sequence[float],
+    p_ref_cart: np.ndarray,
+    rng: int = 1
+) -> np.ndarray:
+    """
+    Dictionary seeds (Cartesian):
+      1) recenter dict COMs so that first COM is at origin,
+      2) rotate by R(angles),
+      3) translate so dict[0] coincides with p_ref_cart,
+      4) replicate by translations of the *rotated* dictionary lattice A_dict_rot.
+    """
+    coms_dict_cart = np.asarray(coms_dict_cart, float)
+    p0 = coms_dict_cart[0].copy()
+    base = coms_dict_cart - p0
+
+    Rmat = R.from_euler('xyz', np.asarray(angles_deg, float), degrees=True).as_matrix()
+    base_rot = (Rmat @ base.T).T
+    placed = base_rot + np.asarray(p_ref_cart, float)
+
+    A_dict = np.asarray(A_dict, float)
+    A_dict_rot = (Rmat @ A_dict.T).T
+    T_dict = _lattice_translations_cart(A_dict_rot, rng=rng)
+    seeds_dict = (placed[None, :, :] + T_dict[:, None, :]).reshape(-1, 3)
+    return seeds_dict
+
+
+def overlap_volume_union_cart(
+    A_sys: np.ndarray,
+    coms_sys_cart: np.ndarray,
+    A_dict: np.ndarray,
+    coms_dict_cart: np.ndarray,
+    angles_deg: Sequence[float],
+    p_ref_cart: np.ndarray,
+    rng: int = 1
+) -> float:
+    """Overlap volume = Voronoi cell of p_ref under union of {system seeds} ∪ {rotated dict seeds}."""
+    seeds_sys  = _build_system_seeds_cart(A_sys,  np.asarray(coms_sys_cart, float),  rng=rng)
+    seeds_dict = _build_dict_seeds_cart(A_dict, np.asarray(coms_dict_cart, float),
+                                        angles_deg, np.asarray(p_ref_cart, float), rng=rng)
+    seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
+    d2 = np.sum((seeds_all - p_ref_cart)**2, axis=1)
+    others = seeds_all[d2 > 1e-18]
+
+    verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
+    if len(verts) < 4:
         return 0.0
-
-    rng = np.random.default_rng(seed)
-    P = rng.uniform(mins, maxs, size=(samples, 3))
-    inA = _convex_poly_halfspace(P, a)
-    inB = _convex_poly_halfspace(P, b)
-    inter = np.count_nonzero(inA & inB)
-    union = np.count_nonzero(inA | inB)
-    return float(inter / union) if union > 0 else 0.0
+    hull = ConvexHull(verts)
+    return float(hull.volume)
 
 
-def iou_polyhedra(
-    a: Polyhedron,
-    b: Polyhedron,
-    *,
-    engine: str | None = "scad",   # 'scad', ‘cork’, ‘blender’, etc. None for the default trimesh.
-    mc_samples: int = 40000,       # Monte Carlo Granularity for Boolean Failure
+def single_set_cell_volume_cart(
+    A_cell: np.ndarray,
+    coms_cart: np.ndarray,
+    p_ref_cart: np.ndarray,
+    which: str,
+    angles_deg: Optional[Sequence[float]] = None,
+    rng: int = 1
 ) -> float:
     """
-    True 3D IoU via boolean intersection (fallback: Monte Carlo).
-    IoU = V(A∩B) / V(A) + V(B) − V(A∩B)
-    Returns value in [0,1].
+    Volume of Voronoi cell at p_ref_cart for a single seed set.
+      which='system' -> use A_cell & coms_cart as-is
+      which='dict'   -> rotate lattice & COMs around dict[0], place dict[0] at p_ref
     """
-    # Convert to trimesh
-    try:
-        m1 = polyhedron_to_trimesh(a)
-        m2 = polyhedron_to_trimesh(b)
-    except Exception:
-        # Last resort: size ratio (very rough)
-        def diag(p: Polyhedron) -> float:
-            d = p.verts.max(0) - p.verts.min(0)
-            return float(np.linalg.norm(d))
-        da, db = diag(a), diag(b)
-        return float(min(da, db) / max(da, db)) if (da > 0 and db > 0) else 0.0
+    if which == 'system':
+        seeds = _build_system_seeds_cart(A_cell, np.asarray(coms_cart, float), rng=rng)
+    elif which == 'dict':
+        assert angles_deg is not None, "angles_deg is required when which='dict'"
+        seeds = _build_dict_seeds_cart(A_cell, np.asarray(coms_cart, float),
+                                       angles_deg, np.asarray(p_ref_cart, float), rng=rng)
+    else:
+        raise ValueError("which must be 'system' or 'dict'.")
 
-    # Individual volumes
-    volA = _safe_volume(m1, a)
-    volB = _safe_volume(m2, b)
-    if volA <= 0.0 and volB <= 0.0:
+    seeds = _unique_rows(seeds, atol=1e-8)
+    d2 = np.sum((seeds - p_ref_cart)**2, axis=1)
+    others = seeds[d2 > 1e-18]
+
+    verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
+    if len(verts) < 4:
         return 0.0
+    hull = ConvexHull(verts)
+    return float(hull.volume)
 
-    # Boolean intersection
-    try:
-        inter = trimesh.boolean.intersection([m1, m2], engine=engine) if engine \
-                else trimesh.boolean.intersection([m1, m2])
-        inter_vol = 0.0
-        if inter is not None:
-            if isinstance(inter, (list, tuple)):
-                inter_vol = float(sum(float(x.volume) for x in inter if hasattr(x, "is_volume") and x.is_volume))
-            else:
-                inter_vol = float(inter.volume) if (hasattr(inter, "volume") and inter.is_volume and inter.volume > 0) else 0.0
-        union_vol = max(volA + volB - inter_vol, 0.0)
-        return float(inter_vol / union_vol) if union_vol > 0 else 0.0
 
-    except Exception:
-        # ---- Fallback: pure NumPy Monte Carlo using half-space test (robust, no trimesh.contains) ----
-        return _mc_iou_convex(a, b, samples=mc_samples)
+def iou_via_union_cart(
+    A_sys: np.ndarray,
+    coms_sys_cart: np.ndarray,
+    A_dict: np.ndarray,
+    coms_dict_cart: np.ndarray,
+    p_ref_cart: np.ndarray,
+    angles_deg: Sequence[float],
+    rng: int = 1
+) -> float:
+    """IoU = overlap / (vol_sys + vol_dict - overlap), all in Cartesian."""
+    overlap = overlap_volume_union_cart(
+        A_sys, coms_sys_cart, A_dict, coms_dict_cart, angles_deg, p_ref_cart, rng=rng
+    )
+    vol_sys  = single_set_cell_volume_cart(A_sys,  coms_sys_cart,  p_ref_cart, 'system', rng=rng)
+    vol_dict = single_set_cell_volume_cart(A_dict, coms_dict_cart, p_ref_cart, 'dict',
+                                           angles_deg=angles_deg, rng=rng)
+    denom = vol_sys + vol_dict - overlap
+    if denom <= 0.0:
+        return 0.0
+    return float(overlap / denom)
+
+
+# (Optional) per-site optimizer sketch kept for convenience
+def optimize_angles_each_system_site(
+    A_sys: np.ndarray,
+    coms_sys_cart: np.ndarray,
+    A_dict: np.ndarray,
+    coms_dict_cart: np.ndarray,
+    sites_sys_cart: np.ndarray,
+    angles_init: Sequence[float] = (0.0, 0.0, 0.0),
+    rng: int = 1,
+    optimizer: str = "Powell"
+) -> List[tuple]:
+    """
+    For each system lattice point p_ref, align dict[0] to p_ref and optimize angles to maximize IoU.
+    Returns: list of (site_index, angles_opt, best_iou).
+    """
+    from scipy.optimize import minimize
+    results = []
+    x0 = np.asarray(angles_init, float)
+    for idx, p_ref in enumerate(np.asarray(sites_sys_cart, float)):
+        def obj(ang):
+            return -iou_via_union_cart(A_sys, coms_sys_cart, A_dict, coms_dict_cart, p_ref, ang, rng=rng)
+        res = minimize(obj, x0, method=optimizer)
+        results.append((idx, res.x, float(-res.fun)))
+    return results
+
+
+# ===========================
+# Volume tiling sanity checker
+# ===========================
 
 def check_system_voronoi_volume_tiling(
     system: Atoms,
@@ -298,27 +393,19 @@ def check_system_voronoi_volume_tiling(
     abs_tol: float = 1e-6,
     verbose: bool = True,
 ) -> dict:
-    """Check whether the sum of system Voronoi cell volumes equals the supercell volume.
-
-    Returns a dict with totals and errors. Prints a short report if verbose=True.
-    """
+    """Check whether the sum of system Voronoi cell volumes equals the supercell volume."""
     from .build_molecule_groups import build_molecule_groups  # local import to avoid cycles
 
     if groups is None:
         groups = build_molecule_groups(system)
 
-    # Build Voronoi cells for all sites (central cells clipped to unit cell)
     cells = compute_system_voronoi_cells(system, groups)
-
-    # Sum volumes
     vols = [polyhedron_volume(c) for c in cells]
     sum_vol = float(np.sum(vols))
 
-    # Supercell volume
     cell = system.get_cell().array
     cell_vol = float(abs(np.linalg.det(cell)))
 
-    # Errors
     diff = sum_vol - cell_vol
     rel_err = (abs(diff) / cell_vol) if cell_vol > 0 else np.nan
     ok = (abs(diff) <= abs_tol) or (rel_err <= rel_tol)
@@ -330,7 +417,7 @@ def check_system_voronoi_volume_tiling(
         "rel_error": float(rel_err),
         "tolerances": {"abs_tol": abs_tol, "rel_tol": rel_tol},
         "ok": bool(ok),
-        "site_volumes": vols,  # per-site volumes (useful for debugging)
+        "site_volumes": vols,
     }
 
     if verbose:
@@ -340,7 +427,6 @@ def check_system_voronoi_volume_tiling(
         print(f"  Abs diff                                   : {diff:.6e} Å^3")
         print(f"  Rel error                                  : {rel_err:.6e}")
         print(f"  Result                                     : {'PASS' if ok else 'FAIL'} "
-              f"(abs_tol={abs_tol:g}, rel_tol={rel_tol:g})")
-        print("")
+              f"(abs_tol={abs_tol:g}, rel_tol={rel_tol:g})\n")
 
     return report

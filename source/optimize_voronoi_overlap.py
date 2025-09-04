@@ -1,16 +1,27 @@
 # optimize_voronoi_overlap.py
 """
-Two-stage orientation optimization for Voronoi-cell overlap (dictionary-cell = built from
-the first COM in the molecule dictionary, using the dictionary's lattice vectors).
+Orientation optimization for Voronoi-cell overlap via a single Cartesian Voronoi problem:
+for each system site (reference point p_ref), build ONE Voronoi using the union of
+  - all system COM seeds (replicated by A_sys, +/- rng)
+  - all dictionary COM seeds after rotating A_dict and COMs, aligning dict[0] to p_ref,
+    then replicating by the rotated lattice (+/- rng)
+and evaluate IoU around p_ref.
+
+This replaces the previous method that compared two precomputed meshes via boolean ops.
 
 Flow:
-  - Stage 0: Precompute system-level Voronoi cells once (fixed during optimization).
-  - Precompute dictionary-cell (one per molecule name) from dictionary lattice + first COM.
-  - For each site: define objective that rotates the dictionary-cell about its dictionary COM
-    and places it at the site's COM, then compares to the fixed system Voronoi cell via IoU.
+  - Gather system COMs (for ALL groups; even if optimizing only a subset of sites).
+  - For each target site:
+      * p_ref = site COM (system space).
+      * pick the molecule dictionary (by site_mol_name[site]).
+      * Objective(angles) = 1 - IoU computed by iou_via_union_cart(...)
+      * Coarse grid search -> Nelder–Mead refine.
+      * Apply the best rotation to atoms in that site (in-place).
+  - Record per-site best angles and IoU into system.info.
 
 Notes:
-    * Geometry parts rely on helpers in voronoi_geom.py.
+    * All geometry is Cartesian (Å).
+    * Requires voronoi_geom.py providing iou_via_union_cart and wrap_angles_deg.
 """
 
 from __future__ import annotations
@@ -22,12 +33,8 @@ import numpy as np
 from ase import Atoms
 
 from .voronoi_geom import (
-    Polyhedron,
-    compute_system_voronoi_cells,
-    compute_voronoi_cells_from_coms,   # build Voronoi from given cell + COMs
-    rotate_and_place_polyhedron,       # rotate (about dict COM) then place at site COM
-    iou_polyhedra,
-    wrap_angles_deg,
+    iou_via_union_cart,  # IoU via union-seed Voronoi at p_ref (Cartesian)
+    wrap_angles_deg,     # wrap Euler angles into [-180,180)
 )
 from .build_molecule_groups import build_molecule_groups
 
@@ -40,12 +47,27 @@ def optimize_voronoi_overlap(
     select_sites: Optional[Sequence[int]] = None,  # optimize only these site_ids
     grid_num: Tuple[int, int, int] = (13, 13, 13),
     angle_bounds: Tuple[float, float] = (-180.0, 180.0),
-    log_dir: Optional[str | Path] = None,  # if None, no files are written
+    rng: int = 1,                                # +/- supercell replication range
+    log_dir: Optional[str | Path] = None,        # if None, no files are written
 ) -> Atoms:
     """
-    Optimize orientation of dictionary-derived Voronoi cells to maximize overlap with
-    system-level Voronoi cells (fixed). Dictionary-cell is defined per molecule name
-    from the dictionary lattice vectors and the *first* center_of_mass entry.
+    Optimize dictionary orientation per site to maximize Voronoi-overlap IoU,
+    using a single Voronoi problem formed by the union of seed sets (Cartesian).
+
+    Inputs:
+        system        : ASE Atoms with system lattice (system.get_cell()) and positions.
+        groups        : list of index lists; each group corresponds to one molecule/site.
+        x0_euler_deg  : initial Euler angles per site, shape (N,3) in degrees. If None,
+                        uses system.info["site_angles_deg"] or zeros.
+        select_sites  : subset of site indices to optimize (others kept as-is).
+        grid_num      : coarse grid resolution for angles (nx,ny,nz).
+        angle_bounds  : per-axis bounds (deg) for grid search.
+        rng           : +/- replication range for seeds in both lattices (>=1 recommended).
+        log_dir       : directory to write per-site logs.
+
+    Returns:
+        system : ASE Atoms with per-site optimal rotation applied in-place.
+                 Stores 'optimized_angles_deg' and 'optimized_iou' in system.info.
     """
 
     # --- Auto-wire groups when omitted ---
@@ -69,7 +91,7 @@ def optimize_voronoi_overlap(
             f"Got {x0_euler_deg.shape} and len(groups)={num_sites}."
         )
 
-    # --- Select subset if requested ---
+    # --- Select subset if requested (for optimization only) ---
     if select_sites is not None:
         active_site_ids = np.asarray(select_sites, int).tolist()
         active_groups = [groups[i] for i in active_site_ids]
@@ -88,56 +110,56 @@ def optimize_voronoi_overlap(
     site_mol_name = list(system.info["site_mol_name"])
     dict_meta = system.info["dict_meta"]  # {name: {'lattice_vectors': (3,3), 'center_of_mass': (K,3)}}
 
-    # --- Stage 0: Precompute system-level Voronoi cells once (fixed) ---
-    system_cells = compute_system_voronoi_cells(system, active_groups)
-    if len(system_cells) != len(active_groups):
-        raise RuntimeError(
-            "compute_system_voronoi_cells returned mismatched count: "
-            f"{len(system_cells)} vs {len(active_groups)}"
-        )
+    # --- Lattices (Cartesian, rows [a;b;c]) ---
+    A_sys = system.get_cell().array  # (3,3)
 
-    # --- Precompute dictionary-cell (per molecule name) using dict lattice + first COM only ---
-    dict_cell_cache: Dict[str, tuple[Polyhedron, np.ndarray]] = {}
-    for name in set(site_mol_name):
-        meta = dict_meta[name]
-        B_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)  # dictionary lattice
-        coms_dict = np.asarray(meta["center_of_mass"], float)              # shape (K,3), K>=1
-        if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
-            raise ValueError(f"dict_meta['center_of_mass'] for '{name}' must be (K,3) with K>=1")
-        dict_seed_cart = coms_dict[0]                                      # use *first* COM
-        # Build exactly one Voronoi cell in the dictionary space
-        dict_poly = compute_voronoi_cells_from_coms(B_dict, dict_seed_cart[None, :])[0]
-        dict_cell_cache[name] = (dict_poly, dict_seed_cart)
+    # --- COMs for ALL system groups (we need the full set as seeds) ---
+    pos = system.get_positions()
+    coms_sys_cart_all = np.array([pos[idxs].mean(axis=0) for idxs in groups], dtype=float)  # (N,3)
 
-    # --- Per-site optimization loop (start) ---
+    # --- Prepare output collectors ---
+    final_angles = np.array(x0_euler_deg, float)  # (N,3)
+    best_iou_by_site = {sid: np.nan for sid in range(num_sites)}
+
+    # --- Coarse grid spec ---
+    amin, amax = float(angle_bounds[0]), float(angle_bounds[1])
+    nx, ny, nz = (int(grid_num[0]), int(grid_num[1]), int(grid_num[2]))
+    ax = np.linspace(amin, amax, nx)
+    ay = np.linspace(amin, amax, ny)
+    az = np.linspace(amin, amax, nz)
+
+    # --- Per-site optimization loop ---
     for local_site, (site_id, idxs) in enumerate(zip(active_site_ids, active_groups)):
-        # Rotation/placement centers
-        center = system.get_positions()[idxs].mean(axis=0)  # site COM in system space
-        target = system_cells[local_site]                   # fixed system Voronoi cell
-        mol_name = site_mol_name[site_id]                   # which dictionary to use
-        dict_poly_master, dict_seed_cart = dict_cell_cache[mol_name]
+        # Reference point p_ref = site COM in system space (Å)
+        p_ref = pos[idxs].mean(axis=0)
 
-        # ----- Objective up to here -----
-        def objective(angles_deg):
-            """Return 1 - IoU (lower is better)."""
+        # Select dictionary for this site
+        mol_name = site_mol_name[site_id]
+        meta = dict_meta[mol_name]
+        A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
+        coms_dict = np.asarray(meta["center_of_mass"], float)
+        if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
+            raise ValueError(f"dict_meta['center_of_mass'] for '{mol_name}' must be (K,3) with K>=1")
+
+        # Objective: minimize (1 - IoU) using union-seed Voronoi at p_ref
+        def objective(angles_deg: Sequence[float]) -> float:
             angles_deg = wrap_angles_deg(np.asarray(angles_deg, float))
-            dict_rot_placed = rotate_and_place_polyhedron(
-                dict_poly_master, angles_deg, src_center=dict_seed_cart, dst_center=center
+            iou = iou_via_union_cart(
+                A_sys=A_sys,
+                coms_sys_cart=coms_sys_cart_all,
+                A_dict=A_dict,
+                coms_dict_cart=coms_dict,
+                p_ref_cart=p_ref,
+                angles_deg=angles_deg,
+                rng=rng,
             )
-            iou = iou_polyhedra(dict_rot_placed, target)
             return 1.0 - float(iou)
 
-        # ---------- Stage 1: coarse grid search ----------
-        amin, amax = float(angle_bounds[0]), float(angle_bounds[1])
-        nx, ny, nz = (int(grid_num[0]), int(grid_num[1]), int(grid_num[2]))
-        ax = np.linspace(amin, amax, nx)
-        ay = np.linspace(amin, amax, ny)
-        az = np.linspace(amin, amax, nz)
-
-        # Start from given initial guess
+        # Start from initial guess for this site
         best_x = wrap_angles_deg(np.asarray(active_x0[local_site], float))
         best_fx = float(objective(best_x))
 
+        # ---------- Stage 1: coarse grid search ----------
         for a in ax:
             for b in ay:
                 for c in az:
@@ -147,7 +169,7 @@ def optimize_voronoi_overlap(
                         best_fx, best_x = fx, x
 
         # ---------- Stage 2: Nelder–Mead refinement ----------
-        from scipy.optimize import minimize  # local import to keep module deps light
+        from scipy.optimize import minimize
         res = minimize(
             objective,
             x0=best_x,
@@ -159,25 +181,14 @@ def optimize_voronoi_overlap(
         if fx_star < best_fx:
             best_x, best_fx = x_star, fx_star
 
-        # ---------- Apply the best rotation to atoms (in-place) ----------
+        # ---------- Apply the best rotation to atoms in this site (in-place) ----------
         from scipy.spatial.transform import Rotation as R
         rot = R.from_euler("xyz", best_x, degrees=True)
-        pos = system.get_positions()
         sub = pos[idxs]
-        pos[idxs] = rot.apply(sub - center) + center
-        system.set_positions(pos)
+        pos[idxs] = rot.apply(sub - p_ref) + p_ref
+        system.set_positions(pos)  # update for next sites if geometry affects COMs (usually minor)
 
-        # Ensure collectors exist (fallback if not created before the loop)
-        try:
-            final_angles
-        except NameError:
-            final_angles = np.array(x0_euler_deg, float)
-        try:
-            best_iou_by_site
-        except NameError:
-            best_iou_by_site = {sid: np.nan for sid in range(num_sites)}
-
-        # Record final angles and IoU for this site
+        # Record results
         final_angles[site_id] = best_x
         best_iou_by_site[site_id] = 1.0 - best_fx
 

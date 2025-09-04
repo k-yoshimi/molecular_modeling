@@ -1,20 +1,17 @@
 # render_voronoi_overlays.py
 """
-Render overlays of (system-level Voronoi cell) vs (rotated dictionary Voronoi cell) as PNGs.
+Render overlays of:
+  (1) system single-set Voronoi cell,
+  (2) dictionary single-set Voronoi cell (rotated & placed),
+  (3) overlap cell obtained from ONE Voronoi built on the union of seeds
+      (system seeds ∪ rotated-placed dictionary seeds) around p_ref.
 
-Dictionary-cell definition (updated):
-  - Built PER MOLECULE NAME from the dictionary's lattice vectors and the
-    FIRST entry in the dictionary's center_of_mass list.
-  - For a given site, the dictionary-cell is rotated about that dictionary COM
-    and then translated (placed) to the site's COM before comparing/plotting.
+IoU shown in the title is computed via iou_via_union_cart (union-seed method),
+consistent with the new optimization pipeline.
 
-Dependencies:
-  - numpy, matplotlib, ase, trimesh (indirectly via voronoi_geom), scipy (installed already)
-
-Data required on `system.info` (populated in build_system_from_toml):
-  - system.info["site_mol_name"] : list[str]  # site_id -> molecule name used
-  - system.info["dict_meta"]     : dict[name] -> {"lattice_vectors": (3,3), "center_of_mass": (K,3)}
-  - optionally system.info["optimized_angles_deg"] : (N,3)  # final Euler angles (deg)
+Additionally, for each site this script prints and annotates:
+  - system single-set cell volume
+  - dictionary single-set cell volume (rotated & placed)
 """
 
 from __future__ import annotations
@@ -30,16 +27,22 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from scipy.spatial import ConvexHull
 
 from .build_molecule_groups import build_molecule_groups
 from .voronoi_geom import (
     Polyhedron,
-    compute_system_voronoi_cells,
-    compute_voronoi_cells_from_coms,
-    rotate_and_place_polyhedron,
-    iou_polyhedra,
+    compute_system_voronoi_cells,       # system single-set cells (for visualization)
+    compute_voronoi_cells_from_coms,    # dict single-set cell (built in dict lattice)
+    rotate_and_place_polyhedron,        # rotate about dict[0] and translate to site center
+    iou_via_union_cart,                 # IoU via union-seed Voronoi
+    single_set_cell_volume_cart,        # <-- volumes consistent with union method
+    # Internal helpers to visualize the union-overlap cell
+    _build_system_seeds_cart,
+    _build_dict_seeds_cart,
+    _unique_rows,
+    _voronoi_cell_vertices_halfspaces_cart,
 )
-
 
 # ----------------------------- helpers -----------------------------
 
@@ -72,8 +75,6 @@ def _plot_polyhedron(
         label=label,
     )
     ax.add_collection3d(coll)
-    # Optional: draw vertices
-    # ax.scatter(poly.verts[:, 0], poly.verts[:, 1], poly.verts[:, 2], s=6, c=edgecolor)
 
 
 def _set_axes_equal_from_points(ax, pts: np.ndarray) -> None:
@@ -92,6 +93,12 @@ def _set_axes_equal_from_points(ax, pts: np.ndarray) -> None:
         pass
 
 
+def _convex_hull_to_polyhedron(points: np.ndarray) -> Polyhedron:
+    """Turn a set of vertices into a triangular Polyhedron via ConvexHull."""
+    hull = ConvexHull(points)
+    return Polyhedron(verts=hull.points.copy(), faces=hull.simplices.copy())
+
+
 # ----------------------------- main API -----------------------------
 
 def render_voronoi_overlays(
@@ -103,31 +110,22 @@ def render_voronoi_overlays(
     out_dir: str | Path = "./voronoi_pngs",
     dpi: int = 220,
     figsize: Tuple[float, float] = (6.0, 5.0),
-    azim: float = -60.0,  # camera azimuth
-    elev: float = 20.0,   # camera elevation
+    azim: float = -60.0,   # camera azimuth
+    elev: float = 20.0,    # camera elevation
+    rng: int = 1,          # +/- replication range for both lattices (used for union cell & volumes)
+    show_overlap: bool = True,  # draw overlap (union) cell
 ) -> None:
     """
-    Render overlays of (system Voronoi cell) vs (dictionary Voronoi cell rotated & placed) as PNGs.
+    Render overlays and print volumes per site.
 
-    Parameters
-    ----------
-    system : Atoms
-        Target structure (positions reflect the current orientation).
-    groups : list[list[int]] | None
-        Per-site atom index groups. If None, inferred from system.arrays['mol_id'].
-    angles_deg : (N,3) | None
-        Euler angles for each site (deg). If None, uses system.info['optimized_angles_deg']
-        if available; otherwise zeros.
-    sites : sequence[int] | None
-        Subset of site_ids to render. If None, renders all sites.
-    out_dir : str | Path
-        Output directory to write "overlay_site_XXX.png".
-    dpi : int
-        Output PNG DPI.
-    figsize : (float, float)
-        Matplotlib figure size in inches.
-    azim, elev : float
-        Matplotlib 3D view angles (deg).
+    For each site (p_ref = site's COM), we:
+      - draw system single-set cell (blue),
+      - draw dictionary single-set cell rotated & placed (orange),
+      - optionally draw overlap cell from union seeds (green),
+      - compute IoU (union method),
+      - compute and PRINT volumes: V_sys_single, V_dict_single (both via single_set_cell_volume_cart).
+
+    The title of each PNG includes IoU and both volumes.
     """
     # --- groups & angles auto-wire ---
     if groups is None:
@@ -162,10 +160,10 @@ def render_voronoi_overlays(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- system-level Voronoi cells computed once (order = groups order) ---
+    # --- system single-set Voronoi cells computed once (order = groups order) ---
     sys_cells_all = compute_system_voronoi_cells(system, groups)
 
-    # --- Precompute dictionary-cell (per molecule name) from its lattice and FIRST COM only ---
+    # --- Precompute dictionary single-set cell (per molecule name) from its lattice and FIRST COM only (for viz) ---
     dict_cell_cache: dict[str, tuple[Polyhedron, np.ndarray]] = {}
     for name in set(site_mol_name):
         meta = dict_meta[name]
@@ -177,19 +175,27 @@ def render_voronoi_overlays(
         dict_poly = compute_voronoi_cells_from_coms(B_dict, dict_seed_cart[None, :])[0]
         dict_cell_cache[name] = (dict_poly, dict_seed_cart)
 
+    # --- Common data for IoU/volumes ---
+    A_sys = system.get_cell().array  # (3,3) rows [a;b;c] in Cartesian Å
+    pos = system.get_positions()
+    coms_sys_cart_all = np.array([pos[idxs].mean(axis=0) for idxs in groups], dtype=float)  # (N,3)
+
     # --- Render each selected site ---
     for sid in sites:
         idxs = groups[sid]
-        center = system.positions[idxs].mean(axis=0)
+        center = system.positions[idxs].mean(axis=0)  # p_ref in system space (Å)
 
-        # System cell for this site (fixed)
+        # (1) system single-set cell (for drawing)
         sys_cell = sys_cells_all[sid]
 
-        # Dictionary-cell for this site's molecule name
+        # Dictionary data for this site
         mol_name = site_mol_name[sid]
+        meta = dict_meta[mol_name]
+        A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
+        coms_dict = np.asarray(meta["center_of_mass"], float)
         dict_poly_master, dict_seed_cart = dict_cell_cache[mol_name]
 
-        # Rotate about dictionary COM and place at site's COM using final Euler angles
+        # (2) dictionary single-set cell for viz: rotate & place geom
         dict_rot_placed = rotate_and_place_polyhedron(
             dict_poly_master,
             angles_deg[sid],
@@ -197,32 +203,78 @@ def render_voronoi_overlays(
             dst_center=center,
         )
 
-        # IoU for title
-        iou_val = iou_polyhedra(dict_rot_placed, sys_cell)
+        # IoU via union-seed method (consistent with optimizer)
+        iou_val = iou_via_union_cart(
+            A_sys=A_sys,
+            coms_sys_cart=coms_sys_cart_all,
+            A_dict=A_dict,
+            coms_dict_cart=coms_dict,
+            p_ref_cart=center,
+            angles_deg=angles_deg[sid],
+            rng=rng,
+        )
+
+        # ---- Volumes (single-set) via halfspace method (consistent with union logic) ----
+        V_sys = single_set_cell_volume_cart(
+            A_cell=A_sys, coms_cart=coms_sys_cart_all, p_ref_cart=center, which='system', rng=rng
+        )
+        V_dict = single_set_cell_volume_cart(
+            A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=center, which='dict',
+            angles_deg=angles_deg[sid], rng=rng
+        )
+
+        # Optional: build overlap cell (union-seed Voronoi at p_ref) for visualization
+        overlap_poly: Optional[Polyhedron] = None
+        if show_overlap:
+            seeds_sys = _build_system_seeds_cart(A_sys, coms_sys_cart_all, rng=rng)
+            seeds_dict = _build_dict_seeds_cart(A_dict, coms_dict, angles_deg[sid], center, rng=rng)
+            seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
+            d2 = np.sum((seeds_all - center) ** 2, axis=1)
+            others = seeds_all[d2 > 1e-18]
+            verts = _voronoi_cell_vertices_halfspaces_cart(center, others)
+            if verts.shape[0] >= 4:
+                overlap_poly = _convex_hull_to_polyhedron(verts)
 
         # Points for scaling
-        all_pts = np.vstack([dict_rot_placed.verts, sys_cell.verts])
+        pts_list = [dict_rot_placed.verts, sys_cell.verts]
+        if overlap_poly is not None:
+            pts_list.append(overlap_poly.verts)
+        all_pts = np.vstack(pts_list)
 
         # ---- Plot ----
         fig = plt.figure(figsize=figsize, dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
         ax.view_init(elev=elev, azim=azim)
 
-        # Plot system cell and rotated dictionary cell
-        _plot_polyhedron(ax, sys_cell, facecolor="C0", edgecolor="k", alpha=0.25, lw=0.4, label="system Voronoi")
-        _plot_polyhedron(ax, dict_rot_placed, facecolor="C1", edgecolor="k", alpha=0.50, lw=0.4, label="dictionary (rot)")
+        # (1) system cell (blue)
+        _plot_polyhedron(ax, sys_cell, facecolor="C0", edgecolor="k", alpha=0.25, lw=0.4,
+                         label="system Voronoi")
+        # (2) dictionary single-set (rotated & placed) (orange)
+        _plot_polyhedron(ax, dict_rot_placed, facecolor="C1", edgecolor="k", alpha=0.45, lw=0.4,
+                         label="dictionary (rotated)")
+        # (3) overlap cell (green)
+        if overlap_poly is not None:
+            _plot_polyhedron(ax, overlap_poly, facecolor="C2", edgecolor="k", alpha=0.50, lw=0.4,
+                             label="overlap")
 
         _set_axes_equal_from_points(ax, all_pts)
         ax.set_xlabel("x (Å)")
         ax.set_ylabel("y (Å)")
         ax.set_zlabel("z (Å)")
-        ax.set_title(f"Site {sid}  |  Mol: {mol_name}  |  IoU = {iou_val:.3f}")
+        ax.set_title(
+            f"Site {sid} | Mol: {mol_name} | IoU(union)={iou_val:.3f}"
+        )
         ax.legend(loc="upper right", fontsize=9, frameon=True)
 
-        out_path = out_dir / f"overlay_site_{sid:03d}.png"
+        out_path = Path(out_dir) / f"overlay_site_{sid:03d}.png"
         plt.tight_layout()
         plt.savefig(out_path, bbox_inches="tight", pad_inches=0.05)
         plt.close(fig)
 
+        # ---- Console print for quick verification ----
         print(f"[render] saved: {out_path}")
+        print(
+            f"[vol] site {sid:03d} | V_sys = {V_sys:.6f} Å^3 | "
+            f"V_dict = {V_dict:.6f} Å^3 | IoU = {iou_val:.6f}"
+        )
     print("")
