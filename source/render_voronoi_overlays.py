@@ -118,7 +118,7 @@ def render_voronoi_overlays(
     """
     Render overlays and print volumes per site.
 
-    For each site (p_ref = site's COM), we:
+    For each site (p_ref = site's COM (Center of Mass)), we:
       - draw system single-set cell (blue),
       - draw dictionary single-set cell rotated & placed (orange),
       - optionally draw overlap cell from union seeds (green),

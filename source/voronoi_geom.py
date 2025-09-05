@@ -63,7 +63,7 @@ def polyhedron_to_trimesh(poly: Polyhedron) -> "trimesh.Trimesh":
 
 def compute_voronoi_cells_from_coms(cell: np.ndarray, coms_cart: np.ndarray) -> List["Polyhedron"]:
     """
-    Build Voronoi cells for COM points under periodicity by tiling {-1,0,1}^3 and
+    Build Voronoi cells for COM (Center of Mass) points under periodicity by tiling {-1,0,1}^3 and
     clipping to the unit cell defined by `cell` (3x3, rows=a,b,c).
     Returns a list of Polyhedron in the same order as `coms_cart`.
     """

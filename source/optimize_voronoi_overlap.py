@@ -2,7 +2,7 @@
 """
 Orientation optimization for Voronoi-cell overlap via a single Cartesian Voronoi problem:
 for each system site (reference point p_ref), build ONE Voronoi using the union of
-  - all system COM seeds (replicated by A_sys, +/- rng)
+  - all system COM (Center of Mass) seeds (replicated by A_sys, +/- rng)
   - all dictionary COM seeds after rotating A_dict and COMs, aligning dict[0] to p_ref,
     then replicating by the rotated lattice (+/- rng)
 and evaluate IoU around p_ref.
