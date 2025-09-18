@@ -12,20 +12,28 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     # Load input from TOML file
     with open("./input/input.toml", "rb") as f:
         input_data = tomllib.load(f)
-    
+
+    # --- NEW: wire rng settings ---
+    # Global default
+    rng_global = int(input_data.get("rng", 1))
+    # Per-stage overrides (optional)
+    rng_pre_scale = int(input_data.get("pre_scale_rng", rng_global))
+    rng_optimize  = int(input_data.get("optimize_rng",  rng_global))
+    rng_render    = int(input_data.get("render_rng",    rng_global))
+
     # Load TOML configuration for each molecule
     with open("./data/benzene.toml", "rb") as f:
         config_benzene = tomllib.load(f)
     with open("./data/naphthalene.toml", "rb") as f:
         config_naphthalene = tomllib.load(f)
-    
+
     # Map molecule names to their configuration dictionaries
     config_map = {
         config_benzene["molecule_name"]: config_benzene,
         config_naphthalene["molecule_name"]: config_naphthalene,
     }
     site_mol_name: List[str] = []
-    
+
     # Extract parameters
     molecules       = input_data.get("molecules", [])
     center_of_mass  = input_data.get("center_of_mass", [])
@@ -33,12 +41,10 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     repeats         = input_data.get("supercell_repeat", [1,1,1])
     raw_cell        = np.array(input_data.get("cell", []), float)
     use_fractional  = input_data.get("use_fractional", False)  # kept for compatibility
-    
-    # Preprocess shorthand expansion for a given molecule config
+
     def expand_symbols(tokens):
         """
-        Expand a list of chemical-symbol tokens like ["C6","H6"] or ["C6H6"]
-        into a flat list of individual symbols: ["C","C",...,"H","H",...].
+        Expand tokens like ["C6H6"] or ["C6","H6"] into a flat list of symbols.
         """
         pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
         result = []
@@ -47,41 +53,40 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
                 count = int(count_str) if count_str else 1
                 result.extend([element] * count)
         return result
-    
-    # Function to compute positions for a molecule (rotated+translated)
+
     def compute_positions(cfg, com, angles):
+        """Compute rotated+translated Cartesian positions for a molecule."""
         pos = np.array(cfg["positions"], float)
         if cfg.get("use_fractional", True):
             lattice = np.array(cfg["lattice_vectors"], float)
             pos = pos.dot(lattice)
         rot = R.from_euler('xyz', angles, degrees=True)
         return rot.apply(pos) + np.array(com, float)
-    
-    # Build dictionaries for per-cell molecule substitutions
+
+    # Per-cell molecule substitutions
     mol_subs = {
         tuple(s["cell_index"]) + (s["molecule_index"],): s["new_molecule"]
         for s in input_data.get("molecule_substitutions", [])
     }
-    # Build dictionaries for per-cell, per-atom substitutions
+    # Per-atom substitutions
     atom_subs = {
         tuple(s["cell_index"]) + (s["molecule_index"], s["atom_index"]): s["new_symbol"]
         for s in input_data.get("atom_substitutions", [])
     }
-    # Build dictionary for global atom substitutions
+    # Global atom substitutions
     global_atom_subs = {s["old_symbol"]: s["new_symbol"]
                         for s in input_data.get("global_atom_substitutions", [])}
-    # Build dictionary for molecule-level (all atoms) substitutions
+    # Molecule-level (all atoms) substitutions
     molecule_atom_subs = {
         tuple(s["cell_index"]) + (s["molecule_index"],): s["new_symbols"]
         for s in input_data.get("molecule_atom_substitutions", [])
     }
-    
-    # Build supercell lists  
+
     super_symbols: List[str] = []
     super_positions: List[List[float]] = []
-    mol_ids: List[int] = []              # per-atom molecule (site) id
-    groups: List[List[int]] = []         # list of atom-index lists per site
-    site_angles: List[Tuple[float, float, float]] = []  # per-site initial Euler angles (deg)
+    mol_ids: List[int] = []
+    groups: List[List[int]] = []
+    site_angles: List[Tuple[float, float, float]] = []
 
     nx, ny, nz = repeats
     site_counter = 0
@@ -151,6 +156,14 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
         }
     system.info["dict_meta"] = dict_meta
 
+    # --- NEW: store rng settings so every stage can pick them up ---
+    system.info["rng"] = {
+        "global":   int(rng_global),
+        "pre_scale": int(rng_pre_scale),
+        "optimize":  int(rng_optimize),
+        "render":    int(rng_render),
+    }
+
     # -------- concise stdout (summary) --------
     if verbose:
         n_atoms = len(super_symbols)
@@ -164,5 +177,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
               f"cell_volume={vol:.3f} Å^3")
         print(f"  cell(Å): a={a.tolist()}, b={b.tolist()}, c={c.tolist()}")
         print(f"  molecules: {mol_line}")
+        print(f"  rng settings: {system.info['rng']}")
 
     return system

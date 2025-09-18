@@ -1,3 +1,5 @@
+rng = 1  # Voronoi replication setting
+
 cell = [
   [ 10.000000,  0.000000,  0.000000 ],   # a-vector
   [  0.000000, 10.000000,  0.000000 ],   # b-vector
