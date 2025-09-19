@@ -1,152 +1,133 @@
+# pre_scale_by_dict_voronoi.py
 from __future__ import annotations
-from typing import Optional, Sequence, Tuple, Dict
+from typing import List, Optional
 import numpy as np
-from ase.atoms import Atoms
-from collections import Counter
+from ase import Atoms
 
 from .build_molecule_groups import build_molecule_groups
 from .voronoi_geom import single_set_cell_volume_cart
 
-def pre_scale_system_to_sum_dict_voronoi(
+def pre_scale_by_dict_voronoi(
     system: Atoms,
-    groups: Optional[list[list[int]]] = None,
     *,
-    rng: Optional[int] = None,  # <-- was int; now Optional to auto-pick from system.info
-    invariant: bool = True,
-    angles_deg: Optional[np.ndarray] = None,  # per-site (N,3) if invariant=False
-    safety_clamp: Tuple[float, float] = (0.02, 50.0),
-    wrap_positions: bool = True,
+    groups: Optional[List[List[int]]] = None,
+    angles_deg: Optional[np.ndarray] = None,
+    rng: Optional[int] = None,
     verbose: bool = True,
 ) -> Atoms:
     """
-    Uniformly scale the system CELL and SITE COMs, while preserving each atom's
-    *relative* position from its site's COM (intramolecular geometry unchanged).
+    Isotropically scale the *cell volume* to match the sum of dictionary Voronoi
+    cell volumes, and move each group's COM accordingly around the origin.
 
-    Target: new system volume equals the sum of dictionary single-set Voronoi volumes.
+    Behavior:
+      - Cell is scaled by s = (V_target / V_current)^(1/3) (isotropic).
+      - For each group, COM is mapped as COM' = s * COM (pivot = origin).
+      - Intra-molecular displacements (p_i - COM) are preserved (atoms get a pure translation).
+      - Intended to run BEFORE per-site rotation optimization.
     """
-    # ---- Resolve rng from system.info if not specified ----
+    # Groups
+    if groups is None:
+        groups = build_molecule_groups(system)
+    N = len(groups)
+
+    # RNG resolve
     if rng is None:
         rng_info = system.info.get("rng", {})
         rng = int(rng_info.get("pre_scale", rng_info.get("global", 1)))
 
+    # Site meta
     if "site_mol_name" not in system.info or "dict_meta" not in system.info:
-        raise ValueError("system.info must contain 'site_mol_name' and 'dict_meta' (set in build_system_from_toml).")
+        raise ValueError(
+            "system.info must contain 'site_mol_name' and 'dict_meta'. "
+            "Ensure build_system_from_toml() stored them."
+        )
+    site_mol_name: List[str] = list(system.info["site_mol_name"])
+    dict_meta = system.info["dict_meta"]
 
-    if groups is None:
-        groups = build_molecule_groups(system)
-
-    site_mol_name: list[str] = list(system.info["site_mol_name"])
-    dict_meta: Dict[str, Dict[str, np.ndarray]] = system.info["dict_meta"]
-
-    A_sys = system.get_cell().array
-    V_sys = float(abs(np.linalg.det(A_sys)))
-    if V_sys <= 0.0:
-        raise ValueError("System cell volume is non-positive; cannot scale.")
-
-    # ---- Build V_target (sum of dictionary Voronoi volumes) ----
-    if invariant:
-        counts = Counter(site_mol_name)
-        per_type_vol: Dict[str, float] = {}
-        V_target = 0.0
-        for name, cnt in counts.items():
-            meta = dict_meta[name]
-            A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
-            coms_dict = np.asarray(meta["center_of_mass"], float)
-            if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
-                raise ValueError(f"dict_meta['center_of_mass'] for '{name}' must be (K,3) with K>=1")
-            p_ref = coms_dict[0]
-            V_one = single_set_cell_volume_cart(
-                A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=p_ref,
-                which='dict', angles_deg=(0.0, 0.0, 0.0), rng=rng
-            )
-            per_type_vol[name] = float(V_one)
-            V_target += float(cnt) * float(V_one)
+    # Angles for dictionary placement (default zeros)
+    if angles_deg is None:
+        angles_deg = np.zeros((N, 3), dtype=float)
     else:
-        if angles_deg is None:
-            if "site_angles_deg" in system.info:
-                angles_deg = np.asarray(system.info["site_angles_deg"], float)
-            else:
-                raise ValueError("angles_deg must be provided when invariant=False.")
         angles_deg = np.asarray(angles_deg, float)
-        if angles_deg.shape != (len(groups), 3):
-            raise ValueError(f"angles_deg must be (N,3) with N=len(groups)={len(groups)}")
+        if angles_deg.shape != (N, 3):
+            raise ValueError(f"angles_deg must have shape (N,3) with N={N}, got {angles_deg.shape}")
 
-        pos = system.get_positions()
-        V_target = 0.0
-        for sid, idxs in enumerate(groups):
-            center = pos[idxs].mean(axis=0)
-            name = site_mol_name[sid]
-            meta = dict_meta[name]
-            A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
-            coms_dict = np.asarray(meta["center_of_mass"], float)
-            if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
-                raise ValueError(f"dict_meta['center_of_mass'] for '{name}' must be (K,3) with K>=1")
-            V_one = single_set_cell_volume_cart(
-                A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=center,
-                which='dict', angles_deg=angles_deg[sid], rng=rng
-            )
-            V_target += float(V_one)
-        per_type_vol = {}
+    # Current cell & positions
+    A_sys = system.get_cell().array.copy()
+    V_current = float(abs(np.linalg.det(A_sys)))
+    if not np.isfinite(V_current) or V_current <= 0.0:
+        raise RuntimeError(f"Current system cell volume is invalid: {V_current}")
+
+    pos = system.get_positions()
+    coms_sys_cart_all = np.array([pos[idxs].mean(axis=0) for idxs in groups], dtype=float)
+
+    # Target volume: sum of dictionary Voronoi volumes over sites
+    V_target = 0.0
+    for sid in range(N):
+        mol_name = site_mol_name[sid]
+        meta = dict_meta[mol_name]
+        A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
+        coms_dict = np.asarray(meta["center_of_mass"], float)
+        if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
+            raise ValueError(f"dict_meta['center_of_mass'] for '{mol_name}' must be (K,3) with K>=1")
+
+        p_ref = coms_sys_cart_all[sid]
+        V_d = single_set_cell_volume_cart(
+            A_cell=A_dict,
+            coms_cart=coms_dict,
+            p_ref_cart=p_ref,
+            which="dict",
+            angles_deg=angles_deg[sid],
+            rng=rng,
+        )
+        V_target += float(V_d)
 
     if not np.isfinite(V_target) or V_target <= 0.0:
-        raise ValueError(f"Computed target dictionary-volume sum is invalid: {V_target}")
+        raise RuntimeError(f"Computed target dictionary volume is invalid: {V_target}")
 
-    # ---- Compute uniform scale s ----
-    s_cubed = V_target / V_sys
-    s = float(np.cbrt(s_cubed))
-    s_min, s_max = safety_clamp
-    if s_min > 0.0 or s_max < float("inf"):
-        s = float(np.clip(s, s_min, s_max))
+    # Isotropic scale factor
+    s = (V_target / V_current) ** (1.0 / 3.0)
 
-    # ---- Preserve intramolecular geometry ----
-    pos0 = system.get_positions()
-    if pos0.size == 0:
-        return system
+    # 1) Scale the cell (atoms untouched)
+    if abs(s - 1.0) > 1e-15:
+        A_new = s * A_sys
+        system.set_cell(A_new, scale_atoms=False)
+    else:
+        A_new = A_sys.copy()
 
-    coms0 = np.array([pos0[idxs].mean(axis=0) for idxs in groups], dtype=float)
-    rel = np.zeros_like(pos0)
-    for sid, idxs in enumerate(groups):
-        rel[idxs] = pos0[idxs] - coms0[sid]
+    # 2) Move each group's atoms so that COM -> s * COM (pivot = origin)
+    if N > 0 and abs(s - 1.0) > 0.0:
+        pos2 = pos.copy()
+        for sid, idxs in enumerate(groups):
+            COM = pos[idxs].mean(axis=0)         # current COM (Å)
+            COM_scaled = s * COM                 # pivot = origin
+            delta = COM_scaled - COM             # pure translation
+            if delta.any():
+                pos2[idxs] = pos2[idxs] + delta
+        system.set_positions(pos2)
 
-    new_cell = s * A_sys
-    system.set_cell(new_cell, scale_atoms=False)
-
-    invA0 = np.linalg.inv(A_sys)
-    coms_frac = coms0 @ invA0
-    coms1 = coms_frac @ new_cell
-
-    pos1 = pos0.copy()
-    for sid, idxs in enumerate(groups):
-        pos1[idxs] = coms1[sid] + rel[idxs]
-
-    system.set_positions(pos1)
-    if system.get_pbc().any():
-        try:
-            system.wrap(eps=1e-9)
-        except Exception:
-            pass
-
-    info = {
-        "mode": "invariant" if invariant else "per-site",
-        "rng": int(rng),
-        "V_sys_before": V_sys,
-        "V_target_dict_sum": float(V_target),
-        "scale_factor": s,
-        "safety_clamp": list(safety_clamp),
-        "preserve_intramolecular_shape": True,
-        "per_type_dict_volume": per_type_vol,
-    }
+    # Bookkeeping
+    info = dict(system.info.get("pre_scale", {}))
+    info.update({
+        "rng_used": int(rng),
+        "V_target_sum_dict": float(V_target),
+        "V_prev": float(V_current),
+        "scale_factor": float(s),
+        "A_prev": A_sys.copy(),
+        "A_new": system.get_cell().array.copy(),
+        "angles_used_deg": angles_deg.copy(),
+        "pivot": "origin",
+        "com_scaled": True,
+    })
     system.info["pre_scale"] = info
 
     if verbose:
-        V_after = float(abs(np.linalg.det(system.get_cell().array)))
         print("[pre_scale] dictionary-sum target volume matching (shape-preserving)")
-        print(f"  rng used         = {rng}")
-        print(f"  V_sys(before)    = {V_sys:.6f} Å^3")
-        print(f"  V_target(dict)   = {V_target:.6f} Å^3")
-        print(f"  s (uniform)      = {s:.6f}  -> new V_sys ≈ {V_after:.6f} Å^3")
-        if invariant and per_type_vol:
-            for k, v in sorted(per_type_vol.items()):
-                print(f"  per-type: {k}: V_dict0 = {v:.6f} Å^3")
+        print(f"  rng used         = {rng:d}")
+        print(f"  V_sys(before)    = {V_current:.9f} Å^3")
+        print(f"  V_target(dictΣ)  = {V_target:.9f} Å^3")
+        print(f"  scale factor s   = {s:.9f}")
+        print(f"  V_sys(after)     = {abs(np.linalg.det(system.get_cell().array)):.9f} Å^3")
+        print("  COM scaling      = enabled (pivot=origin)")
 
     return system
