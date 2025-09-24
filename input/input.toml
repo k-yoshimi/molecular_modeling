@@ -1,9 +1,9 @@
 rng = 1  # Voronoi replication setting
 
 cell = [
-  [ 5.522000,  0.000000,  0.000000],  # a-vector
-  [ 0.000000,  5.439600,  0.000000],  # b-vector
-  [-2.693272,  0.000000,  7.184363],  # c-vector
+  [ 5.522000,  0.000000,  0.000000 ],  # a-vector
+  [ 0.000000,  5.439600,  0.000000 ],  # b-vector
+  [-3.501254,  0.000000,  9.339672 ],  # c-vector
 ]
 
 supercell_repeat = [1, 1, 2]
@@ -16,19 +16,19 @@ molecules = [
 use_fractional = false
 
 center_of_mass = [
-  [  0.000000,  0.000000,  0.000000 ],
-  [ -1.346636,  2.719800,  3.592182 ],
+  [  0.000000,   0.000000,   0.000000 ], 
+  [ -1.750627,   2.719800,   4.669836 ], 
 ]
 
 rotation = [
-  [  0.000000,  0.000000,  0.000000 ],
-  [  0.000000,  0.000000,  30.000000 ],
+  [  0.000000,   0.000000,   0.000000 ],
+  [  0.000000,   0.000000,  30.000000 ],
 ]
 
 [[molecule_substitutions]]
-cell_index     = [0, 0, 1]
-molecule_index = 1
-new_molecule   = "benzene"
+cell_index       = [0, 0, 1]
+molecule_index   = 1
+new_molecule     = "benzene"
 rotation_override = [0.0, 0.0, 45.0]
 
 [[global_atom_substitutions]]
@@ -45,4 +45,3 @@ cell_index     = [0, 0, 0]
 molecule_index = 1
 atom_index     = 1
 new_symbol     = "Fe"
-
