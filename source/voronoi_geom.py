@@ -252,29 +252,33 @@ def _build_dict_seeds_cart(
     coms_dict_cart: np.ndarray,
     angles_deg: Sequence[float],
     p_ref_cart: np.ndarray,
-    rng: int = 1
+    rng: int = 1,
+    scale: float = 1.0,
 ) -> np.ndarray:
     """
-    Dictionary seeds (Cartesian):
-      1) recenter dict COMs so that first COM is at origin,
+    Dictionary seeds (Cartesian) with uniform scaling:
+      1) recenter dict COMs so that dict[0] is origin,
       2) rotate by R(angles),
-      3) translate so dict[0] coincides with p_ref_cart,
-      4) replicate by translations of the *rotated* dictionary lattice A_dict_rot.
+      3) uniformly scale by `scale` (applied to both basis COM offsets and lattice),
+      4) translate so dict[0] coincides with p_ref_cart,
+      5) replicate by translations of the rotated+scaled lattice.
     """
     coms_dict_cart = np.asarray(coms_dict_cart, float)
     p0 = coms_dict_cart[0].copy()
-    base = coms_dict_cart - p0
+    base = coms_dict_cart - p0  # (K,3)
 
     Rmat = R.from_euler('xyz', np.asarray(angles_deg, float), degrees=True).as_matrix()
     base_rot = (Rmat @ base.T).T
-    placed = base_rot + np.asarray(p_ref_cart, float)
+    base_rot_scaled = scale * base_rot
+    placed = base_rot_scaled + np.asarray(p_ref_cart, float)
 
     A_dict = np.asarray(A_dict, float)
     A_dict_rot = (Rmat @ A_dict.T).T
-    T_dict = _lattice_translations_cart(A_dict_rot, rng=rng)
+    A_dict_rot_scaled = scale * A_dict_rot
+
+    T_dict = _lattice_translations_cart(A_dict_rot_scaled, rng=rng)
     seeds_dict = (placed[None, :, :] + T_dict[:, None, :]).reshape(-1, 3)
     return seeds_dict
-
 
 def overlap_volume_union_cart(
     A_sys: np.ndarray,
@@ -283,22 +287,22 @@ def overlap_volume_union_cart(
     coms_dict_cart: np.ndarray,
     angles_deg: Sequence[float],
     p_ref_cart: np.ndarray,
-    rng: int = 1
+    rng: int = 1,
+    scale: float = 1.0,
 ) -> float:
-    """Overlap volume = Voronoi cell of p_ref under union of {system seeds} ∪ {rotated dict seeds}."""
+    """Overlap volume for union of system seeds and rotated+scaled dict seeds."""
     seeds_sys  = _build_system_seeds_cart(A_sys,  np.asarray(coms_sys_cart, float),  rng=rng)
     seeds_dict = _build_dict_seeds_cart(A_dict, np.asarray(coms_dict_cart, float),
-                                        angles_deg, np.asarray(p_ref_cart, float), rng=rng)
+                                        angles_deg, np.asarray(p_ref_cart, float),
+                                        rng=rng, scale=scale)
     seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
     d2 = np.sum((seeds_all - p_ref_cart)**2, axis=1)
     others = seeds_all[d2 > 1e-18]
-
     verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
     if len(verts) < 4:
         return 0.0
     hull = ConvexHull(verts)
     return float(hull.volume)
-
 
 def single_set_cell_volume_cart(
     A_cell: np.ndarray,
@@ -306,32 +310,32 @@ def single_set_cell_volume_cart(
     p_ref_cart: np.ndarray,
     which: str,
     angles_deg: Optional[Sequence[float]] = None,
-    rng: int = 1
+    rng: int = 1,
+    scale: float = 1.0,
 ) -> float:
     """
     Volume of Voronoi cell at p_ref_cart for a single seed set.
-      which='system' -> use A_cell & coms_cart as-is
-      which='dict'   -> rotate lattice & COMs around dict[0], place dict[0] at p_ref
+    which='system' -> use A_cell & coms_cart as-is (scale ignored)
+    which='dict'   -> rotate, then uniformly scale by `scale`, then place at p_ref
     """
     if which == 'system':
         seeds = _build_system_seeds_cart(A_cell, np.asarray(coms_cart, float), rng=rng)
     elif which == 'dict':
         assert angles_deg is not None, "angles_deg is required when which='dict'"
         seeds = _build_dict_seeds_cart(A_cell, np.asarray(coms_cart, float),
-                                       angles_deg, np.asarray(p_ref_cart, float), rng=rng)
+                                       angles_deg, np.asarray(p_ref_cart, float),
+                                       rng=rng, scale=scale)
     else:
         raise ValueError("which must be 'system' or 'dict'.")
 
     seeds = _unique_rows(seeds, atol=1e-8)
     d2 = np.sum((seeds - p_ref_cart)**2, axis=1)
     others = seeds[d2 > 1e-18]
-
     verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
     if len(verts) < 4:
         return 0.0
     hull = ConvexHull(verts)
     return float(hull.volume)
-
 
 def iou_via_union_cart(
     A_sys: np.ndarray,
@@ -340,15 +344,17 @@ def iou_via_union_cart(
     coms_dict_cart: np.ndarray,
     p_ref_cart: np.ndarray,
     angles_deg: Sequence[float],
-    rng: int = 1
+    rng: int = 1,
+    scale: float = 1.0,
 ) -> float:
-    """IoU = overlap / (vol_sys + vol_dict - overlap), all in Cartesian."""
+    """IoU = overlap / (V_sys + V_dict - overlap) with rotated+scaled dict seeds."""
     overlap = overlap_volume_union_cart(
-        A_sys, coms_sys_cart, A_dict, coms_dict_cart, angles_deg, p_ref_cart, rng=rng
+        A_sys, coms_sys_cart, A_dict, coms_dict_cart, angles_deg, p_ref_cart, rng=rng, scale=scale
     )
     vol_sys  = single_set_cell_volume_cart(A_sys,  coms_sys_cart,  p_ref_cart, 'system', rng=rng)
+    # For a single-set Voronoi cell, rotation does not change the volume; only scale matters.
     vol_dict = single_set_cell_volume_cart(A_dict, coms_dict_cart, p_ref_cart, 'dict',
-                                           angles_deg=angles_deg, rng=rng)
+                                           angles_deg=angles_deg, rng=rng, scale=scale)
     denom = vol_sys + vol_dict - overlap
     if denom <= 0.0:
         return 0.0

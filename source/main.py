@@ -1,6 +1,5 @@
 from .build_system_from_toml import build_system_from_toml
 from .build_molecule_groups import build_molecule_groups
-from .pre_scale_by_dict_voronoi import pre_scale_by_dict_voronoi
 from .optimize_voronoi_overlap import optimize_voronoi_overlap
 from .voronoi_geom import check_system_voronoi_volume_tiling
 from .render_voronoi_overlays import render_voronoi_overlays
@@ -11,18 +10,12 @@ def main():
     groups = build_molecule_groups(system)
 
     rngs = system.info.get("rng", {})
-    rng_pre = int(rngs.get("pre_scale", rngs.get("global", 1)))
-    rng_opt = int(rngs.get("optimize",  rngs.get("global", 1)))
-    rng_ren = int(rngs.get("render",    rngs.get("global", 1)))
+    rng_opt = int(rngs.get("optimize", rngs.get("global", 1)))
+    rng_ren = int(rngs.get("render",   rngs.get("global", 1)))
 
-    system = pre_scale_by_dict_voronoi(
-        system,
-        groups=groups,
-        rng=rng_pre,
-        verbose=True,
-    )
-    
+    # Rotate to maximize IoU.
     system = optimize_voronoi_overlap(system, groups=groups, rng=rng_opt)
+
     check_system_voronoi_volume_tiling(system, groups, rel_tol=1e-3, abs_tol=1e-6, verbose=True)
     render_voronoi_overlays(system, groups=groups, out_dir="./voronoi_pngs", rng=rng_ren)
     write_structure(system, outdir="./structure_out", verbose=True)

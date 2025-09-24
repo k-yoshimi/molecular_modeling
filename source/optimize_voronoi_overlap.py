@@ -8,10 +8,10 @@ from ase import Atoms
 
 from .voronoi_geom import (
     iou_via_union_cart,
+    single_set_cell_volume_cart,
     wrap_angles_deg,
 )
 from .build_molecule_groups import build_molecule_groups
-
 
 def optimize_voronoi_overlap(
     system: Atoms,
@@ -21,13 +21,19 @@ def optimize_voronoi_overlap(
     select_sites: Optional[Sequence[int]] = None,
     grid_num: Tuple[int, int, int] = (13, 13, 13),
     angle_bounds: Tuple[float, float] = (-180.0, 180.0),
-    rng: Optional[int] = None,  # <-- Optional, will auto-pick if None
+    rng: Optional[int] = None,
     log_dir: Optional[str | Path] = None,
 ) -> Atoms:
     """
-    Optimize dictionary orientation per site to maximize Voronoi-overlap IoU.
+    Per site:
+      1) Compute system Voronoi cell volume V_sys at site COM.
+      2) Compute dictionary Voronoi cell volume V_dict (rotation-invariant).
+      3) Set uniform scale s = (V_sys / V_dict)^(1/3) (if V_dict>0 else s=1).
+      4) Optimize Euler angles to maximize IoU using rotated+scaled dictionary seeds.
+      5) Apply rotation and *uniform scaling* (about site COM) to the site atoms.
+         (We scale atom coordinates only when we are performing this rotation optimization.)
     """
-    # --- Resolve rng from system.info if not provided ---
+    # Resolve rng
     if rng is None:
         rng_info = system.info.get("rng", {})
         rng = int(rng_info.get("optimize", rng_info.get("global", 1)))
@@ -43,12 +49,8 @@ def optimize_voronoi_overlap(
             x0_euler_deg = np.zeros((num_sites, 3), dtype=float)
     else:
         x0_euler_deg = np.asarray(x0_euler_deg, float)
-
     if x0_euler_deg.shape != (num_sites, 3):
-        raise ValueError(
-            f"x0_euler_deg must have shape (N,3) with N=len(groups). "
-            f"Got {x0_euler_deg.shape} and len(groups)={num_sites}."
-        )
+        raise ValueError(f"x0_euler_deg must have shape (N,3) with N=len(groups)={num_sites}.")
 
     if select_sites is not None:
         active_site_ids = np.asarray(select_sites, int).tolist()
@@ -60,20 +62,18 @@ def optimize_voronoi_overlap(
         active_x0 = x0_euler_deg
 
     if "site_mol_name" not in system.info or "dict_meta" not in system.info:
-        raise ValueError(
-            "system.info must contain 'site_mol_name' and 'dict_meta'. "
-            "Store them in build_system_from_toml()."
-        )
+        raise ValueError("system.info must contain 'site_mol_name' and 'dict_meta'.")
+
     site_mol_name = list(system.info["site_mol_name"])
     dict_meta = system.info["dict_meta"]
 
     A_sys = system.get_cell().array
-
     pos = system.get_positions()
     coms_sys_cart_all = np.array([pos[idxs].mean(axis=0) for idxs in groups], dtype=float)
 
     final_angles = np.array(x0_euler_deg, float)
     best_iou_by_site = {sid: np.nan for sid in range(num_sites)}
+    scales_by_site = np.ones((num_sites,), float)
 
     amin, amax = float(angle_bounds[0]), float(angle_bounds[1])
     nx, ny, nz = (int(grid_num[0]), int(grid_num[1]), int(grid_num[2]))
@@ -90,6 +90,19 @@ def optimize_voronoi_overlap(
         if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
             raise ValueError(f"dict_meta['center_of_mass'] for '{mol_name}' must be (K,3) with K>=1")
 
+        # ---- Step 1-3: compute per-site uniform scale s by matching volumes ----
+        V_sys = single_set_cell_volume_cart(A_sys, coms_sys_cart_all, p_ref, which='system', rng=rng)
+        # Rotation does not affect single-set volume; pick any angle (zeros)
+        zeros = np.zeros(3, float)
+        V_dict = single_set_cell_volume_cart(A_dict, coms_dict, p_ref, which='dict',
+                                             angles_deg=zeros, rng=rng, scale=1.0)
+        if V_dict > 0.0:
+            s = float((V_sys / V_dict) ** (1.0 / 3.0))
+        else:
+            s = 1.0
+        scales_by_site[site_id] = s
+
+        # ---- Step 4: optimize rotation with scaled dictionary seeds ----
         def objective(angles_deg: Sequence[float]) -> float:
             ang = wrap_angles_deg(np.asarray(angles_deg, float))
             iou = iou_via_union_cart(
@@ -100,13 +113,14 @@ def optimize_voronoi_overlap(
                 p_ref_cart=p_ref,
                 angles_deg=ang,
                 rng=rng,
+                scale=s,
             )
             return 1.0 - float(iou)
 
         best_x = wrap_angles_deg(np.asarray(active_x0[local_site], float))
         best_fx = float(objective(best_x))
 
-        # Coarse grid search
+        # Coarse grid (optional but robust)
         for a in ax:
             for b in ay:
                 for c in az:
@@ -128,10 +142,12 @@ def optimize_voronoi_overlap(
         if fx_star < best_fx:
             best_x, best_fx = x_star, fx_star
 
+        # ---- Step 5: apply rotation + uniform scaling to site atoms about COM ----
         from scipy.spatial.transform import Rotation as R
         rot = R.from_euler("xyz", best_x, degrees=True)
         sub = pos[idxs]
-        pos[idxs] = rot.apply(sub - p_ref) + p_ref
+        # Order doesn't matter for uniform scaling around the same center; use rotate-then-scale.
+        pos[idxs] = p_ref + s * (rot.apply(sub - p_ref))
         system.set_positions(pos)
 
         final_angles[site_id] = best_x
@@ -144,29 +160,25 @@ def optimize_voronoi_overlap(
                 f.write(f"fx = {best_fx}\n")
                 for lab, val in zip(["alpha", "beta", "gamma"], best_x):
                     f.write(f"{lab} = {val}\n")
+                f.write(f"scale = {s}\n")
 
     system.info["optimized_angles_deg"] = final_angles
+    system.info["optimized_scales"] = scales_by_site
     system.info["optimized_iou"] = np.array(
         [best_iou_by_site[sid] for sid in range(num_sites)], dtype=float
     )
 
-    print("\n[Optimization summary] Euler angles (deg) per site")
+    print("\n[Optimization summary] Euler angles (deg) + scale per site")
     header = (
         f"{'site':>4}  {'alpha':>9}  {'beta':>9}  {'gamma':>9}  "
-        f"{'d_alpha':>9}  {'d_beta':>9}  {'d_gamma':>9}  {'IoU*':>6}  {'rng':>4}"
+        f"{'IoU*':>6}  {'scale':>8}  {'rng':>4}"
     )
     print(header)
     print("-" * len(header))
     for sid in range(num_sites):
-        init = np.asarray(x0_euler_deg[sid], float)
-        final = np.asarray(final_angles[sid], float)
-        from .voronoi_geom import wrap_angles_deg as _wrap
-        delta = _wrap(final - init)
         iou_star = float(best_iou_by_site[sid])
-        print(
-            f"{sid:4d}  {final[0]:9.3f}  {final[1]:9.3f}  {final[2]:9.3f}  "
-            f"{delta[0]:9.3f}  {delta[1]:9.3f}  {delta[2]:9.3f}  "
-            f"{(iou_star if np.isfinite(iou_star) else float('nan')):6.3f}  {rng:4d}"
-        )
+        s = float(scales_by_site[sid])
+        a, b, c = final_angles[sid]
+        print(f"{sid:4d}  {a:9.3f}  {b:9.3f}  {c:9.3f}  {iou_star:6.3f}  {s:8.5f}  {rng:4d}")
 
     return system

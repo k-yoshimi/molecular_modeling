@@ -82,11 +82,10 @@ def render_voronoi_overlays(
     figsize: Tuple[float, float] = (6.0, 5.0),
     azim: float = -60.0,
     elev: float = 20.0,
-    rng: Optional[int] = None,  # <-- Optional, auto-pick if None
+    rng: Optional[int] = None,
     show_overlap: bool = True,
 ) -> None:
-    """Render overlays and print volumes per site."""
-    # Resolve rng if omitted
+    """Render overlays and print volumes per site (with per-site scaling)."""
     if rng is None:
         rng_info = system.info.get("rng", {})
         rng = int(rng_info.get("render", rng_info.get("global", 1)))
@@ -96,10 +95,7 @@ def render_voronoi_overlays(
     N = len(groups)
 
     if "site_mol_name" not in system.info or "dict_meta" not in system.info:
-        raise ValueError(
-            "system.info must contain 'site_mol_name' and 'dict_meta'. "
-            "Please store them in build_system_from_toml()."
-        )
+        raise ValueError("system.info must contain 'site_mol_name' and 'dict_meta'.")
     site_mol_name: List[str] = list(system.info["site_mol_name"])
     dict_meta = system.info["dict_meta"]
 
@@ -110,9 +106,16 @@ def render_voronoi_overlays(
             angles_deg = np.zeros((N, 3), dtype=float)
     else:
         angles_deg = np.asarray(angles_deg, float)
-
     if angles_deg.shape != (N, 3):
-        raise ValueError(f"angles_deg must have shape (N,3) with N=len(groups)={N}, got {angles_deg.shape}")
+        raise ValueError(f"angles_deg must have shape (N,3) with N={N}.")
+
+    # Per-site scales (default 1.0)
+    if "optimized_scales" in system.info:
+        scales = np.asarray(system.info["optimized_scales"], float)
+        if scales.shape != (N,):
+            scales = np.ones((N,), float)
+    else:
+        scales = np.ones((N,), float)
 
     if sites is None:
         sites = list(range(N))
@@ -124,7 +127,8 @@ def render_voronoi_overlays(
 
     sys_cells_all = compute_system_voronoi_cells(system, groups)
 
-    dict_cell_cache: dict[str, tuple[Polyhedron, np.ndarray]] = {}
+    # Prepare per-molecule dictionary base poly (scale-independent at this point)
+    dict_cell_cache: dict[str, tuple[Polyhedron, np.ndarray, np.ndarray]] = {}
     for name in set(site_mol_name):
         meta = dict_meta[name]
         B_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
@@ -132,8 +136,7 @@ def render_voronoi_overlays(
         if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
             raise ValueError(f"dict_meta['center_of_mass'] for '{name}' must be (K,3) with K>=1")
         dict_seed_cart = coms_dict[0]
-        dict_poly = compute_voronoi_cells_from_coms(B_dict, dict_seed_cart[None, :])[0]
-        dict_cell_cache[name] = (dict_poly, dict_seed_cart)
+        dict_cell_cache[name] = (B_dict, dict_seed_cart, coms_dict)
 
     A_sys = system.get_cell().array
     pos = system.get_positions()
@@ -142,15 +145,17 @@ def render_voronoi_overlays(
     for sid in sites:
         idxs = groups[sid]
         center = system.positions[idxs].mean(axis=0)
-
         sys_cell = sys_cells_all[sid]
+        s = float(scales[sid])
 
         mol_name = site_mol_name[sid]
-        meta = dict_meta[mol_name]
-        A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
-        coms_dict = np.asarray(meta["center_of_mass"], float)
-        dict_poly_master, dict_seed_cart = dict_cell_cache[mol_name]
+        B_dict, dict_seed_cart, coms_dict = dict_cell_cache[mol_name]
+        A_dict = B_dict  # alias
 
+        # Build a scaled dictionary single-cell poly at the origin COM,
+        # then rotate and place it to the site center.
+        # For the single seed, compute_voronoi_cells_from_coms uses lattice only; scale lattice by s.
+        dict_poly_master = compute_voronoi_cells_from_coms(s * B_dict, dict_seed_cart[None, :])[0]
         dict_rot_placed = rotate_and_place_polyhedron(
             dict_poly_master,
             angles_deg[sid],
@@ -166,6 +171,7 @@ def render_voronoi_overlays(
             p_ref_cart=center,
             angles_deg=angles_deg[sid],
             rng=rng,
+            scale=s,
         )
 
         V_sys = single_set_cell_volume_cart(
@@ -173,13 +179,13 @@ def render_voronoi_overlays(
         )
         V_dict = single_set_cell_volume_cart(
             A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=center, which='dict',
-            angles_deg=angles_deg[sid], rng=rng
+            angles_deg=angles_deg[sid], rng=rng, scale=s
         )
 
         overlap_poly: Optional[Polyhedron] = None
         if show_overlap:
             seeds_sys = _build_system_seeds_cart(A_sys, coms_sys_cart_all, rng=rng)
-            seeds_dict = _build_dict_seeds_cart(A_dict, coms_dict, angles_deg[sid], center, rng=rng)
+            seeds_dict = _build_dict_seeds_cart(A_dict, coms_dict, angles_deg[sid], center, rng=rng, scale=s)
             seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
             d2 = np.sum((seeds_all - center) ** 2, axis=1)
             others = seeds_all[d2 > 1e-18]
@@ -199,7 +205,7 @@ def render_voronoi_overlays(
         _plot_polyhedron(ax, sys_cell, facecolor="C0", edgecolor="k", alpha=0.25, lw=0.4,
                          label="system Voronoi")
         _plot_polyhedron(ax, dict_rot_placed, facecolor="C1", edgecolor="k", alpha=0.45, lw=0.4,
-                         label="dictionary (rotated)")
+                         label=f"dictionary (scaled s={s:.4f})")
         if overlap_poly is not None:
             _plot_polyhedron(ax, overlap_poly, facecolor="C2", edgecolor="k", alpha=0.50, lw=0.4,
                              label="overlap")
@@ -209,7 +215,7 @@ def render_voronoi_overlays(
         ax.set_ylabel("y (Å)")
         ax.set_zlabel("z (Å)")
         ax.set_title(
-            f"Site {sid} | Mol: {mol_name} | IoU(union)={iou_val:.3f} | rng={rng}"
+            f"Site {sid} | Mol: {mol_name} | IoU={iou_val:.3f} | rng={rng}"
         )
         ax.legend(loc="upper right", fontsize=9, frameon=True)
 
@@ -221,6 +227,6 @@ def render_voronoi_overlays(
         print(f"[render] saved: {out_path}")
         print(
             f"[vol] site {sid:03d} | V_sys = {V_sys:.6f} Å^3 | "
-            f"V_dict = {V_dict:.6f} Å^3 | IoU = {iou_val:.6f} | rng = {rng}"
+            f"V_dict(scaled) = {V_dict:.6f} Å^3 | IoU = {iou_val:.6f} | rng = {rng} | s = {s:.6f}"
         )
     print("")
