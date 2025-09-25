@@ -2,5 +2,5 @@
 
 実行コマンドは以下の通りです。
 ```
-$ python molecular_modeling.py
+$ python run.py
 ```
