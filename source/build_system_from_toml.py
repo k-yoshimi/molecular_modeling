@@ -2,7 +2,7 @@
 import re
 import numpy as np
 import tomllib
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from scipy.spatial.transform import Rotation as R
 from ase import Atoms
 from itertools import product
@@ -12,12 +12,19 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     """
     Build an ASE Atoms system from TOML inputs (supercell + substitutions).
 
-    Key points in this version:
-      - Dictionary TOMLs (e.g., benzene.toml) may include `voronoi_ref_id` (0-based).
-        * Atomic positions are first shifted so that they correspond to the
-          voronoi_ref_id-th molecule (same cell), then rotated and placed.
-        * dict_meta stores voronoi_ref_id for downstream Voronoi/IoU routines.
-      - Backward compatible: if `voronoi_ref_id` is absent, ref_id = 0.
+    Key points:
+      - INPUT side:
+          * input.toml may set `use_fractional=true`; then `center_of_mass` is fractional
+            and is converted to Cartesian using the input `cell` (rows a,b,c).
+          * Downstream code always uses Cartesian site COMs.
+      - DICTIONARY side (benzene.toml, naphthalene.toml, ...):
+          * `voronoi_ref_id` (0-based) selects which molecule's COM is the reference.
+          * `positions` are already written for the selected `voronoi_ref_id` (no internal shift).
+          * If a dictionary uses `use_fractional=true`, its `positions` and `center_of_mass`
+            are converted to Cartesian using that dictionary's `lattice_vectors`.
+          * dict_meta stores dictionary COMs in Cartesian (ALWAYS).
+      - Placement:
+          * For each site: recenter `positions` by its own COM, rotate, then translate to site COM.
     """
     # ----------- Read inputs -----------
     with open("./input/input.toml", "rb") as f:
@@ -40,16 +47,24 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     }
 
     # ----------- Input fields -----------
-    molecules:       List[str] = input_data.get("molecules", [])
-    center_of_mass:  List[List[float]] = input_data.get("center_of_mass", [])
-    rotations:       List[List[float]] = input_data.get("rotation", [])
-    repeats:         List[int] = input_data.get("supercell_repeat", [1, 1, 1])
-    raw_cell         = np.array(input_data.get("cell", []), float)
-    use_fractional   = input_data.get("use_fractional", False)  # kept for compatibility
+    molecules: List[str] = input_data.get("molecules", [])
+    rotations: List[List[float]] = input_data.get("rotation", [])
+    repeats:   List[int] = input_data.get("supercell_repeat", [1, 1, 1])
+
+    raw_cell = np.array(input_data.get("cell", []), float)  # rows a,b,c (Å)
+    input_use_fractional = bool(input_data.get("use_fractional", False))
+
+    # site COMs: maybe fractional (if input_use_fractional)
+    center_of_mass_in = np.asarray(input_data.get("center_of_mass", []), float)
+    if input_use_fractional:
+        # fractional -> Cartesian using input cell
+        center_of_mass_cart = center_of_mass_in @ raw_cell
+    else:
+        center_of_mass_cart = center_of_mass_in
 
     # ----------- Helpers -----------
     def expand_symbols(tokens: List[str]) -> List[str]:
-        """Expand tokens like ['C6H6', 'Si6O6'] into a flat list of symbols."""
+        """Expand tokens like ['C6H6', 'Si6O6'] into a flat list of elemental symbols."""
         pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
         result: List[str] = []
         for token in tokens:
@@ -58,29 +73,39 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
                 result.extend([element] * count)
         return result
 
-    def compute_positions(cfg: dict, com: List[float], angles: List[float]) -> np.ndarray:
+    def compute_positions(cfg: dict, site_com_cart: np.ndarray, angles_xyz_deg: List[float]) -> np.ndarray:
         """
-        Positions are already for the molecule selected by 'voronoi_ref_id'.
-        We must rotate about that molecule's COM, then place at the site COM 'com'.
+        Compute rotated+translated Cartesian positions for a site.
+
+        Assumptions:
+          - cfg["positions"] are for the molecule selected by `voronoi_ref_id` (0-based).
+          - The COM of cfg["positions"] matches center_of_mass[voronoi_ref_id] in the same coordinate system.
+          - If cfg["use_fractional"] is True, positions are fractional and will be converted
+            to Cartesian using cfg["lattice_vectors"].
+
+        Steps:
+          1) pos <- cfg["positions"]; if fractional: pos = pos @ lattice  (Cartesian)
+          2) pos_centered <- pos - mean(pos)        (rotate about molecule's own COM)
+          3) pos_rot <- R_xyz(angles_deg) * pos_centered
+          4) return pos_rot + site_com_cart
         """
         pos = np.array(cfg["positions"], float)
         lattice = np.array(cfg["lattice_vectors"], float)
-    
-        # 1) fractional -> Cartesian if needed
-        if cfg.get("use_fractional", True):
+
+        # 1) fractional -> Cartesian if needed (no wrapping)
+        if bool(cfg.get("use_fractional", False)):
             pos = pos @ lattice
-    
-        # 2) recenter to rotate about the molecule's own COM
-        #    (User promises: COM(positions) == center_of_mass[voronoi_ref_id])
-        pos_com = pos.mean(axis=0)  # robust even if tiny rounding exists
+
+        # 2) recenter to molecule's COM (robust even with slight numeric noise)
+        pos_com = pos.mean(axis=0)
         pos_centered = pos - pos_com
-    
-        # 3) rotate about origin (which is now the molecule COM)
-        rot = R.from_euler('xyz', angles, degrees=True)
+
+        # 3) rotate about origin (now molecule COM)
+        rot = R.from_euler('xyz', angles_xyz_deg, degrees=True)
         pos_rot = rot.apply(pos_centered)
-    
-        # 4) place at the target site COM
-        return pos_rot + np.array(com, float)
+
+        # 4) place to site COM (Cartesian)
+        return pos_rot + np.asarray(site_com_cart, float)
 
     # ----------- Substitution tables -----------
     mol_subs = {
@@ -111,7 +136,9 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
     # ----------- Build supercell by tiling + per-site placement -----------
     for (i, j, k) in product(range(nx), range(ny), range(nz)):
+        # lattice shift for this cell instance
         shift = i * raw_cell[0] + j * raw_cell[1] + k * raw_cell[2]
+
         for mol_idx, mol_name in enumerate(molecules):
             site_id = site_counter
             site_counter += 1
@@ -121,21 +148,18 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
             cfg = config_map[use_name]
             site_mol_name.append(use_name)
 
-            # Euler angles & COM for this site
+            # Euler angles & site COM (ALWAYS Cartesian)
             angles = rotations[mol_idx]
-            com = center_of_mass[mol_idx]
+            site_com = center_of_mass_cart[mol_idx]
 
-            # Build positions in Cartesian, already matched to cfg['voronoi_ref_id']
-            pos_arr = compute_positions(cfg, com, angles)
+            # Build positions in Cartesian (already for voronoi_ref_id)
+            pos_arr = compute_positions(cfg, site_com, angles)
 
-            # Symbols (expand formula tokens if present)
-            syms = cfg["symbols"]
-            syms = expand_symbols(syms)
-
-            # Global replacements
+            # Expand and apply symbol substitutions
+            syms = expand_symbols(cfg["symbols"])
             syms = [global_atom_subs.get(sym, sym) for sym in syms]
 
-            # Per-molecule override (expanded tokens)
+            # Per-molecule atom override (expanded tokens)
             override_tokens = molecule_atom_subs.get(key_mol)
             if override_tokens is not None:
                 expanded = expand_symbols(override_tokens)
@@ -145,7 +169,7 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
                 )
                 syms = expanded
 
-            # Append atoms of this site
+            # Append atoms of this site (with per-atom substitutions)
             base_idx = len(super_symbols)
             groups.append([])
             for atom_local_idx, (sym, pos) in enumerate(zip(syms, pos_arr)):
@@ -171,20 +195,23 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     system.info["site_angles_deg"] = np.array(site_angles, float)
     system.info["site_mol_name"] = site_mol_name
 
-    # Pack dictionary meta for downstream Voronoi/IoU:
-    #   - lattice_vectors (3x3)
-    #   - center_of_mass  (K,3)
-    #   - voronoi_ref_id  (int)
+    # ----------- Pack dictionary meta (ALWAYS Cartesian COMs) -----------
     dict_meta: Dict[str, dict] = {}
     for name, cfg in config_map.items():
+        lattice = np.array(cfg["lattice_vectors"], dtype=float)          # rows a,b,c (Å)
+        coms    = np.array(cfg["center_of_mass"],  dtype=float)          # (K,3), fractional or Cartesian
+        if bool(cfg.get("use_fractional", False)):
+            coms_cart = coms @ lattice                                   # fractional -> Cartesian
+        else:
+            coms_cart = coms
         dict_meta[name] = {
-            "lattice_vectors": np.array(cfg["lattice_vectors"], dtype=float),
-            "center_of_mass":  np.array(cfg["center_of_mass"],  dtype=float),
+            "lattice_vectors": lattice,                                  # Cartesian basis (Å)
+            "center_of_mass":  coms_cart,                                # ALWAYS Cartesian from here on
             "voronoi_ref_id":  int(cfg.get("voronoi_ref_id", 0)),
         }
     system.info["dict_meta"] = dict_meta
 
-    # rng info (downstream optimizers/renderers will read this)
+    # rng info (downstream readers will use this)
     system.info["rng"] = {
         "global":   int(rng_global),
         "optimize": int(rng_optimize),
