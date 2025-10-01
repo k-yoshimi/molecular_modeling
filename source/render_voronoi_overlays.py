@@ -128,15 +128,14 @@ def render_voronoi_overlays(
     sys_cells_all = compute_system_voronoi_cells(system, groups)
 
     # Prepare per-molecule dictionary base poly (scale-independent at this point)
-    dict_cell_cache: dict[str, tuple[Polyhedron, np.ndarray, np.ndarray]] = {}
+    dict_cell_cache: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, int]] = {}
     for name in set(site_mol_name):
         meta = dict_meta[name]
         B_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
         coms_dict = np.asarray(meta["center_of_mass"], float)
-        if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
-            raise ValueError(f"dict_meta['center_of_mass'] for '{name}' must be (K,3) with K>=1")
-        dict_seed_cart = coms_dict[0]
-        dict_cell_cache[name] = (B_dict, dict_seed_cart, coms_dict)
+        ref_idx   = int(meta.get("voronoi_ref_id", 0)) 
+        dict_seed_cart = coms_dict[ref_idx] 
+        dict_cell_cache[name] = (B_dict, dict_seed_cart, coms_dict, ref_idx)
 
     A_sys = system.get_cell().array
     pos = system.get_positions()
@@ -149,7 +148,7 @@ def render_voronoi_overlays(
         s = float(scales[sid])
 
         mol_name = site_mol_name[sid]
-        B_dict, dict_seed_cart, coms_dict = dict_cell_cache[mol_name]
+        B_dict, dict_seed_cart, coms_dict, ref_idx = dict_cell_cache[mol_name]
         A_dict = B_dict  # alias
 
         # Build a scaled dictionary single-cell poly at the origin COM,
@@ -172,6 +171,7 @@ def render_voronoi_overlays(
             angles_deg=angles_deg[sid],
             rng=rng,
             scale=s,
+            ref_idx=ref_idx, 
         )
 
         V_sys = single_set_cell_volume_cart(
@@ -179,13 +179,13 @@ def render_voronoi_overlays(
         )
         V_dict = single_set_cell_volume_cart(
             A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=center, which='dict',
-            angles_deg=angles_deg[sid], rng=rng, scale=s
+            angles_deg=angles_deg[sid], rng=rng, scale=s, ref_idx=ref_idx 
         )
 
-        overlap_poly: Optional[Polyhedron] = None
         if show_overlap:
             seeds_sys = _build_system_seeds_cart(A_sys, coms_sys_cart_all, rng=rng)
-            seeds_dict = _build_dict_seeds_cart(A_dict, coms_dict, angles_deg[sid], center, rng=rng, scale=s)
+            seeds_dict = _build_dict_seeds_cart(A_dict, coms_dict, angles_deg[sid], center,
+                                                rng=rng, scale=s, ref_idx=ref_idx)
             seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
             d2 = np.sum((seeds_all - center) ** 2, axis=1)
             others = seeds_all[d2 > 1e-18]

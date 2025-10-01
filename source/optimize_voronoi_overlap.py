@@ -87,19 +87,14 @@ def optimize_voronoi_overlap(
         meta = dict_meta[mol_name]
         A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
         coms_dict = np.asarray(meta["center_of_mass"], float)
-        if coms_dict.ndim != 2 or coms_dict.shape[1] != 3 or coms_dict.shape[0] < 1:
-            raise ValueError(f"dict_meta['center_of_mass'] for '{mol_name}' must be (K,3) with K>=1")
+        ref_idx   = int(meta.get("voronoi_ref_id", 0)) 
 
-        # ---- Step 1-3: compute per-site uniform scale s by matching volumes ----
+        # ---- Step 1-3: scale s by matching volumes ----
         V_sys = single_set_cell_volume_cart(A_sys, coms_sys_cart_all, p_ref, which='system', rng=rng)
-        # Rotation does not affect single-set volume; pick any angle (zeros)
         zeros = np.zeros(3, float)
         V_dict = single_set_cell_volume_cart(A_dict, coms_dict, p_ref, which='dict',
-                                             angles_deg=zeros, rng=rng, scale=1.0)
-        if V_dict > 0.0:
-            s = float((V_sys / V_dict) ** (1.0 / 3.0))
-        else:
-            s = 1.0
+                                             angles_deg=zeros, rng=rng, scale=1.0, ref_idx=ref_idx)
+        s = float((V_sys / V_dict) ** (1.0 / 3.0)) if V_dict > 0.0 else 1.0
         scales_by_site[site_id] = s
 
         # ---- Step 4: optimize rotation with scaled dictionary seeds ----
@@ -114,6 +109,7 @@ def optimize_voronoi_overlap(
                 angles_deg=ang,
                 rng=rng,
                 scale=s,
+                ref_idx=ref_idx,
             )
             return 1.0 - float(iou)
 
