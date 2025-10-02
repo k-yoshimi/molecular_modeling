@@ -221,7 +221,7 @@ def render_voronoi_overlays(
 
         out_path = Path(out_dir) / f"overlay_site_{sid:03d}.png"
         plt.tight_layout()
-        plt.savefig(out_path, bbox_inches="tight", pad_inches=0.05)
+        plt.savefig(out_path, bbox_inches="tight", pad_inches=0.3)
         plt.close(fig)
 
         print(f"[render] saved: {out_path}")
