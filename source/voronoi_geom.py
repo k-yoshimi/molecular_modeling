@@ -254,7 +254,7 @@ def _build_dict_seeds_cart(
     p_ref_cart: np.ndarray,
     rng: int = 1,
     scale: float = 1.0,
-    ref_idx: int = 0,   # 追加
+    ref_idx: int = 0,
 ) -> np.ndarray:
     """
     Dictionary seeds (Cartesian) with uniform scaling:
@@ -265,7 +265,7 @@ def _build_dict_seeds_cart(
       5) replicate by translations of the rotated+scaled lattice.
     """
     coms_dict_cart = np.asarray(coms_dict_cart, float)
-    p0 = coms_dict_cart[ref_idx].copy()      # ★ここを 0 固定から可変に
+    p0 = coms_dict_cart[ref_idx].copy()
     base = coms_dict_cart - p0               # (K,3)
 
     Rmat = R.from_euler('xyz', np.asarray(angles_deg, float), degrees=True).as_matrix()
@@ -291,7 +291,7 @@ def overlap_volume_union_cart(
     p_ref_cart: np.ndarray,
     rng: int = 1,
     scale: float = 1.0,
-    ref_idx: int = 0,   # 追加
+    ref_idx: int = 0,
 ) -> float:
     seeds_sys  = _build_system_seeds_cart(A_sys,  np.asarray(coms_sys_cart, float),  rng=rng)
     seeds_dict = _build_dict_seeds_cart(A_dict, np.asarray(coms_dict_cart, float),
@@ -315,7 +315,7 @@ def single_set_cell_volume_cart(
     angles_deg: Optional[Sequence[float]] = None,
     rng: int = 1,
     scale: float = 1.0,
-    ref_idx: int = 0,   # 追加（'dict'のときに使用）
+    ref_idx: int = 0,
 ) -> float:
     if which == 'system':
         seeds = _build_system_seeds_cart(A_cell, np.asarray(coms_cart, float), rng=rng)
@@ -346,7 +346,7 @@ def iou_via_union_cart(
     angles_deg: Sequence[float],
     rng: int = 1,
     scale: float = 1.0,
-    ref_idx: int = 0,   # 追加
+    ref_idx: int = 0,
 ) -> float:
     overlap = overlap_volume_union_cart(
         A_sys, coms_sys_cart, A_dict, coms_dict_cart,

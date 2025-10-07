@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple, Optional
+from typing import List, Sequence, Tuple, Optional
 
 import numpy as np
 from ase import Atoms
