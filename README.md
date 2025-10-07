@@ -1,6 +1,3 @@
 # molecular_modeling
 
-実行コマンドは以下の通りです。
-```
-$ python run.py
-```
+molecular_modelingディレクトリに分子モデリングツール一式が入っています。
