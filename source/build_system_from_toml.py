@@ -231,6 +231,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
               f"cell_volume={vol:.3f} Å^3")
         print(f"  cell(Å): a={a.tolist()}, b={b.tolist()}, c={c.tolist()}")
         print(f"  molecules: {mol_line}")
-        print(f"  rng setting: {system.info['rng']['global']}")
+        print(f"  rng setting: rng={system.info['rng']['global']}")
 
     return system
