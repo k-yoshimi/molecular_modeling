@@ -35,16 +35,11 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     rng_optimize = int(input_data.get("optimize_rng",  rng_global))
     rng_render   = int(input_data.get("render_rng",    rng_global))
 
-    # Load dictionary molecule configs (extend here as needed)
-    with open("./data/benzene.toml", "rb") as f:
-        config_benzene = tomllib.load(f)
-    with open("./data/naphthalene.toml", "rb") as f:
-        config_naphthalene = tomllib.load(f)
-
-    config_map: Dict[str, dict] = {
-        config_benzene["molecule_name"]: config_benzene,
-        config_naphthalene["molecule_name"]: config_naphthalene,
-    }
+    # Load dictionary molecule configs
+    config_map: Dict[str, dict] = {}
+    for molecule in input_data.get("molecules"):
+        with open(f"./data/{molecule}.toml", "rb") as f:
+            config_map[molecule] = tomllib.load(f)
 
     # ----------- Input fields -----------
     molecules: List[str] = input_data.get("molecules", [])
