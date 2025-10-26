@@ -43,7 +43,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
     # ----------- Input fields -----------
     molecules: List[str] = input_data.get("molecules", [])
-    rotations: List[List[float]] = input_data.get("rotation", [])
     repeats:   List[int] = input_data.get("supercell_repeat", [1, 1, 1])
 
     raw_cell = np.array(input_data.get("cell", []), float)  # rows a,b,c (Å)
@@ -123,7 +122,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     super_positions: List[List[float]] = []
     mol_ids: List[int] = []
     groups: List[List[int]] = []
-    site_angles: List[Tuple[float, float, float]] = []
     site_mol_name: List[str] = []
 
     nx, ny, nz = map(int, repeats)
@@ -144,7 +142,8 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
             site_mol_name.append(use_name)
 
             # Euler angles & site COM (ALWAYS Cartesian)
-            angles = rotations[mol_idx]
+            # No input rotation: place unrotated; optimizer will rotate later.
+            angles = (0.0, 0.0, 0.0)
             site_com = center_of_mass_cart[mol_idx]
 
             # Build positions in Cartesian (already for voronoi_ref_id)
@@ -175,8 +174,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
                 mol_ids.append(site_id)
                 groups[site_id].append(atom_global_idx)
 
-            site_angles.append(tuple(angles))
-
     # ----------- Build ASE Atoms -----------
     scaled_cell = (raw_cell.T * repeats).T
     system = Atoms(
@@ -187,7 +184,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     )
     system.new_array("mol_id", np.array(mol_ids, dtype=int))
     system.info["groups"] = groups
-    system.info["site_angles_deg"] = np.array(site_angles, float)
     system.info["site_mol_name"] = site_mol_name
 
     # ----------- Pack dictionary meta (ALWAYS Cartesian COMs) -----------

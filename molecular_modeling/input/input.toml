@@ -20,16 +20,10 @@ center_of_mass = [
   [ -1.750627,   2.719800,   4.669836 ], 
 ]
 
-rotation = [
-  [  0.000000,   0.000000,   0.000000 ],
-  [  0.000000,   0.000000,  30.000000 ],
-]
-
 [[molecule_substitutions]]
 cell_index       = [0, 0, 1]
 molecule_index   = 1
 new_molecule     = "benzene"
-rotation_override = [0.0, 0.0, 45.0]
 
 [[global_atom_substitutions]]
 old_symbol = "H"
