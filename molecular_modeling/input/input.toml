@@ -1,39 +1,52 @@
+# Input file for building the supercell and running Voronoi optimization.
+# Coordinates are Cartesian Å unless `use_fractional = true` is set.
+
+# Global RNG settings (used for Voronoi replication/sampling)
 rng = 1  # Voronoi replication setting
 
+# Lattice vectors (rows a, b, c in Cartesian Å)
 cell = [
   [ 5.522000,  0.000000,  0.000000 ],  # a-vector
   [ 0.000000,  5.439600,  0.000000 ],  # b-vector
   [-3.501254,  0.000000,  9.339672 ],  # c-vector
 ]
 
+# Supercell repetition counts along a, b, c
 supercell_repeat = [1, 1, 2]
 
+# Molecule dictionary names (see data/<name>.toml)
 molecules = [
   "benzene",
   "naphthalene",
 ]
 
+# If true, center_of_mass is interpreted as fractional coordinates
 use_fractional = false
 
+# Center-of-mass positions for each molecule in `molecules` (same order)
 center_of_mass = [
-  [  0.000000,   0.000000,   0.000000 ], 
-  [ -1.750627,   2.719800,   4.669836 ], 
+  [  0.000000,   0.000000,   0.000000 ],
+  [ -1.750627,   2.719800,   4.669836 ],
 ]
 
+# Optional: substitute molecules at specific cell + molecule indices
 [[molecule_substitutions]]
 cell_index       = [0, 0, 1]
 molecule_index   = 1
 new_molecule     = "benzene"
 
+# Optional: swap all occurrences of an element
 [[global_atom_substitutions]]
 old_symbol = "H"
 new_symbol = "He"
 
+# Optional: replace the atom list for a specific molecule instance (expanded counts)
 [[molecule_atom_substitutions]]
 cell_index     = [0, 0, 1]
 molecule_index = 1
-new_symbols    = ["Si6O6", ] 
+new_symbols    = ["Si6O6", ]
 
+# Optional: swap a single atom at (cell, molecule, atom) indices
 [[atom_substitutions]]
 cell_index     = [0, 0, 0]
 molecule_index = 1

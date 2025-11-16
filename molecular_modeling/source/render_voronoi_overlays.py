@@ -27,6 +27,19 @@ from .voronoi_geom import (
 )
 
 def _poly_faces_to_verts(poly: Polyhedron) -> List[np.ndarray]:
+    """
+    Convert face index lists to vertex arrays for plotting.
+
+    Parameters
+    ----------
+    poly : Polyhedron
+        Polyhedron with `verts` and `faces`.
+
+    Returns
+    -------
+    list[numpy.ndarray]
+        Vertices per face suitable for `Poly3DCollection`.
+    """
     faces = []
     for face in np.asarray(poly.faces):
         faces.append(poly.verts[np.asarray(face, int)])
@@ -42,6 +55,26 @@ def _plot_polyhedron(
     lw=0.5,
     label: Optional[str] = None,
 ) -> None:
+    """
+    Add a Polyhedron patch to a Matplotlib 3D axis.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes._axes.Axes
+        Target 3D axes.
+    poly : Polyhedron
+        Polyhedron to render.
+    facecolor : str, optional
+        Face color.
+    edgecolor : str, optional
+        Edge color.
+    alpha : float, optional
+        Transparency in [0,1].
+    lw : float, optional
+        Edge linewidth.
+    label : str, optional
+        Legend label.
+    """
     poly_verts = _poly_faces_to_verts(poly)
     coll = Poly3DCollection(
         poly_verts,
@@ -54,6 +87,16 @@ def _plot_polyhedron(
     ax.add_collection3d(coll)
 
 def _set_axes_equal_from_points(ax, pts: np.ndarray) -> None:
+    """
+    Set axis limits to equal aspect based on a point cloud.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes._axes.Axes
+        Target 3D axes.
+    pts : ndarray
+        Point cloud (N,3).
+    """
     mins = pts.min(axis=0)
     maxs = pts.max(axis=0)
     centers = (mins + maxs) * 0.5
@@ -68,6 +111,19 @@ def _set_axes_equal_from_points(ax, pts: np.ndarray) -> None:
         pass
 
 def _convex_hull_to_polyhedron(points: np.ndarray) -> Polyhedron:
+    """
+    Convert a point cloud to a convex polyhedron via `ConvexHull`.
+
+    Parameters
+    ----------
+    points : ndarray
+        Input points (N,3).
+
+    Returns
+    -------
+    Polyhedron
+        Convex hull polyhedron.
+    """
     hull = ConvexHull(points)
     return Polyhedron(verts=hull.points.copy(), faces=hull.simplices.copy())
 
@@ -85,7 +141,35 @@ def render_voronoi_overlays(
     rng: Optional[int] = None,
     show_overlap: bool = True,
 ) -> None:
-    """Render overlays and print volumes per site (with per-site scaling)."""
+    """
+    Render Voronoi overlays for selected sites and report volumes.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        System with `system.info` containing `site_mol_name`, `dict_meta`, and
+        optional `optimized_angles_deg` / `optimized_scales`.
+    groups : list[list[int]], optional
+        Atom index groups per site. If None, computed with `build_molecule_groups`.
+    angles_deg : ndarray, optional
+        Euler angles (N,3) in degrees; defaults to optimized values or zeros.
+    sites : sequence[int], optional
+        Site indices to render; defaults to all.
+    out_dir : str or Path, optional
+        Output directory for PNGs.
+    dpi : int, optional
+        Figure DPI.
+    figsize : tuple[float, float], optional
+        Matplotlib figure size in inches.
+    azim : float, optional
+        Azimuth angle for 3D view.
+    elev : float, optional
+        Elevation angle for 3D view.
+    rng : int, optional
+        Random seed for Voronoi sampling; falls back to `system.info["rng"]`.
+    show_overlap : bool, optional
+        If True, plot overlap polyhedron in orange.
+    """
     if rng is None:
         rng_info = system.info.get("rng", {})
         rng = int(rng_info.get("render", rng_info.get("global", 1)))

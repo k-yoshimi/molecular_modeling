@@ -25,13 +25,42 @@ def optimize_voronoi_overlap(
     log_dir: Optional[str | Path] = None,
 ) -> Atoms:
     """
-    Per site:
-      1) Compute system Voronoi cell volume V_sys at site COM.
-      2) Compute dictionary Voronoi cell volume V_dict (rotation-invariant).
-      3) Set uniform scale s = (V_sys / V_dict)^(1/3) (if V_dict>0 else s=1).
-      4) Optimize Euler angles to maximize IoU using rotated+scaled dictionary seeds.
-      5) Apply rotation and *uniform scaling* (about site COM) to the site atoms.
-         (We scale atom coordinates only when we are performing this rotation optimization.)
+    Optimize per-site Euler angles to maximize Voronoi IoU with uniform scaling.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        Input supercell with `mol_id` array and dictionary metadata in `system.info`.
+    groups : list[list[int]], optional
+        Atom index groups per site. If None, computed via `build_molecule_groups`.
+    x0_euler_deg : ndarray, optional
+        Initial Euler angles (N,3) in degrees. Defaults to zeros or `system.info["site_angles_deg"]`.
+    select_sites : sequence[int], optional
+        Subset of site indices to optimize. Others remain unchanged.
+    grid_num : tuple[int, int, int], optional
+        Grid counts for coarse search over (alpha, beta, gamma).
+    angle_bounds : tuple[float, float], optional
+        Inclusive bounds for grid search angles in degrees.
+    rng : int, optional
+        Random seed for Voronoi sampling; falls back to `system.info["rng"]`.
+    log_dir : str or Path, optional
+        If provided, writes per-site optimization logs to the directory.
+
+    Returns
+    -------
+    ase.Atoms
+        The same `Atoms` with positions rotated/scaled in place and
+        optimization results stored in `system.info` (`optimized_angles_deg`,
+        `optimized_scales`, `optimized_iou`).
+
+    Notes
+    -----
+    Per-site procedure:
+      1. Compute system Voronoi cell volume ``V_sys`` at the site COM.
+      2. Compute dictionary Voronoi cell volume ``V_dict`` (rotation-invariant).
+      3. Set uniform scale ``s = (V_sys / V_dict)^(1/3)`` (or 1 if ``V_dict <= 0``).
+      4. Grid search then Nelder–Mead to maximize IoU using rotated+scaled dictionary seeds.
+      5. Apply rotation and uniform scaling about the site COM to atom coordinates.
     """
     # Resolve rng
     if rng is None:
@@ -99,6 +128,19 @@ def optimize_voronoi_overlap(
 
         # ---- Step 4: optimize rotation with scaled dictionary seeds ----
         def objective(angles_deg: Sequence[float]) -> float:
+            """
+            Objective to minimize: ``1 - IoU`` between system and dictionary Voronoi cells.
+
+            Parameters
+            ----------
+            angles_deg : sequence[float]
+                Euler angles (XYZ, degrees).
+
+            Returns
+            -------
+            float
+                One minus the intersection-over-union.
+            """
             ang = wrap_angles_deg(np.asarray(angles_deg, float))
             iou = iou_via_union_cart(
                 A_sys=A_sys,

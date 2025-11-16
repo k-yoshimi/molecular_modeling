@@ -3,7 +3,25 @@ import numpy as np
 from ase.atoms import Atoms
 
 def build_molecule_groups(system: Atoms) -> List[List[int]]:
-    """Group atoms by system.arrays['mol_id'] (placement order preserved)."""
+    """
+    Build atom index groups keyed by the `mol_id` array.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        System holding `system.arrays['mol_id']`, where each value marks the
+        placement/site identifier for an atom.
+
+    Returns
+    -------
+    list[list[int]]
+        List of atom index lists, ordered by `mol_id` (0..K-1).
+
+    Raises
+    ------
+    ValueError
+        If `mol_id` is missing from `system.arrays`.
+    """
     if "mol_id" not in system.arrays:
         raise ValueError("system has no 'mol_id' array. Please set it in build_system_from_toml.")
     mol_id = system.get_array("mol_id")

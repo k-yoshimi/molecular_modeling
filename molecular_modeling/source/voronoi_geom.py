@@ -1,5 +1,3 @@
-# voronoi_geom.py
-# Geometry helpers (Cartesian-first, union-seed Voronoi).
 from __future__ import annotations
 from typing import List, Sequence, Optional
 import numpy as np
@@ -14,14 +12,42 @@ from scipy.spatial.transform import Rotation as R
 # =========================
 
 class Polyhedron:
-    """Minimal placeholder for a polyhedron shape."""
+    """
+    Minimal container for a convex polyhedron.
+
+    Parameters
+    ----------
+    verts : ndarray
+        Vertices array with shape (V, 3).
+    faces : ndarray
+        Faces as indices into `verts` (F,3) or (F,k>=3).
+
+    Attributes
+    ----------
+    verts : ndarray
+        Vertex coordinates (float64).
+    faces : ndarray
+        Face indices (int).
+    """
     def __init__(self, verts: np.ndarray, faces: np.ndarray):
         self.verts = np.asarray(verts, float)  # (V, 3)
         self.faces = np.asarray(faces, int)    # (F, 3 or 4, ...)
 
 
 def _build_unit_cell_box_mesh(cell: np.ndarray) -> trimesh.Trimesh:
-    """Create a convex mesh of the *unit* cell parallelepiped defined by `cell` (3x3, rows=a,b,c)."""
+    """
+    Create a convex mesh of the unit cell parallelepiped.
+
+    Parameters
+    ----------
+    cell : ndarray
+        Lattice vectors (3,3) with rows a, b, c (Cartesian Å).
+
+    Returns
+    -------
+    trimesh.Trimesh
+        Convex hull mesh of the unit cell.
+    """
     corners_frac = np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)], dtype=float)
     corners_cart = corners_frac @ cell  # (8,3)
     hull = trimesh.convex.convex_hull(corners_cart)
@@ -29,14 +55,38 @@ def _build_unit_cell_box_mesh(cell: np.ndarray) -> trimesh.Trimesh:
 
 
 def _trimesh_to_polyhedron(mesh: trimesh.Trimesh) -> "Polyhedron":
-    """Convert a trimesh.Trimesh (triangulated) to Polyhedron."""
+    """
+    Convert a triangulated `trimesh.Trimesh` to `Polyhedron`.
+
+    Parameters
+    ----------
+    mesh : trimesh.Trimesh
+        Input triangular mesh.
+
+    Returns
+    -------
+    Polyhedron
+        Polyhedron with the same vertices and faces.
+    """
     verts = mesh.vertices.view(np.ndarray)
     faces = mesh.faces.view(np.ndarray)   # triangles (F,3)
     return Polyhedron(verts=verts, faces=faces)
 
 
 def _triangulate_faces(faces: np.ndarray) -> np.ndarray:
-    """Ensure faces are triangles; fan-triangulate n-gons."""
+    """
+    Ensure all faces are triangles by fan triangulation.
+
+    Parameters
+    ----------
+    faces : ndarray
+        Face indices (F,k).
+
+    Returns
+    -------
+    ndarray
+        Triangulated faces (F', 3).
+    """
     faces = np.asarray(faces, int)
     if faces.ndim != 2 or faces.shape[0] == 0:
         return np.zeros((0, 3), dtype=int)
@@ -51,7 +101,19 @@ def _triangulate_faces(faces: np.ndarray) -> np.ndarray:
 
 
 def polyhedron_to_trimesh(poly: Polyhedron) -> "trimesh.Trimesh":
-    """Convert Polyhedron to a processed trimesh.Trimesh."""
+    """
+    Convert `Polyhedron` to a processed `trimesh.Trimesh`.
+
+    Parameters
+    ----------
+    poly : Polyhedron
+        Input polyhedron.
+
+    Returns
+    -------
+    trimesh.Trimesh
+        Processed mesh with triangulated faces.
+    """
     verts = np.asarray(poly.verts, float)
     faces = _triangulate_faces(np.asarray(poly.faces, int))
     return trimesh.Trimesh(vertices=verts, faces=faces, process=True)
@@ -63,9 +125,19 @@ def polyhedron_to_trimesh(poly: Polyhedron) -> "trimesh.Trimesh":
 
 def compute_voronoi_cells_from_coms(cell: np.ndarray, coms_cart: np.ndarray) -> List["Polyhedron"]:
     """
-    Build Voronoi cells for COM (Center of Mass) points under periodicity by tiling {-1,0,1}^3 and
-    clipping to the unit cell defined by `cell` (3x3, rows=a,b,c).
-    Returns a list of Polyhedron in the same order as `coms_cart`.
+    Compute periodic Voronoi cells for COM points and clip to the unit cell.
+
+    Parameters
+    ----------
+    cell : ndarray
+        Lattice vectors (3,3) with rows a, b, c (Cartesian Å).
+    coms_cart : ndarray
+        COM coordinates (N,3) in Cartesian.
+
+    Returns
+    -------
+    list[Polyhedron]
+        Voronoi cells corresponding to each COM (same order).
     """
     if coms_cart.size == 0:
         return []
@@ -132,13 +204,46 @@ def rotate_and_place_polyhedron(
     src_center: np.ndarray,
     dst_center: np.ndarray,
 ) -> Polyhedron:
-    """Rotate poly about `src_center` (dictionary COM), then translate to `dst_center` (site COM)."""
+    """
+    Rotate a polyhedron about one center and translate to another.
+
+    Parameters
+    ----------
+    poly : Polyhedron
+        Polyhedron to transform.
+    euler_deg : sequence[float]
+        Euler angles (XYZ, degrees).
+    src_center : ndarray
+        Rotation center (3,).
+    dst_center : ndarray
+        Target center after translation (3,).
+
+    Returns
+    -------
+    Polyhedron
+        Rotated and translated polyhedron.
+    """
     rot = R.from_euler('xyz', np.asarray(euler_deg, float), degrees=True)
     rotated = rot.apply(poly.verts - src_center) + dst_center
     return Polyhedron(rotated, poly.faces.copy())
 
 
 def compute_system_voronoi_cells(system: Atoms, groups: List[List[int]]) -> List["Polyhedron"]:
+    """
+    Compute Voronoi cells for system sites using atom groups.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        System with positions and lattice.
+    groups : list[list[int]]
+        Atom indices per site.
+
+    Returns
+    -------
+    list[Polyhedron]
+        Voronoi cells per site (same order as `groups`).
+    """
     if len(groups) == 0:
         return []
     cell = system.get_cell().array
@@ -147,14 +252,42 @@ def compute_system_voronoi_cells(system: Atoms, groups: List[List[int]]) -> List
 
 
 def rotate_polyhedron(poly: Polyhedron, euler_deg: Sequence[float], center: np.ndarray) -> Polyhedron:
-    """Rotate polyhedron (XYZ Euler degrees) about a given center."""
+    """
+    Rotate a polyhedron about a specified center.
+
+    Parameters
+    ----------
+    poly : Polyhedron
+        Polyhedron to rotate.
+    euler_deg : sequence[float]
+        Euler angles (XYZ, degrees).
+    center : ndarray
+        Rotation center (3,).
+
+    Returns
+    -------
+    Polyhedron
+        Rotated polyhedron.
+    """
     rot = R.from_euler('xyz', np.asarray(euler_deg, float), degrees=True)
     rotated = rot.apply(poly.verts - center) + center
     return Polyhedron(rotated, poly.faces.copy())
 
 
 def wrap_angles_deg(x: np.ndarray) -> np.ndarray:
-    """Wrap Euler angles to [-180, 180) for stability."""
+    """
+    Wrap Euler angles to ``[-180, 180)`` for numerical stability.
+
+    Parameters
+    ----------
+    x : ndarray
+        Angles in degrees.
+
+    Returns
+    -------
+    ndarray
+        Wrapped angles.
+    """
     y = (np.asarray(x, float) + 180.0) % 360.0 - 180.0
     y[np.isclose(y, 180.0)] = -180.0
     return y
@@ -165,7 +298,19 @@ def wrap_angles_deg(x: np.ndarray) -> np.ndarray:
 # ======================
 
 def polyhedron_volume(poly: Polyhedron) -> float:
-    """Compute the (absolute) volume of a closed triangular/polygonal mesh via tetrahedra sum."""
+    """
+    Compute absolute volume of a closed polygonal mesh via tetrahedra sum.
+
+    Parameters
+    ----------
+    poly : Polyhedron
+        Polyhedron with vertices and faces.
+
+    Returns
+    -------
+    float
+        Positive volume in Å^3.
+    """
     v = np.asarray(poly.verts, float)
     f = np.asarray(poly.faces, int)
     if f.ndim != 2 or f.shape[0] == 0:
@@ -193,9 +338,19 @@ def polyhedron_volume(poly: Polyhedron) -> float:
 
 def _lattice_translations_cart(A: np.ndarray, rng: int = 1) -> np.ndarray:
     """
-    Build translation vectors for a +/- rng supercell using Cartesian lattice A.
-    A: (3,3) with rows a,b,c in Å (Cartesian)
-    Returns: ((2*rng+1)^3, 3)
+    Build translation vectors for a ``±rng`` supercell.
+
+    Parameters
+    ----------
+    A : ndarray
+        Lattice vectors (3,3) with rows a, b, c (Cartesian Å).
+    rng : int, optional
+        Replication radius. ``rng=1`` covers {-1,0,1}^3.
+
+    Returns
+    -------
+    ndarray
+        Translation vectors with shape ``((2*rng+1)^3, 3)``.
     """
     A = np.asarray(A, float)
     a, b, c = A
@@ -206,7 +361,21 @@ def _lattice_translations_cart(A: np.ndarray, rng: int = 1) -> np.ndarray:
 
 
 def _unique_rows(x: np.ndarray, atol: float = 1e-8) -> np.ndarray:
-    """Remove near-duplicate rows by rounding to a tolerance grid."""
+    """
+    Remove near-duplicate rows using a tolerance grid.
+
+    Parameters
+    ----------
+    x : ndarray
+        Input array (N, M).
+    atol : float, optional
+        Absolute tolerance for grouping duplicates.
+
+    Returns
+    -------
+    ndarray
+        Deduplicated rows in ascending original order.
+    """
     x = np.asarray(x, float)
     grid = np.round(x / atol).astype(np.int64)
     _, idx = np.unique(grid, axis=0, return_index=True)
@@ -215,8 +384,19 @@ def _unique_rows(x: np.ndarray, atol: float = 1e-8) -> np.ndarray:
 
 def _voronoi_cell_vertices_halfspaces_cart(p_ref: np.ndarray, others: np.ndarray) -> np.ndarray:
     """
-    Compute vertices of the Voronoi cell (Cartesian Å) for p_ref given 'others'
-    via intersection of perpendicular-bisector halfspaces.
+    Compute vertices of the Voronoi cell for a reference point via halfspaces.
+
+    Parameters
+    ----------
+    p_ref : ndarray
+        Reference point (3,).
+    others : ndarray
+        Neighboring points (N,3). Duplicate points are skipped.
+
+    Returns
+    -------
+    ndarray
+        Voronoi cell vertices (M,3) in Cartesian Å.
     """
     p = np.asarray(p_ref, float)
     Q = np.asarray(others, float)
@@ -241,7 +421,23 @@ def _voronoi_cell_vertices_halfspaces_cart(p_ref: np.ndarray, others: np.ndarray
 
 
 def _build_system_seeds_cart(A_sys: np.ndarray, coms_sys_cart: np.ndarray, rng: int = 1) -> np.ndarray:
-    """System seeds = all system COMs replicated by translations of A_sys over +/- rng."""
+    """
+    Build replicated system seeds across a translation range.
+
+    Parameters
+    ----------
+    A_sys : ndarray
+        System lattice (3,3).
+    coms_sys_cart : ndarray
+        System COMs (N,3).
+    rng : int, optional
+        Replication radius.
+
+    Returns
+    -------
+    ndarray
+        Seed coordinates tiled over translations (M,3).
+    """
     T_sys = _lattice_translations_cart(A_sys, rng=rng)
     seeds_sys = (coms_sys_cart[None, :, :] + T_sys[:, None, :]).reshape(-1, 3)
     return seeds_sys
@@ -257,12 +453,29 @@ def _build_dict_seeds_cart(
     ref_idx: int = 0,
 ) -> np.ndarray:
     """
-    Dictionary seeds (Cartesian) with uniform scaling:
-      1) recenter dict COMs so that dict[ref_idx] is origin,
-      2) rotate by R(angles),
-      3) uniformly scale by `scale`,
-      4) translate so dict[ref_idx] coincides with p_ref_cart,
-      5) replicate by translations of the rotated+scaled lattice.
+    Build rotated, scaled, and tiled dictionary seeds in Cartesian space.
+
+    Parameters
+    ----------
+    A_dict : ndarray
+        Dictionary lattice (3,3).
+    coms_dict_cart : ndarray
+        Dictionary COMs (K,3).
+    angles_deg : sequence[float]
+        Euler angles (XYZ, degrees) for rotation.
+    p_ref_cart : ndarray
+        Reference point in system coordinates (3,).
+    rng : int, optional
+        Replication radius for lattice translations.
+    scale : float, optional
+        Uniform scaling factor applied to lattice and COMs.
+    ref_idx : int, optional
+        Index of the reference COM in the dictionary.
+
+    Returns
+    -------
+    ndarray
+        Replicated seed coordinates (M,3).
     """
     coms_dict_cart = np.asarray(coms_dict_cart, float)
     p0 = coms_dict_cart[ref_idx].copy()
@@ -293,6 +506,35 @@ def overlap_volume_union_cart(
     scale: float = 1.0,
     ref_idx: int = 0,
 ) -> float:
+    """
+    Compute overlap volume between system and dictionary Voronoi cells.
+
+    Parameters
+    ----------
+    A_sys : ndarray
+        System lattice (3,3).
+    coms_sys_cart : ndarray
+        System COMs (N,3).
+    A_dict : ndarray
+        Dictionary lattice (3,3).
+    coms_dict_cart : ndarray
+        Dictionary COMs (K,3).
+    angles_deg : sequence[float]
+        Euler angles (XYZ, degrees) applied to dictionary.
+    p_ref_cart : ndarray
+        Reference system point (3,).
+    rng : int, optional
+        Replication radius.
+    scale : float, optional
+        Uniform scaling of dictionary lattice/COMs.
+    ref_idx : int, optional
+        Reference COM index in the dictionary.
+
+    Returns
+    -------
+    float
+        Overlap volume in Å^3.
+    """
     seeds_sys  = _build_system_seeds_cart(A_sys,  np.asarray(coms_sys_cart, float),  rng=rng)
     seeds_dict = _build_dict_seeds_cart(A_dict, np.asarray(coms_dict_cart, float),
                                         angles_deg, np.asarray(p_ref_cart, float),
@@ -317,6 +559,38 @@ def single_set_cell_volume_cart(
     scale: float = 1.0,
     ref_idx: int = 0,
 ) -> float:
+    """
+    Compute Voronoi cell volume for either system or dictionary seeds.
+
+    Parameters
+    ----------
+    A_cell : ndarray
+        Lattice vectors (3,3).
+    coms_cart : ndarray
+        COMs (N,3).
+    p_ref_cart : ndarray
+        Reference point (3,).
+    which : {'system', 'dict'}
+        Whether to treat seeds as system or dictionary.
+    angles_deg : sequence[float], optional
+        Euler angles for dictionary case.
+    rng : int, optional
+        Replication radius.
+    scale : float, optional
+        Uniform scaling (dictionary case).
+    ref_idx : int, optional
+        Reference COM index (dictionary case).
+
+    Returns
+    -------
+    float
+        Voronoi cell volume in Å^3.
+
+    Raises
+    ------
+    ValueError
+        If `which` is not 'system' or 'dict'.
+    """
     if which == 'system':
         seeds = _build_system_seeds_cart(A_cell, np.asarray(coms_cart, float), rng=rng)
     elif which == 'dict':
@@ -348,6 +622,35 @@ def iou_via_union_cart(
     scale: float = 1.0,
     ref_idx: int = 0,
 ) -> float:
+    """
+    Compute IoU between system and dictionary Voronoi cells at a reference site.
+
+    Parameters
+    ----------
+    A_sys : ndarray
+        System lattice (3,3).
+    coms_sys_cart : ndarray
+        System COMs (N,3).
+    A_dict : ndarray
+        Dictionary lattice (3,3).
+    coms_dict_cart : ndarray
+        Dictionary COMs (K,3).
+    p_ref_cart : ndarray
+        Reference system point (3,).
+    angles_deg : sequence[float]
+        Euler angles (XYZ, degrees) for dictionary rotation.
+    rng : int, optional
+        Replication radius.
+    scale : float, optional
+        Uniform scaling for dictionary.
+    ref_idx : int, optional
+        Reference COM index in the dictionary.
+
+    Returns
+    -------
+    float
+        Intersection-over-union in [0,1].
+    """
     overlap = overlap_volume_union_cart(
         A_sys, coms_sys_cart, A_dict, coms_dict_cart,
         angles_deg, p_ref_cart, rng=rng, scale=scale, ref_idx=ref_idx
@@ -374,14 +677,50 @@ def optimize_angles_each_system_site(
     optimizer: str = "Powell"
 ) -> List[tuple]:
     """
-    For each system lattice point p_ref, align dict[0] to p_ref and optimize angles to maximize IoU.
-    Returns: list of (site_index, angles_opt, best_iou).
+    Optimize dictionary orientation for each system site independently.
+
+    Parameters
+    ----------
+    A_sys : ndarray
+        System lattice (3,3).
+    coms_sys_cart : ndarray
+        System COMs (N,3).
+    A_dict : ndarray
+        Dictionary lattice (3,3).
+    coms_dict_cart : ndarray
+        Dictionary COMs (K,3).
+    sites_sys_cart : ndarray
+        Reference system sites (N,3).
+    angles_init : sequence[float], optional
+        Initial Euler angles (XYZ, degrees) for all sites.
+    rng : int, optional
+        Replication radius.
+    optimizer : str, optional
+        SciPy optimizer method (passed to `minimize`).
+
+    Returns
+    -------
+    list[tuple]
+        Tuples of ``(site_index, angles_opt, best_iou)``.
     """
     from scipy.optimize import minimize
     results = []
     x0 = np.asarray(angles_init, float)
     for idx, p_ref in enumerate(np.asarray(sites_sys_cart, float)):
         def obj(ang):
+            """
+            Objective: negative IoU for a single site.
+
+            Parameters
+            ----------
+            ang : sequence[float]
+                Euler angles (XYZ, degrees).
+
+            Returns
+            -------
+            float
+                Negative IoU (to minimize).
+            """
             return -iou_via_union_cart(A_sys, coms_sys_cart, A_dict, coms_dict_cart, p_ref, ang, rng=rng)
         res = minimize(obj, x0, method=optimizer)
         results.append((idx, res.x, float(-res.fun)))
@@ -400,7 +739,28 @@ def check_system_voronoi_volume_tiling(
     abs_tol: float = 1e-6,
     verbose: bool = True,
 ) -> dict:
-    """Check whether the sum of system Voronoi cell volumes equals the supercell volume."""
+    """
+    Check whether Voronoi cell volumes tile the supercell volume.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        System with positions and lattice.
+    groups : list[list[int]], optional
+        Atom index groups per site. If None, computed from `mol_id`.
+    rel_tol : float, optional
+        Relative tolerance for volume equality.
+    abs_tol : float, optional
+        Absolute tolerance for volume equality.
+    verbose : bool, optional
+        If True, print a report.
+
+    Returns
+    -------
+    dict
+        Summary with keys: `sum_voronoi_volume`, `cell_volume`, `abs_diff`,
+        `rel_error`, `tolerances`, `ok`, `site_volumes`.
+    """
     from .build_molecule_groups import build_molecule_groups  # local import to avoid cycles
 
     if groups is None:

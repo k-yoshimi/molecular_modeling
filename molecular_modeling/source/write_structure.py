@@ -3,7 +3,24 @@ from ase.atoms import Atoms
 from ase.io import write
 
 def write_structure(system: Atoms, *, outdir: str | Path = ".", verbose: bool = True):
-    """Write multiple simulator-friendly files from an ASE Atoms object."""
+    """
+    Write simulator-friendly structure files from an ASE `Atoms` object.
+
+    Parameters
+    ----------
+    system : ase.Atoms
+        System to export.
+    outdir : str or Path, optional
+        Output directory. Created if missing.
+    verbose : bool, optional
+        If True, print a summary of written files.
+
+    Writes
+    ------
+    - Quantum ESPRESSO input: `qe.in`
+    - VASP inputs: `POSCAR`, `INCAR`, `KPOINTS`, `POSCAR.vasp`
+    - CIF: `structure.cif`
+    """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
