@@ -33,7 +33,7 @@ python run.py
 - 入力設定: `input/input.toml`
   - `cell` と `supercell_repeat` でスーパーセルを定義。
   - `molecules` に使用する分子辞書名（`data/<name>.toml`）を列挙。
-  - `center_of_mass` で各分子のサイト位置を指定（`use_fractional=true` で分数座標解釈）。
+  - `center_of_mass` で各分子のサイト位置を指定（`use_fractional=true` で分率座標解釈）。
   - 置換指定（`molecule_substitutions` / `atom_substitutions` / `global_atom_substitutions` など）で分子・原子種を差し替え可能。
   - 乱数設定: `rng`（または `optimize_rng` / `render_rng`）で最適化・描画の乱数シードを制御。
 - 分子辞書: `data/*.toml`
