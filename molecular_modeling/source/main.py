@@ -6,6 +6,18 @@ from .render_voronoi_overlays import render_voronoi_overlays
 from .write_structure import write_structure
 
 def main():
+    """
+    Entry point: build system, optimize orientations, render, and export structures.
+
+    Pipeline
+    --------
+    1. Build `Atoms` from TOML inputs.
+    2. Group atoms by molecule/site.
+    3. Optimize Voronoi IoU via rotations (per site).
+    4. Check Voronoi volume tiling consistency.
+    5. Render overlays to PNGs.
+    6. Write QE/VASP/CIF outputs.
+    """
     system = build_system_from_toml(verbose=True)
     groups = build_molecule_groups(system)
 

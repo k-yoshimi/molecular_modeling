@@ -10,21 +10,33 @@ from collections import Counter
 
 def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     """
-    Build an ASE Atoms system from TOML inputs (supercell + substitutions).
+    Build an ASE `Atoms` object from TOML inputs (supercell + substitutions).
 
-    Key points:
-      - INPUT side:
-          * input.toml may set `use_fractional=true`; then `center_of_mass` is fractional
-            and is converted to Cartesian using the input `cell` (rows a,b,c).
-          * Downstream code always uses Cartesian site COMs.
-      - DICTIONARY side (benzene.toml, naphthalene.toml, ...):
-          * `voronoi_ref_id` (0-based) selects which molecule's COM is the reference.
-          * `positions` are already written for the selected `voronoi_ref_id` (no internal shift).
-          * If a dictionary uses `use_fractional=true`, its `positions` and `center_of_mass`
-            are converted to Cartesian using that dictionary's `lattice_vectors`.
-          * dict_meta stores dictionary COMs in Cartesian (ALWAYS).
-      - Placement:
-          * For each site: recenter `positions` by its own COM, rotate, then translate to site COM.
+    Parameters
+    ----------
+    verbose : bool, optional
+        If True, print a summary of the assembled system.
+
+    Returns
+    -------
+    ase.Atoms
+        Periodic supercell with per-atom `mol_id` and metadata in
+        `system.info` (`groups`, `site_mol_name`, `dict_meta`, `rng`).
+
+    Notes
+    -----
+    - Input (`input/input.toml`)
+        - `use_fractional=true` interprets `center_of_mass` as fractional and converts to
+          Cartesian via `cell` (rows a,b,c).
+        - Downstream code always uses Cartesian site COMs.
+    - Dictionary (`data/<name>.toml`)
+        - `voronoi_ref_id` selects which molecule COM is the reference (0-based).
+        - If `use_fractional=true`, both `positions` and `center_of_mass` are converted to
+          Cartesian with that dictionary's `lattice_vectors`.
+        - `dict_meta` stores dictionary COMs in Cartesian.
+    - Placement
+        - For each site: recenter `positions` by its COM, rotate (initially zero), then
+          translate to the site COM; lattice tiling handled by `supercell_repeat`.
     """
     # ----------- Read inputs -----------
     with open("./input/input.toml", "rb") as f:
@@ -58,7 +70,19 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
     # ----------- Helpers -----------
     def expand_symbols(tokens: List[str]) -> List[str]:
-        """Expand tokens like ['C6H6', 'Si6O6'] into a flat list of elemental symbols."""
+        """
+        Expand compact chemical tokens into elemental symbols.
+
+        Parameters
+        ----------
+        tokens : list[str]
+            Strings such as ``"C6H6"`` or ``"Si6O6"``.
+
+        Returns
+        -------
+        list[str]
+            Flattened elemental symbols expanded by count.
+        """
         pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
         result: List[str] = []
         for token in tokens:
@@ -69,19 +93,27 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
     def compute_positions(cfg: dict, site_com_cart: np.ndarray, angles_xyz_deg: List[float]) -> np.ndarray:
         """
-        Compute rotated+translated Cartesian positions for a site.
+        Compute rotated and translated Cartesian positions for one site.
 
-        Assumptions:
-          - cfg["positions"] are for the molecule selected by `voronoi_ref_id` (0-based).
-          - The COM of cfg["positions"] matches center_of_mass[voronoi_ref_id] in the same coordinate system.
-          - If cfg["use_fractional"] is True, positions are fractional and will be converted
-            to Cartesian using cfg["lattice_vectors"].
+        Parameters
+        ----------
+        cfg : dict
+            Molecule dictionary entry with `positions`, `center_of_mass`, `lattice_vectors`,
+            and optional `use_fractional` / `voronoi_ref_id`.
+        site_com_cart : ndarray
+            Target site center-of-mass in Cartesian coordinates.
+        angles_xyz_deg : list[float]
+            Euler angles (XYZ, degrees) applied about the molecule COM.
 
-        Steps:
-          1) pos <- cfg["positions"]; if fractional: pos = pos @ lattice  (Cartesian)
-          2) pos_centered <- pos - mean(pos)        (rotate about molecule's own COM)
-          3) pos_rot <- R_xyz(angles_deg) * pos_centered
-          4) return pos_rot + site_com_cart
+        Returns
+        -------
+        numpy.ndarray
+            Rotated and placed Cartesian positions (N_atoms, 3).
+
+        Notes
+        -----
+        1. If `use_fractional` is True, positions are converted with `lattice_vectors`.
+        2. Positions are recentered to their own COM, rotated, then translated to `site_com_cart`.
         """
         pos = np.array(cfg["positions"], float)
         lattice = np.array(cfg["lattice_vectors"], float)
