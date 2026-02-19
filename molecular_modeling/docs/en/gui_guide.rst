@@ -146,6 +146,10 @@ Selection Menu
      - Translate selected molecule/atoms by a specified vector (whole molecule or selected only)
    * - Rotate Molecule/Atoms...
      - Rotate selected molecule/atoms around their center of mass by Euler angles
+   * - Focus on Selection
+     - Show only selected atoms, center view, and auto-zoom. Focus mode for editing a subset
+   * - Exit Focus Mode
+     - Exit focus mode and restore all atom visibility and the original view
 
 Pipeline Menu
 ~~~~~~~~~~~~~

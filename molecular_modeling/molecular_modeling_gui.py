@@ -1052,6 +1052,77 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     # =========================================================================
+    # Focus mode
+    # =========================================================================
+
+    def focus_selection(self, key=None):
+        """Focus on selected atoms: hide others and center view."""
+        if self.atoms is None or len(self.atoms) == 0:
+            return
+
+        n = len(self.atoms)
+        indices = np.arange(n)[self.images.selected[:n]]
+        if len(indices) == 0:
+            if messagebox:
+                messagebox.showinfo("Focus", "Select atoms first.")
+            return
+
+        # Save pre-focus state
+        self._focus_backup = {
+            'visible': self.images.visible[:n].copy(),
+            'center': self.center.copy() if hasattr(self, 'center') else None,
+            'scale': getattr(self, 'scale', None),
+        }
+        self._focus_active = True
+
+        # Hide non-selected atoms
+        visible = np.zeros(n, dtype=bool)
+        visible[indices] = True
+        self.images.visible[:n] = visible
+
+        # Center on selected atoms
+        positions = self.atoms.positions[indices]
+        center_pos = positions.mean(axis=0)
+        self.center = center_pos
+
+        # Auto-zoom to fit selection
+        if len(indices) > 1:
+            span = positions.max(axis=0) - positions.min(axis=0)
+            max_span = max(span.max(), 1.0)
+            # Estimate appropriate scale
+            canvas_size = min(self.window.canvas.winfo_width(),
+                              self.window.canvas.winfo_height())
+            if canvas_size > 0:
+                self.scale = canvas_size / (max_span * 3.0)
+
+        self.draw()
+
+    def unfocus(self, key=None):
+        """Exit focus mode: restore all atom visibility."""
+        if not getattr(self, '_focus_active', False):
+            return
+
+        n = len(self.atoms)
+        backup = self._focus_backup
+
+        # Restore visibility
+        if backup.get('visible') is not None:
+            vlen = min(len(backup['visible']), n)
+            self.images.visible[:vlen] = backup['visible'][:vlen]
+            if n > vlen:
+                self.images.visible[vlen:n] = True
+
+        # Restore view
+        if backup.get('center') is not None:
+            self.center = backup['center']
+        if backup.get('scale') is not None:
+            self.scale = backup['scale']
+
+        self._focus_active = False
+        self._focus_backup = None
+        self.draw()
+
+    # =========================================================================
     # Show/hide atoms
     # =========================================================================
 
@@ -2818,6 +2889,9 @@ class MolecularModelingGUI(GUI):
                 M('---'),
                 M(_('Move Molecule/Atoms...'), self.move_molecule_dialog),
                 M(_('Rotate Molecule/Atoms...'), self.rotate_molecule_dialog),
+                M('---'),
+                M(_('Focus on Selection'), self.focus_selection),
+                M(_('Exit Focus Mode'), self.unfocus),
             ]
         ))
 
