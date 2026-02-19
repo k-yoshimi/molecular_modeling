@@ -86,6 +86,8 @@ MoleculeTools メニュー
      - 1 つの原子を個別に置換
    * - Build Supercell...
      - 繰り返し数を指定してスーパーセルを構築
+   * - Cell Parameters...
+     - 格子定数（a, b, c, α, β, γ）の表示・編集。格子ベクトルと体積も表示。Apply で原子座標をスケーリングして更新
    * - Save Project... (Ctrl+K)
      - プロジェクト（input.toml + data/\*.toml）を指定ディレクトリに保存
    * - Load Project... (Ctrl+T)
@@ -353,6 +355,17 @@ Atom Appearance パネル
 
 - **Atom Size Scale**: 全体の原子サイズスケール（0.1〜3.0、スライダーで調整）
 - **Per-Element Radius Override**: 元素ごとの共有結合半径を個別に変更
+
+Cell Parameters ダイアログ
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**MoleculeTools** → **Cell Parameters...** から開きます。
+
+- **Lattice lengths**: a, b, c（Å 単位）を表示・編集
+- **Lattice angles**: α, β, γ（度単位）を表示・編集
+- **Lattice vectors**: 現在の格子ベクトル（読み取り専用）
+- **Volume**: 格子体積（Å³）
+- **Apply**: 入力値で格子を更新（原子座標はスケーリング）
 
 Export ダイアログ
 ~~~~~~~~~~~~~~~~~

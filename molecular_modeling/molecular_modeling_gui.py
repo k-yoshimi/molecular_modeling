@@ -1936,6 +1936,121 @@ class MolecularModelingGUI(GUI):
                 )
 
     # =========================================================================
+    # Cell parameter editor
+    # =========================================================================
+
+    def cell_parameter_dialog(self, key=None):
+        """Show cell parameter display/editor dialog."""
+        if tk is None or self.atoms is None:
+            return
+
+        cell = self.atoms.get_cell()
+        lengths = cell.lengths()  # a, b, c
+        angles = cell.angles()    # alpha, beta, gamma
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Cell Parameters")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        # --- Lattice lengths ---
+        tk.Label(dialog, text="Lattice lengths (Å):", font=("TkDefaultFont", 10, "bold"),
+                 padx=10, pady=(10, 2)).grid(row=0, column=0, columnspan=4, sticky=tk.W)
+
+        len_vars = []
+        for col, (label, val) in enumerate(zip(("a:", "b:", "c:"), lengths)):
+            tk.Label(dialog, text=label, padx=5).grid(row=1, column=col * 2, sticky=tk.E)
+            v = tk.DoubleVar(value=round(val, 6))
+            len_vars.append(v)
+            e = tk.Entry(dialog, textvariable=v, width=12)
+            e.grid(row=1, column=col * 2 + 1, padx=2, pady=2)
+
+        # --- Lattice angles ---
+        tk.Label(dialog, text="Lattice angles (°):", font=("TkDefaultFont", 10, "bold"),
+                 padx=10, pady=(10, 2)).grid(row=2, column=0, columnspan=4, sticky=tk.W)
+
+        ang_vars = []
+        for col, (label, val) in enumerate(zip(("α:", "β:", "γ:"), angles)):
+            tk.Label(dialog, text=label, padx=5).grid(row=3, column=col * 2, sticky=tk.E)
+            v = tk.DoubleVar(value=round(val, 4))
+            ang_vars.append(v)
+            e = tk.Entry(dialog, textvariable=v, width=12)
+            e.grid(row=3, column=col * 2 + 1, padx=2, pady=2)
+
+        # --- Lattice vectors (read-only) ---
+        tk.Label(dialog, text="Lattice vectors:", font=("TkDefaultFont", 10, "bold"),
+                 padx=10, pady=(10, 2)).grid(row=4, column=0, columnspan=4, sticky=tk.W)
+
+        vec_text = tk.Text(dialog, height=3, width=50, state=tk.NORMAL, font=("Courier", 10))
+        vec_text.grid(row=5, column=0, columnspan=6, padx=10, pady=2)
+        for i in range(3):
+            vec_text.insert(tk.END,
+                            f"  v{i+1} = ({cell[i][0]:10.6f}, {cell[i][1]:10.6f}, {cell[i][2]:10.6f})\n")
+        vec_text.config(state=tk.DISABLED)
+
+        # --- Volume ---
+        vol = cell.volume
+        tk.Label(dialog, text=f"Volume: {vol:.4f} Å³", padx=10, pady=4
+                 ).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+
+        # --- Buttons ---
+        btn_frame = tk.Frame(dialog)
+        btn_frame.grid(row=7, column=0, columnspan=6, pady=10)
+
+        def apply_changes():
+            try:
+                new_lengths = [v.get() for v in len_vars]
+                new_angles = [v.get() for v in ang_vars]
+            except tk.TclError:
+                if messagebox:
+                    messagebox.showerror("Error", "Invalid numeric input.", parent=dialog)
+                return
+
+            # Validate
+            for val in new_lengths:
+                if val <= 0:
+                    if messagebox:
+                        messagebox.showerror("Error", "Lengths must be positive.", parent=dialog)
+                    return
+            for val in new_angles:
+                if val <= 0 or val >= 180:
+                    if messagebox:
+                        messagebox.showerror("Error", "Angles must be between 0° and 180°.",
+                                             parent=dialog)
+                    return
+
+            self._save_undo_state()
+            from ase.cell import Cell
+            new_cell = Cell.fromcellpar(new_lengths + new_angles)
+            self.atoms.set_cell(new_cell, scale_atoms=True)
+            self.images.initialize([self.atoms])
+            self.set_frame()
+            self.draw()
+            self.controller.set_atoms(self.atoms)
+
+            # Update vector display
+            c = self.atoms.get_cell()
+            vec_text.config(state=tk.NORMAL)
+            vec_text.delete("1.0", tk.END)
+            for i in range(3):
+                vec_text.insert(tk.END,
+                                f"  v{i+1} = ({c[i][0]:10.6f}, {c[i][1]:10.6f}, {c[i][2]:10.6f})\n")
+            vec_text.config(state=tk.DISABLED)
+
+            # Update volume
+            dialog.children  # not needed, update label below
+
+            if messagebox:
+                messagebox.showinfo("Cell Parameters",
+                                    f"Cell updated.\nVolume: {c.volume:.4f} Å³",
+                                    parent=dialog)
+
+        tk.Button(btn_frame, text="Apply", command=apply_changes, width=10
+                  ).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=dialog.destroy, width=10
+                  ).pack(side=tk.LEFT, padx=5)
+
+    # =========================================================================
     # Export methods
     # =========================================================================
 
@@ -2439,6 +2554,8 @@ class MolecularModelingGUI(GUI):
                   self.atom_substitution_dialog),
                 M(_('Build Supercell...'),
                   self.supercell_dialog),
+                M(_('Cell Parameters...'),
+                  self.cell_parameter_dialog),
                 M('---'),
                 M(_('Save Project...'),
                   self.save_project, 'Ctrl+K'),

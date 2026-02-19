@@ -87,6 +87,8 @@ MoleculeTools Menu
      - Replace a single atom
    * - Build Supercell...
      - Build a supercell with specified repeat factors
+   * - Cell Parameters...
+     - Display and edit lattice parameters (a, b, c, α, β, γ). Also shows lattice vectors and volume. Apply rescales atomic positions
    * - Save Project... (Ctrl+K)
      - Save project files (input.toml + data/\*.toml) to a chosen directory
    * - Load Project... (Ctrl+T)
@@ -354,6 +356,17 @@ Open from **View Settings** → **Atom Appearance...**. The panel has three tabs
 
 - **Atom Size Scale**: Global atom size multiplier (0.1–3.0, slider)
 - **Per-Element Radius Override**: Adjust covalent radius per element
+
+Cell Parameters Dialog
+~~~~~~~~~~~~~~~~~~~~~~
+
+Open from **MoleculeTools** → **Cell Parameters...**.
+
+- **Lattice lengths**: Display and edit a, b, c (in Å)
+- **Lattice angles**: Display and edit α, β, γ (in degrees)
+- **Lattice vectors**: Current lattice vectors (read-only)
+- **Volume**: Cell volume (Å³)
+- **Apply**: Update cell with the entered values (atomic positions are scaled)
 
 Export Dialog
 ~~~~~~~~~~~~~
