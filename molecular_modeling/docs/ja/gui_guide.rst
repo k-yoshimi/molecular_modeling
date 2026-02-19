@@ -97,6 +97,27 @@ Export メニュー
    * - CIF...
      - CIF ファイルとしてエクスポート
 
+Pipeline メニュー
+~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - メニュー項目
+     - 説明
+   * - Run Optimize (Voronoi)
+     - 現在の構造に対して Voronoi IoU 最適化を実行。結果（IoU 値、Euler 角）がダイアログに表示される
+   * - Run Render (Voronoi PNGs)...
+     - Voronoi セルオーバーレイの 3D 可視化 PNG を生成
+   * - Run Export (QE, VASP, CIF)...
+     - 構造ファイルを指定ディレクトリにエクスポート
+   * - Run All (Optimize → Render → Export)...
+     - 最適化 → 可視化 → エクスポートの全パイプラインを一括実行
+
+**注意**: Pipeline メニューの各操作は ``mol_id`` 情報を持つ構造（TOML から構築した構造）に対してのみ実行できます。
+処理はバックグラウンドスレッドで実行されるため、GUI は操作中もフリーズしません。
+
 Window Size メニュー
 ~~~~~~~~~~~~~~~~~~~~
 

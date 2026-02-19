@@ -98,6 +98,27 @@ Export Menu
    * - CIF...
      - Export as CIF file
 
+Pipeline Menu
+~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Menu Item
+     - Description
+   * - Run Optimize (Voronoi)
+     - Run Voronoi IoU optimization on the current structure. Results (IoU values, Euler angles) are displayed in a dialog
+   * - Run Render (Voronoi PNGs)...
+     - Generate 3D Voronoi cell overlay PNG visualizations
+   * - Run Export (QE, VASP, CIF)...
+     - Export structure files to a selected directory
+   * - Run All (Optimize → Render → Export)...
+     - Run the full pipeline: optimize → render → export
+
+**Note**: Pipeline operations require a structure with ``mol_id`` information (i.e., built from TOML).
+Processing runs in a background thread so the GUI remains responsive.
+
 Window Size Menu
 ~~~~~~~~~~~~~~~~
 

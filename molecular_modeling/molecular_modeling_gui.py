@@ -12,6 +12,7 @@ Usage:
 """
 
 import sys
+import threading
 import numpy as np
 
 from ase.io import read
@@ -670,6 +671,200 @@ class MolecularModelingGUI(GUI):
                     messagebox.showinfo("Export", f"Saved: {filename}")
 
     # =========================================================================
+    # Pipeline execution
+    # =========================================================================
+
+    def _run_pipeline_in_thread(self, task_name, task_func):
+        """Run a pipeline task in a background thread with a progress dialog."""
+        if tk is None:
+            return
+
+        if self.atoms is None or len(self.atoms) == 0:
+            if messagebox:
+                messagebox.showerror("Error", "No structure loaded.")
+            return
+
+        # Check mol_id exists
+        if "mol_id" not in self.atoms.arrays:
+            if messagebox:
+                messagebox.showerror(
+                    "Error",
+                    "No molecule groups found (mol_id).\n"
+                    "Load a structure built from TOML first.",
+                )
+            return
+
+        # Create progress dialog
+        progress = tk.Toplevel(self.window.win)
+        progress.title(task_name)
+        progress.resizable(False, False)
+        progress.transient(self.window.win)
+        progress.grab_set()
+        progress.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing
+
+        frame = tk.Frame(progress, padx=20, pady=20)
+        frame.pack()
+        status_label = tk.Label(frame, text=f"Running {task_name}...", width=40)
+        status_label.pack(pady=(0, 10))
+
+        result = {"error": None, "message": None}
+
+        def run():
+            try:
+                msg = task_func()
+                result["message"] = msg
+            except Exception as e:
+                result["error"] = str(e)
+
+        def check_thread():
+            if thread.is_alive():
+                self.window.win.after(100, check_thread)
+            else:
+                progress.destroy()
+                if result["error"]:
+                    if messagebox:
+                        messagebox.showerror("Error", result["error"])
+                else:
+                    # Update the view with potentially modified atoms
+                    self.images.initialize([self.atoms])
+                    self.set_frame()
+                    self.draw()
+                    if messagebox and result["message"]:
+                        messagebox.showinfo("Complete", result["message"])
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.window.win.after(100, check_thread)
+
+    def run_optimize(self, key=None):
+        """Run Voronoi optimization on the current structure."""
+        from source.build_molecule_groups import build_molecule_groups
+        from source.optimize_voronoi_overlap import optimize_voronoi_overlap
+
+        def task():
+            groups = build_molecule_groups(self.atoms)
+            rngs = self.atoms.info.get("rng", {})
+            rng_opt = int(rngs.get("optimize", rngs.get("global", 1)))
+            self.atoms = optimize_voronoi_overlap(
+                self.atoms, groups=groups, rng=rng_opt,
+            )
+            # Format results
+            iou = self.atoms.info.get("optimized_iou", [])
+            angles = self.atoms.info.get("optimized_angles_deg", [])
+            lines = ["Voronoi optimization complete.\n"]
+            for i, (val, ang) in enumerate(zip(iou, angles)):
+                lines.append(
+                    f"  Site {i}: IoU={val:.4f}, "
+                    f"angles=({ang[0]:.1f}, {ang[1]:.1f}, {ang[2]:.1f})°"
+                )
+            return "\n".join(lines)
+
+        self._run_pipeline_in_thread("Optimize Voronoi", task)
+
+    def run_render(self, key=None):
+        """Render Voronoi overlay visualizations."""
+        from source.build_molecule_groups import build_molecule_groups
+        from source.render_voronoi_overlays import render_voronoi_overlays
+        from tkinter import filedialog
+
+        root = self.window.win if hasattr(self, "window") else None
+        out_dir = filedialog.askdirectory(
+            parent=root,
+            title="Select output directory for Voronoi PNGs",
+            initialdir="./voronoi_pngs",
+        )
+        if not out_dir:
+            return
+
+        def task():
+            groups = build_molecule_groups(self.atoms)
+            rngs = self.atoms.info.get("rng", {})
+            rng_ren = int(rngs.get("render", rngs.get("global", 1)))
+            render_voronoi_overlays(
+                self.atoms, groups=groups, out_dir=out_dir, rng=rng_ren,
+            )
+            return f"Voronoi PNGs saved to:\n{out_dir}"
+
+        self._run_pipeline_in_thread("Render Voronoi", task)
+
+    def run_export(self, key=None):
+        """Export structure files (QE, VASP, CIF)."""
+        from source.write_structure import write_structure
+        from tkinter import filedialog
+
+        root = self.window.win if hasattr(self, "window") else None
+        out_dir = filedialog.askdirectory(
+            parent=root,
+            title="Select output directory for structure files",
+            initialdir="./structure_out",
+        )
+        if not out_dir:
+            return
+
+        def task():
+            write_structure(self.atoms, outdir=out_dir, verbose=True)
+            return f"Structure files saved to:\n{out_dir}"
+
+        self._run_pipeline_in_thread("Export Structures", task)
+
+    def run_full_pipeline(self, key=None):
+        """Run the full pipeline: Optimize → Render → Export."""
+        from source.build_molecule_groups import build_molecule_groups
+        from source.optimize_voronoi_overlap import optimize_voronoi_overlap
+        from source.voronoi_geom import check_system_voronoi_volume_tiling
+        from source.render_voronoi_overlays import render_voronoi_overlays
+        from source.write_structure import write_structure
+        from tkinter import filedialog
+
+        root = self.window.win if hasattr(self, "window") else None
+        out_dir = filedialog.askdirectory(
+            parent=root,
+            title="Select output directory",
+            initialdir=".",
+        )
+        if not out_dir:
+            return
+
+        def task():
+            import os
+            groups = build_molecule_groups(self.atoms)
+            rngs = self.atoms.info.get("rng", {})
+            rng_opt = int(rngs.get("optimize", rngs.get("global", 1)))
+            rng_ren = int(rngs.get("render", rngs.get("global", 1)))
+
+            # Optimize
+            self.atoms = optimize_voronoi_overlap(
+                self.atoms, groups=groups, rng=rng_opt,
+            )
+
+            # Check tiling
+            check_system_voronoi_volume_tiling(
+                self.atoms, groups, rel_tol=1e-3, abs_tol=1e-6, verbose=True,
+            )
+
+            # Render
+            png_dir = os.path.join(out_dir, "voronoi_pngs")
+            os.makedirs(png_dir, exist_ok=True)
+            render_voronoi_overlays(
+                self.atoms, groups=groups, out_dir=png_dir, rng=rng_ren,
+            )
+
+            # Export
+            struct_dir = os.path.join(out_dir, "structure_out")
+            os.makedirs(struct_dir, exist_ok=True)
+            write_structure(self.atoms, outdir=struct_dir, verbose=True)
+
+            # Format results
+            iou = self.atoms.info.get("optimized_iou", [])
+            lines = ["Full pipeline complete.\n"]
+            for i, val in enumerate(iou):
+                lines.append(f"  Site {i}: IoU={val:.4f}")
+            lines.append(f"\nOutputs saved to:\n{out_dir}")
+            return "\n".join(lines)
+
+        self._run_pipeline_in_thread("Full Pipeline", task)
+
+    # =========================================================================
     # Menu construction
     # =========================================================================
 
@@ -713,6 +908,21 @@ class MolecularModelingGUI(GUI):
                   self.export_vasp),
                 M(_('CIF...'),
                   self.export_cif),
+            ]
+        ))
+
+        # Pipeline menu
+        menu.append((
+            _('Pipeline'),
+            [
+                M(_('Run Optimize (Voronoi)'),
+                  self.run_optimize),
+                M(_('Run Render (Voronoi PNGs)...'),
+                  self.run_render),
+                M(_('Run Export (QE, VASP, CIF)...'),
+                  self.run_export),
+                M(_('Run All (Optimize → Render → Export)...'),
+                  self.run_full_pipeline),
             ]
         ))
 
