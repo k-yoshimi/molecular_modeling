@@ -132,6 +132,10 @@ Selection Menu
      - Select atoms by molecule group (mol_id). Shows group name and atom count
    * - Select by Sphere...
      - Select atoms within a given radius of the currently selected atom
+   * - Delete Selected Atoms
+     - Delete selected atoms (with undo support and molecule metadata update)
+   * - Delete Molecule...
+     - Delete the entire molecule group of the selected atoms
 
 Pipeline Menu
 ~~~~~~~~~~~~~

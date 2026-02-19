@@ -597,6 +597,111 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     # =========================================================================
+    # Delete atoms/molecules
+    # =========================================================================
+
+    def delete_selected_atoms(self, widget=None, data=None):
+        """Override ASE's delete to add undo support and update molecule metadata."""
+        nselected = sum(self.images.selected[:len(self.atoms)])
+        if nselected == 0:
+            return
+        if messagebox and not messagebox.askyesno(
+            "Delete atoms", f"Delete {nselected} selected atom(s)?",
+        ):
+            return
+        self._save_undo_state()
+        self._delete_selected_with_metadata()
+
+    def delete_molecule(self, key=None):
+        """Delete the entire molecule group of selected atoms."""
+        if self.atoms is None:
+            return
+        n = len(self.atoms)
+        indices = np.arange(n)[self.images.selected[:n]]
+        if len(indices) == 0:
+            if messagebox:
+                messagebox.showinfo("Delete Molecule", "Select an atom first.")
+            return
+
+        if "mol_id" not in self.atoms.arrays:
+            if messagebox:
+                messagebox.showinfo("Delete Molecule",
+                                    "No molecule groups found (mol_id).")
+            return
+
+        mol_ids = self.atoms.get_array("mol_id")
+        selected_mols = set(int(mol_ids[i]) for i in indices)
+        site_names = self.atoms.info.get("site_mol_name", [])
+
+        names = []
+        for mid in sorted(selected_mols):
+            name = site_names[mid] if mid < len(site_names) else f"mol_{mid}"
+            names.append(f"#{mid} ({name})")
+
+        if messagebox and not messagebox.askyesno(
+            "Delete Molecule",
+            f"Delete molecule(s): {', '.join(names)}?",
+        ):
+            return
+
+        self._save_undo_state()
+        # Select all atoms in the molecule groups
+        mask = np.array([int(mol_ids[i]) in selected_mols for i in range(n)])
+        self.images.selected[:n] = mask
+        self._delete_selected_with_metadata()
+
+    def _delete_selected_with_metadata(self):
+        """Delete selected atoms and rebuild molecule metadata."""
+        n = len(self.atoms)
+        mask = self.images.selected[:n]
+        keep = ~mask
+
+        # Rebuild atoms
+        new_atoms = self.atoms[keep]
+
+        # Rebuild molecule metadata if present
+        if "mol_id" in self.atoms.arrays:
+            old_mol_ids = self.atoms.get_array("mol_id")
+            old_groups = self.atoms.info.get("groups", [])
+            old_names = self.atoms.info.get("site_mol_name", [])
+
+            # Map old indices to new indices
+            old_to_new = {}
+            new_idx = 0
+            for old_idx in range(n):
+                if keep[old_idx]:
+                    old_to_new[old_idx] = new_idx
+                    new_idx += 1
+
+            # Rebuild groups, removing empty ones
+            new_groups = []
+            new_names = []
+            new_mol_ids = np.zeros(len(new_atoms), dtype=int)
+            new_group_id = 0
+
+            for g_idx, group in enumerate(old_groups):
+                new_group = [old_to_new[i] for i in group if i in old_to_new]
+                if new_group:
+                    new_groups.append(new_group)
+                    name = old_names[g_idx] if g_idx < len(old_names) else f"mol_{g_idx}"
+                    new_names.append(name)
+                    for ai in new_group:
+                        new_mol_ids[ai] = new_group_id
+                    new_group_id += 1
+
+            if "mol_id" in new_atoms.arrays:
+                del new_atoms.arrays["mol_id"]
+            new_atoms.new_array("mol_id", new_mol_ids)
+            new_atoms.info["groups"] = new_groups
+            new_atoms.info["site_mol_name"] = new_names
+
+        self.atoms = new_atoms
+        self.images[self.frame] = new_atoms
+        self.images.selected[:] = False
+        self.set_frame(self.frame)
+        self.draw()
+
+    # =========================================================================
     # Atom appearance panel
     # =========================================================================
 
@@ -1898,6 +2003,9 @@ class MolecularModelingGUI(GUI):
                 M(_('Select by Element...'), self.select_by_element),
                 M(_('Select by Molecule...'), self.select_by_molecule),
                 M(_('Select by Sphere...'), self.select_by_sphere),
+                M('---'),
+                M(_('Delete Selected Atoms'), self.delete_selected_atoms),
+                M(_('Delete Molecule...'), self.delete_molecule),
             ]
         ))
 
