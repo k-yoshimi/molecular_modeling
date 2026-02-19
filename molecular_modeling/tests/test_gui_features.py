@@ -244,18 +244,35 @@ class FakeGUI:
         h_mask = np.array(self.atoms.numbers == 1)
         if not h_mask.any():
             return
-        n = len(self.atoms)
-        visible = self.images.visible[:n]
         if not hasattr(self, "_hidden_elements"):
             self._hidden_elements = set()
-        if visible[h_mask].any():
-            self.images.visible[:n][h_mask] = False
+        if "H" not in self._hidden_elements:
             self._hidden_elements.add("H")
             self._hydrogen_visible = False
         else:
-            self.images.visible[:n][h_mask] = True
             self._hidden_elements.discard("H")
             self._hydrogen_visible = True
+        self.apply_visibility()
+
+    def apply_visibility(self):
+        """Apply all visibility rules (mirrors _apply_visibility)."""
+        atoms = self.atoms
+        if atoms is None or len(atoms) == 0:
+            return
+        n = len(atoms)
+        visible = np.ones(n, dtype=bool)
+        if hasattr(self, "_hidden_elements") and self._hidden_elements:
+            symbols = atoms.get_chemical_symbols()
+            for i, s in enumerate(symbols):
+                if s in self._hidden_elements:
+                    visible[i] = False
+        if (hasattr(self, "_hidden_molecules") and self._hidden_molecules
+                and "mol_id" in atoms.arrays):
+            mol_ids = atoms.get_array("mol_id")
+            for i in range(n):
+                if int(mol_ids[i]) in self._hidden_molecules:
+                    visible[i] = False
+        self.images.visible[:n] = visible
         self.draw()
 
     def focus_selection(self, key=None):
@@ -369,28 +386,8 @@ class FakeGUI:
         self.draw()
 
     def apply_molecule_visibility(self):
-        """Apply molecule visibility (mirrors _apply_molecule_visibility)."""
-        atoms = self.atoms
-        if atoms is None or "mol_id" not in atoms.arrays:
-            return
-        n = len(atoms)
-        mol_ids = atoms.get_array("mol_id")
-        visible = np.ones(n, dtype=bool)
-
-        # Apply element visibility
-        if hasattr(self, "_hidden_elements"):
-            symbols = atoms.get_chemical_symbols()
-            for i, s in enumerate(symbols):
-                if s in self._hidden_elements:
-                    visible[i] = False
-
-        # Apply molecule visibility
-        for i in range(n):
-            if int(mol_ids[i]) in self._hidden_molecules:
-                visible[i] = False
-
-        self.images.visible[:n] = visible
-        self.draw()
+        """Apply molecule visibility (alias for apply_visibility)."""
+        self.apply_visibility()
 
     def select_molecule(self, group_id):
         """Select all atoms in a molecule group (mirrors _on_mol_select)."""

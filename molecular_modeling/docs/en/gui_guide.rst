@@ -239,9 +239,9 @@ A side panel is displayed on the right side of the window for quick access to co
 
 - **Show Hydrogen**: Toggle hydrogen atom visibility via checkbox
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
-- **Atom Size**: Adjust atom size scale with a slider (0.3–3.0)
-- **Element Controls**: Per-element row with [visibility checkbox][color button][size slider]
-- **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color button][select button]. Colors are applied in By Molecule color mode
+- **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
+- **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly
+- **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color swatch][select button]. Click the color swatch to pick a custom molecule color. Colors are applied in By Molecule color mode
 
 The side panel can be shown/hidden via **View Settings** → **Toggle Side Panel**.
 
