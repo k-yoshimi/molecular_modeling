@@ -179,43 +179,46 @@ class MolecularModelingGUI(GUI):
         # --- Translate buttons ---
         tk.Label(toolbar, text="Translate:").pack(side=tk.LEFT, padx=(4, 2))
         translate_buttons = [
-            ("\u25C0", -1, 0),   # ◀
-            ("\u25B6", +1, 0),   # ▶
-            ("\u25B2", 0, +1),   # ▲
-            ("\u25BC", 0, -1),   # ▼
+            ("\u25C0", -1, 0, "Move view left"),
+            ("\u25B6", +1, 0, "Move view right"),
+            ("\u25B2", 0, +1, "Move view up"),
+            ("\u25BC", 0, -1, "Move view down"),
         ]
-        for label, dx, dy in translate_buttons:
+        for label, dx, dy, tip in translate_buttons:
             btn = tk.Button(toolbar, text=label, width=3)
             btn.pack(side=tk.LEFT, padx=1)
             action = lambda dx=dx, dy=dy: self._translate_view(dx, dy)
             btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
             btn.bind("<ButtonRelease-1>", self._stop_repeat)
+            self._add_tooltip(btn, tip)
 
         # --- Rotate buttons ---
         tk.Label(toolbar, text="  Rotate:").pack(side=tk.LEFT, padx=(8, 2))
         rotate_buttons = [
-            ("X-", 'x', -5),
-            ("X+", 'x', +5),
-            ("Y-", 'y', -5),
-            ("Y+", 'y', +5),
-            ("Z-", 'z', -5),
-            ("Z+", 'z', +5),
+            ("X-", 'x', -5, "Rotate -5° around X"),
+            ("X+", 'x', +5, "Rotate +5° around X"),
+            ("Y-", 'y', -5, "Rotate -5° around Y"),
+            ("Y+", 'y', +5, "Rotate +5° around Y"),
+            ("Z-", 'z', -5, "Rotate -5° around Z"),
+            ("Z+", 'z', +5, "Rotate +5° around Z"),
         ]
-        for label, axis, angle in rotate_buttons:
+        for label, axis, angle, tip in rotate_buttons:
             btn = tk.Button(toolbar, text=label, width=3)
             btn.pack(side=tk.LEFT, padx=1)
             action = lambda axis=axis, angle=angle: self._rotate_view(axis, angle)
             btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
             btn.bind("<ButtonRelease-1>", self._stop_repeat)
+            self._add_tooltip(btn, tip)
 
         # --- Zoom buttons ---
         tk.Label(toolbar, text="  Zoom:").pack(side=tk.LEFT, padx=(8, 2))
-        for label, factor in [("-", 1 / 1.1), ("+", 1.1)]:
+        for label, factor, tip in [("-", 1 / 1.1, "Zoom out"), ("+", 1.1, "Zoom in")]:
             btn = tk.Button(toolbar, text=label, width=3)
             btn.pack(side=tk.LEFT, padx=1)
             action = lambda f=factor: self._zoom_view(f)
             btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
             btn.bind("<ButtonRelease-1>", self._stop_repeat)
+            self._add_tooltip(btn, tip)
 
         # --- Separator ---
         sep = ttk.Separator(toolbar, orient=tk.VERTICAL)
@@ -223,11 +226,11 @@ class MolecularModelingGUI(GUI):
 
         # --- Action buttons ---
         action_buttons = [
-            ("\u21A9", "Undo", lambda: self.undo()),
-            ("\u21AA", "Redo", lambda: self.redo()),
-            ("\u2716", "Delete", lambda: self.delete_selected_atoms()),
-            ("\u2725", "Move", lambda: self.move_molecule_dialog()),
-            ("\u21BB", "Rotate", lambda: self.rotate_molecule_dialog()),
+            ("\u21A9", "Undo (Ctrl+Z)", lambda: self.undo()),
+            ("\u21AA", "Redo (Ctrl+Y)", lambda: self.redo()),
+            ("\u2716", "Delete selected atoms", lambda: self.delete_selected_atoms()),
+            ("\u2725", "Move molecule/atoms", lambda: self.move_molecule_dialog()),
+            ("\u21BB", "Rotate molecule/atoms", lambda: self.rotate_molecule_dialog()),
         ]
         for symbol, tip, callback in action_buttons:
             btn = tk.Button(toolbar, text=symbol, width=3, command=callback)

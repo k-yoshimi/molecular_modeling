@@ -222,6 +222,12 @@ Each button supports press-and-hold for continuous operation.
      - ↩ ↪ ✖ ✥ ↻
      - Undo / Redo / Delete selected / Move / Rotate (each button has a tooltip)
 
+Tooltips
+~~~~~~~~
+
+All toolbar buttons display tooltips (floating help on mouse hover).
+Hover the mouse cursor over any button to see a yellow popup with the operation description and keyboard shortcuts.
+
 Side Panel
 ~~~~~~~~~~
 
