@@ -702,6 +702,156 @@ class MolecularModelingGUI(GUI):
         self.draw()
 
     # =========================================================================
+    # Move/rotate molecule
+    # =========================================================================
+
+    def move_molecule_dialog(self, key=None):
+        """Open dialog to translate selected molecule by a vector."""
+        if tk is None or self.atoms is None:
+            return
+
+        n = len(self.atoms)
+        indices = np.arange(n)[self.images.selected[:n]]
+        if len(indices) == 0:
+            if messagebox:
+                messagebox.showinfo("Move Molecule", "Select atoms first.")
+            return
+
+        # Find molecule group
+        mol_idx = None
+        if "mol_id" in self.atoms.arrays:
+            mol_ids = self.atoms.get_array("mol_id")
+            mol_idx = int(mol_ids[indices[0]])
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Move Molecule/Atoms")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Translation vector (Å):", padx=10, pady=5).pack(anchor=tk.W)
+
+        vec_frame = tk.Frame(dialog, padx=10)
+        vec_frame.pack(fill=tk.X)
+        vars_ = []
+        for label in ("X:", "Y:", "Z:"):
+            tk.Label(vec_frame, text=label).pack(side=tk.LEFT)
+            v = tk.DoubleVar(value=0.0)
+            vars_.append(v)
+            tk.Entry(vec_frame, textvariable=v, width=8).pack(side=tk.LEFT, padx=2)
+
+        # Option: move whole molecule or just selected atoms
+        scope_var = tk.StringVar(value="molecule" if mol_idx is not None else "selected")
+        scope_frame = tk.LabelFrame(dialog, text="Scope", padx=10, pady=5)
+        scope_frame.pack(fill=tk.X, padx=10, pady=5)
+        if mol_idx is not None:
+            tk.Radiobutton(scope_frame, text="Whole molecule group",
+                          variable=scope_var, value="molecule").pack(anchor=tk.W)
+        tk.Radiobutton(scope_frame, text="Selected atoms only",
+                      variable=scope_var, value="selected").pack(anchor=tk.W)
+
+        def apply():
+            dx, dy, dz = vars_[0].get(), vars_[1].get(), vars_[2].get()
+            vec = np.array([dx, dy, dz])
+            self._save_undo_state()
+
+            if scope_var.get() == "molecule" and mol_idx is not None:
+                groups = self.atoms.info.get("groups", [])
+                if mol_idx < len(groups):
+                    atom_indices = groups[mol_idx]
+                else:
+                    atom_indices = list(indices)
+            else:
+                atom_indices = list(indices)
+
+            pos = self.atoms.get_positions()
+            for i in atom_indices:
+                pos[i] += vec
+            self.atoms.set_positions(pos)
+            self.images[self.frame] = self.atoms
+            self.set_frame(self.frame)
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Apply", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def rotate_molecule_dialog(self, key=None):
+        """Open dialog to rotate selected molecule by Euler angles."""
+        if tk is None or self.atoms is None:
+            return
+
+        n = len(self.atoms)
+        indices = np.arange(n)[self.images.selected[:n]]
+        if len(indices) == 0:
+            if messagebox:
+                messagebox.showinfo("Rotate Molecule", "Select atoms first.")
+            return
+
+        # Find molecule group
+        mol_idx = None
+        if "mol_id" in self.atoms.arrays:
+            mol_ids = self.atoms.get_array("mol_id")
+            mol_idx = int(mol_ids[indices[0]])
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Rotate Molecule/Atoms")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Euler angles (degrees, XYZ):", padx=10, pady=5).pack(anchor=tk.W)
+
+        angle_frame = tk.Frame(dialog, padx=10)
+        angle_frame.pack(fill=tk.X)
+        vars_ = []
+        for label in ("α:", "β:", "γ:"):
+            tk.Label(angle_frame, text=label).pack(side=tk.LEFT)
+            v = tk.DoubleVar(value=0.0)
+            vars_.append(v)
+            tk.Entry(angle_frame, textvariable=v, width=8).pack(side=tk.LEFT, padx=2)
+
+        scope_var = tk.StringVar(value="molecule" if mol_idx is not None else "selected")
+        scope_frame = tk.LabelFrame(dialog, text="Scope", padx=10, pady=5)
+        scope_frame.pack(fill=tk.X, padx=10, pady=5)
+        if mol_idx is not None:
+            tk.Radiobutton(scope_frame, text="Whole molecule group",
+                          variable=scope_var, value="molecule").pack(anchor=tk.W)
+        tk.Radiobutton(scope_frame, text="Selected atoms only",
+                      variable=scope_var, value="selected").pack(anchor=tk.W)
+
+        def apply():
+            from scipy.spatial.transform import Rotation as Rot
+            a, b, g = vars_[0].get(), vars_[1].get(), vars_[2].get()
+            self._save_undo_state()
+
+            if scope_var.get() == "molecule" and mol_idx is not None:
+                groups = self.atoms.info.get("groups", [])
+                atom_indices = groups[mol_idx] if mol_idx < len(groups) else list(indices)
+            else:
+                atom_indices = list(indices)
+
+            pos = self.atoms.get_positions()
+            target_pos = pos[atom_indices]
+            com = target_pos.mean(axis=0)
+
+            rot = Rot.from_euler('xyz', [a, b, g], degrees=True)
+            rotated = rot.apply(target_pos - com) + com
+
+            for i, ai in enumerate(atom_indices):
+                pos[ai] = rotated[i]
+            self.atoms.set_positions(pos)
+            self.images[self.frame] = self.atoms
+            self.set_frame(self.frame)
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Apply", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    # =========================================================================
     # Show/hide atoms
     # =========================================================================
 
@@ -2123,6 +2273,9 @@ class MolecularModelingGUI(GUI):
                 M('---'),
                 M(_('Delete Selected Atoms'), self.delete_selected_atoms),
                 M(_('Delete Molecule...'), self.delete_molecule),
+                M('---'),
+                M(_('Move Molecule/Atoms...'), self.move_molecule_dialog),
+                M(_('Rotate Molecule/Atoms...'), self.rotate_molecule_dialog),
             ]
         ))
 

@@ -137,6 +137,10 @@ Selection メニュー
      - 選択した原子を削除（Undo 対応、分子グループメタデータも更新）
    * - Delete Molecule...
      - 選択した原子が属する分子グループ全体を削除
+   * - Move Molecule/Atoms...
+     - 選択した分子/原子を指定ベクトルで平行移動（分子全体/選択のみ切替可）
+   * - Rotate Molecule/Atoms...
+     - 選択した分子/原子を重心周りに Euler 角で回転
 
 Pipeline メニュー
 ~~~~~~~~~~~~~~~~~

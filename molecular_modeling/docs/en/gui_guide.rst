@@ -138,6 +138,10 @@ Selection Menu
      - Delete selected atoms (with undo support and molecule metadata update)
    * - Delete Molecule...
      - Delete the entire molecule group of the selected atoms
+   * - Move Molecule/Atoms...
+     - Translate selected molecule/atoms by a specified vector (whole molecule or selected only)
+   * - Rotate Molecule/Atoms...
+     - Rotate selected molecule/atoms around their center of mass by Euler angles
 
 Pipeline Menu
 ~~~~~~~~~~~~~
