@@ -66,7 +66,9 @@ MoleculeTools メニュー
      - 直前の操作を取り消す（最大50回）
    * - Redo (Ctrl+Y)
      - 取り消した操作をやり直す
-   * - Load CIF... (Ctrl+L)
+   * - Load Structure... (Ctrl+L)
+     - 構造ファイルを読み込み（CIF, XYZ, POSCAR, QE .in, PDB, GEN 等に対応）
+   * - Load CIF...
      - CIF ファイルを読み込み、構造を表示
    * - Add Molecule... (Ctrl+J)
      - 登録済み分子をシステムに追加
@@ -237,7 +239,7 @@ View Settings メニュー
    * - Ctrl+Y
      - やり直し (Redo)
    * - Ctrl+L
-     - CIF ファイルを読み込み
+     - 構造ファイルを読み込み（CIF, XYZ, POSCAR 等）
    * - Ctrl+J
      - 分子を追加
    * - Ctrl+D

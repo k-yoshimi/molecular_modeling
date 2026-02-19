@@ -1209,6 +1209,18 @@ class MolecularModelingGUI(GUI):
     # MoleculeTools methods
     # =========================================================================
 
+    # Supported file formats for import
+    _IMPORT_FILETYPES = [
+        ("All supported", "*.cif *.xyz *.in *.POSCAR *.vasp *.pdb *.gen"),
+        ("CIF files", "*.cif"),
+        ("XYZ files", "*.xyz"),
+        ("QE input files", "*.in *.pwi"),
+        ("VASP files", "*.POSCAR *.vasp"),
+        ("PDB files", "*.pdb"),
+        ("DFTB+ GEN files", "*.gen"),
+        ("All files", "*.*"),
+    ]
+
     def load_cif_dialog(self, key=None):
         """Load a CIF file via file dialog and display the structure."""
         from tkinter import filedialog
@@ -1237,6 +1249,46 @@ class MolecularModelingGUI(GUI):
         self.set_frame()
         self.draw()
         self.controller.set_atoms(self.atoms)
+
+    def load_structure_dialog(self, key=None):
+        """Load a structure file in any ASE-supported format."""
+        from tkinter import filedialog
+
+        root = self.window.win if hasattr(self, "window") else None
+        filename = filedialog.askopenfilename(
+            parent=root,
+            title="Load Structure File",
+            filetypes=self._IMPORT_FILETYPES,
+        )
+        if not filename:
+            return
+
+        try:
+            # Try CIF-specific reader first for .cif files
+            if filename.lower().endswith('.cif'):
+                atoms = read_cif(filename)
+            else:
+                atoms = read(filename)
+        except Exception as e:
+            if messagebox:
+                messagebox.showerror(
+                    "Error", f"Failed to read file:\n{e}"
+                )
+            return
+
+        self._save_undo_state()
+        self._add_recent_file(filename)
+        self.images.initialize([atoms])
+        self.set_frame()
+        self.draw()
+        self.controller.set_atoms(self.atoms)
+
+        if messagebox:
+            fmt = os.path.splitext(filename)[1]
+            messagebox.showinfo(
+                "Load Structure",
+                f"Loaded {len(atoms)} atoms from {os.path.basename(filename)} ({fmt})",
+            )
 
     def add_molecule_dialog(self, key=None):
         """Show add molecule dialog."""
@@ -2006,8 +2058,10 @@ class MolecularModelingGUI(GUI):
             [
                 M(_('Undo'), self.undo, 'Ctrl+Z'),
                 M(_('Redo'), self.redo, 'Ctrl+Y'),
+                M(_('Load Structure...'),
+                  self.load_structure_dialog, 'Ctrl+L'),
                 M(_('Load CIF...'),
-                  self.load_cif_dialog, 'Ctrl+L'),
+                  self.load_cif_dialog),
                 M(_('Add Molecule...'),
                   self.add_molecule_dialog, 'Ctrl+J'),
                 M(_('List Molecules/Groups'),

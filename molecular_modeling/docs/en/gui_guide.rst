@@ -67,7 +67,9 @@ MoleculeTools Menu
      - Undo the last operation (up to 50 steps)
    * - Redo (Ctrl+Y)
      - Redo the last undone operation
-   * - Load CIF... (Ctrl+L)
+   * - Load Structure... (Ctrl+L)
+     - Load a structure file (CIF, XYZ, POSCAR, QE .in, PDB, GEN, etc.)
+   * - Load CIF...
      - Load a CIF file and display the structure
    * - Add Molecule... (Ctrl+J)
      - Add a registered molecule to the system
@@ -238,7 +240,7 @@ Keyboard Shortcuts
    * - Ctrl+Y
      - Redo
    * - Ctrl+L
-     - Load CIF file
+     - Load structure file (CIF, XYZ, POSCAR, etc.)
    * - Ctrl+J
      - Add molecule
    * - Ctrl+D
