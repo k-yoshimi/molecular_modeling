@@ -163,7 +163,7 @@ Pipeline Menu
    * - Run All (Optimize → Render → Export)...
      - Run the full pipeline: optimize → render → export
    * - Show Optimization Results... (Ctrl+H)
-     - Display optimization results (IoU values, Euler angles, scales) in a table
+     - Display optimization results (IoU values, Euler angles, scales) in a table. Supports CSV export and Voronoi PNG browsing
 
 **Note**: Pipeline operations require a structure with ``mol_id`` information (i.e., built from TOML).
 Processing runs in a background thread so the GUI remains responsive.

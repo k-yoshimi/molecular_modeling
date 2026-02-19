@@ -162,7 +162,7 @@ Pipeline メニュー
    * - Run All (Optimize → Render → Export)...
      - 最適化 → 可視化 → エクスポートの全パイプラインを一括実行
    * - Show Optimization Results... (Ctrl+H)
-     - 最適化結果（IoU 値、Euler 角、スケール）をテーブル形式で表示
+     - 最適化結果（IoU 値、Euler 角、スケール）をテーブル形式で表示。CSV エクスポートおよび Voronoi PNG の閲覧も可能
 
 **注意**: Pipeline メニューの各操作は ``mol_id`` 情報を持つ構造（TOML から構築した構造）に対してのみ実行できます。
 処理はバックグラウンドスレッドで実行されるため、GUI は操作中もフリーズしません。

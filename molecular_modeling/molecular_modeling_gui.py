@@ -2211,7 +2211,125 @@ class MolecularModelingGUI(GUI):
         )
         summary.pack(fill=tk.X)
 
-        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
+        # Export CSV button
+        def export_csv():
+            from tkinter import filedialog as fd
+            path = fd.asksaveasfilename(
+                parent=dialog, title="Export CSV",
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            with open(path, "w") as f:
+                f.write("Site,Molecule,IoU,Alpha,Beta,Gamma,Scale\n")
+                for i in range(len(iou)):
+                    mol_name = site_names[i] if i < len(site_names) else "?"
+                    ang = angles[i] if angles is not None else [0, 0, 0]
+                    sc = scales[i] if scales is not None else 1.0
+                    f.write(f"{i},{mol_name},{iou[i]:.4f},"
+                            f"{ang[0]:.1f},{ang[1]:.1f},{ang[2]:.1f},{sc:.4f}\n")
+            if messagebox:
+                messagebox.showinfo("Export", f"Saved: {path}", parent=dialog)
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Export CSV", command=export_csv).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="View PNGs", command=self._view_voronoi_pngs).pack(
+            side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _view_voronoi_pngs(self):
+        """Open a viewer for Voronoi overlay PNGs."""
+        if tk is None:
+            return
+
+        # Look for PNG files in common locations
+        png_dir = None
+        for candidate in [
+            os.path.join(os.getcwd(), "source", "voronoi_pngs"),
+            os.path.join(os.getcwd(), "voronoi_pngs"),
+        ]:
+            if os.path.isdir(candidate):
+                png_dir = candidate
+                break
+
+        if png_dir is None:
+            from tkinter import filedialog
+            png_dir = filedialog.askdirectory(
+                parent=self.window.win,
+                title="Select Voronoi PNGs directory",
+            )
+            if not png_dir:
+                return
+
+        pngs = sorted([f for f in os.listdir(png_dir) if f.lower().endswith('.png')])
+        if not pngs:
+            if messagebox:
+                messagebox.showinfo("Voronoi PNGs", "No PNG files found in the directory.")
+            return
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Voronoi Overlay PNGs")
+        dialog.resizable(True, True)
+        dialog.transient(self.window.win)
+
+        # Navigation
+        idx_var = tk.IntVar(value=0)
+        label_var = tk.StringVar(value=f"1 / {len(pngs)}: {pngs[0]}")
+
+        tk.Label(dialog, textvariable=label_var, font=("TkDefaultFont", 10, "bold")
+                 ).pack(pady=4)
+
+        # Image display
+        try:
+            from PIL import Image, ImageTk
+            has_pil = True
+        except ImportError:
+            has_pil = False
+
+        if has_pil:
+            canvas = tk.Canvas(dialog, width=600, height=500)
+            canvas.pack(fill=tk.BOTH, expand=True)
+            photo_ref = [None]
+
+            def show_image(idx):
+                img = Image.open(os.path.join(png_dir, pngs[idx]))
+                # Fit to canvas
+                cw, ch = 600, 500
+                img.thumbnail((cw, ch), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                canvas.delete("all")
+                canvas.create_image(cw // 2, ch // 2, image=photo, anchor=tk.CENTER)
+                photo_ref[0] = photo  # keep reference
+                label_var.set(f"{idx + 1} / {len(pngs)}: {pngs[idx]}")
+        else:
+            tk.Label(dialog, text="(Install Pillow for image preview)",
+                     fg="gray").pack()
+
+            def show_image(idx):
+                label_var.set(f"{idx + 1} / {len(pngs)}: {pngs[idx]}")
+
+        def prev_img():
+            i = idx_var.get()
+            if i > 0:
+                idx_var.set(i - 1)
+                show_image(i - 1)
+
+        def next_img():
+            i = idx_var.get()
+            if i < len(pngs) - 1:
+                idx_var.set(i + 1)
+                show_image(i + 1)
+
+        nav_frame = tk.Frame(dialog)
+        nav_frame.pack(pady=5)
+        tk.Button(nav_frame, text="< Prev", command=prev_img, width=8).pack(side=tk.LEFT, padx=5)
+        tk.Button(nav_frame, text="Next >", command=next_img, width=8).pack(side=tk.LEFT, padx=5)
+        tk.Button(nav_frame, text="Close", command=dialog.destroy, width=8).pack(
+            side=tk.LEFT, padx=5)
+
+        show_image(0)
 
     # =========================================================================
     # Project save/load
