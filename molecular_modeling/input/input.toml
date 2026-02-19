@@ -50,5 +50,5 @@ new_symbols    = ["Si6O6", ]
 [[atom_substitutions]]
 cell_index     = [0, 0, 0]
 molecule_index = 1
-atom_index     = 1
+atom_index     = 2
 new_symbol     = "Fe"

@@ -49,3 +49,4 @@ python run.py
 - `molecular_modeling/input/input.toml`: 実行時設定。
 - `molecular_modeling/data/`: 分子ごとの辞書ファイル。
 - `molecular_modeling/structure_out/`, `molecular_modeling/voronoi_pngs/`: 実行後の出力先。
+# yoshimi-molecular_modeling
