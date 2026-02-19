@@ -1203,9 +1203,9 @@ class MolecularModelingGUI(GUI):
                 M(_('Undo'), self.undo, 'Ctrl+Z'),
                 M(_('Redo'), self.redo, 'Ctrl+Y'),
                 M(_('Load CIF...'),
-                  self.load_cif_dialog),
+                  self.load_cif_dialog, 'Ctrl+L'),
                 M(_('Add Molecule...'),
-                  self.add_molecule_dialog),
+                  self.add_molecule_dialog, 'Ctrl+J'),
                 M(_('List Molecules/Groups'),
                   self.list_molecules_dialog),
                 M(_('Save Selection as Molecule...'),
@@ -1237,7 +1237,7 @@ class MolecularModelingGUI(GUI):
             _('Export'),
             [
                 M(_('Export All (QE, VASP, CIF)...'),
-                  self.export_all_dialog),
+                  self.export_all_dialog, 'Ctrl+D'),
                 M(_('Quantum ESPRESSO...'),
                   self.export_qe),
                 M(_('VASP...'),
@@ -1252,7 +1252,7 @@ class MolecularModelingGUI(GUI):
             _('Pipeline'),
             [
                 M(_('Run Optimize (Voronoi)'),
-                  self.run_optimize),
+                  self.run_optimize, 'Ctrl+P'),
                 M(_('Run Render (Voronoi PNGs)...'),
                   self.run_render),
                 M(_('Run Export (QE, VASP, CIF)...'),
@@ -1260,7 +1260,7 @@ class MolecularModelingGUI(GUI):
                 M(_('Run All (Optimize → Render → Export)...'),
                   self.run_full_pipeline),
                 M(_('Show Optimization Results...'),
-                  self.show_voronoi_results),
+                  self.show_voronoi_results, 'Ctrl+H'),
             ]
         ))
 

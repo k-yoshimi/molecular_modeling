@@ -66,9 +66,9 @@ MoleculeTools メニュー
      - 直前の操作を取り消す（最大50回）
    * - Redo (Ctrl+Y)
      - 取り消した操作をやり直す
-   * - Load CIF...
+   * - Load CIF... (Ctrl+L)
      - CIF ファイルを読み込み、構造を表示
-   * - Add Molecule...
+   * - Add Molecule... (Ctrl+J)
      - 登録済み分子をシステムに追加
    * - List Molecules/Groups
      - システム中の分子とグループを一覧表示
@@ -101,7 +101,7 @@ Export メニュー
 
    * - メニュー項目
      - 説明
-   * - Export All (QE, VASP, CIF)...
+   * - Export All (QE, VASP, CIF)... (Ctrl+D)
      - 全フォーマットに一括エクスポート
    * - Quantum ESPRESSO...
      - QE 入力ファイル (.in) としてエクスポート
@@ -119,7 +119,7 @@ Pipeline メニュー
 
    * - メニュー項目
      - 説明
-   * - Run Optimize (Voronoi)
+   * - Run Optimize (Voronoi) (Ctrl+P)
      - 現在の構造に対して Voronoi IoU 最適化を実行。結果（IoU 値、Euler 角）がダイアログに表示される
    * - Run Render (Voronoi PNGs)...
      - Voronoi セルオーバーレイの 3D 可視化 PNG を生成
@@ -127,7 +127,7 @@ Pipeline メニュー
      - 構造ファイルを指定ディレクトリにエクスポート
    * - Run All (Optimize → Render → Export)...
      - 最適化 → 可視化 → エクスポートの全パイプラインを一括実行
-   * - Show Optimization Results...
+   * - Show Optimization Results... (Ctrl+H)
      - 最適化結果（IoU 値、Euler 角、スケール）をテーブル形式で表示
 
 **注意**: Pipeline メニューの各操作は ``mol_id`` 情報を持つ構造（TOML から構築した構造）に対してのみ実行できます。
@@ -173,6 +173,32 @@ Window Size メニュー
 - **2原子選択時**: 原子間距離
 - **3原子選択時**: 結合角度
 - **4原子選択時**: 二面角
+
+キーボードショートカット
+------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - ショートカット
+     - 操作
+   * - Ctrl+Z
+     - 元に戻す (Undo)
+   * - Ctrl+Y
+     - やり直し (Redo)
+   * - Ctrl+L
+     - CIF ファイルを読み込み
+   * - Ctrl+J
+     - 分子を追加
+   * - Ctrl+D
+     - 全フォーマットに一括エクスポート
+   * - Ctrl+P
+     - Voronoi IoU 最適化を実行
+   * - Ctrl+H
+     - 最適化結果を表示
+
+ASE-GUI 標準のキーボードショートカット（Ctrl+O で開く、Ctrl+S で保存など）もそのまま使用できます。
 
 マウス操作
 ----------

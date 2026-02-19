@@ -67,9 +67,9 @@ MoleculeTools Menu
      - Undo the last operation (up to 50 steps)
    * - Redo (Ctrl+Y)
      - Redo the last undone operation
-   * - Load CIF...
+   * - Load CIF... (Ctrl+L)
      - Load a CIF file and display the structure
-   * - Add Molecule...
+   * - Add Molecule... (Ctrl+J)
      - Add a registered molecule to the system
    * - List Molecules/Groups
      - List all molecules and groups in the system
@@ -102,7 +102,7 @@ Export Menu
 
    * - Menu Item
      - Description
-   * - Export All (QE, VASP, CIF)...
+   * - Export All (QE, VASP, CIF)... (Ctrl+D)
      - Export to all formats at once
    * - Quantum ESPRESSO...
      - Export as QE input file (.in)
@@ -120,7 +120,7 @@ Pipeline Menu
 
    * - Menu Item
      - Description
-   * - Run Optimize (Voronoi)
+   * - Run Optimize (Voronoi) (Ctrl+P)
      - Run Voronoi IoU optimization on the current structure. Results (IoU values, Euler angles) are displayed in a dialog
    * - Run Render (Voronoi PNGs)...
      - Generate 3D Voronoi cell overlay PNG visualizations
@@ -128,7 +128,7 @@ Pipeline Menu
      - Export structure files to a selected directory
    * - Run All (Optimize → Render → Export)...
      - Run the full pipeline: optimize → render → export
-   * - Show Optimization Results...
+   * - Show Optimization Results... (Ctrl+H)
      - Display optimization results (IoU values, Euler angles, scales) in a table
 
 **Note**: Pipeline operations require a structure with ``mol_id`` information (i.e., built from TOML).
@@ -174,6 +174,32 @@ The status bar at the bottom shows context-dependent information:
 - **2 atoms selected**: Inter-atomic distance
 - **3 atoms selected**: Bond angles
 - **4 atoms selected**: Dihedral angle
+
+Keyboard Shortcuts
+------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Shortcut
+     - Action
+   * - Ctrl+Z
+     - Undo
+   * - Ctrl+Y
+     - Redo
+   * - Ctrl+L
+     - Load CIF file
+   * - Ctrl+J
+     - Add molecule
+   * - Ctrl+D
+     - Export to all formats
+   * - Ctrl+P
+     - Run Voronoi IoU optimization
+   * - Ctrl+H
+     - Show optimization results
+
+Standard ASE-GUI keyboard shortcuts (Ctrl+O to open, Ctrl+S to save, etc.) are also available.
 
 Mouse Controls
 --------------
