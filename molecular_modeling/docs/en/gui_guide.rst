@@ -237,7 +237,6 @@ Side Panel
 
 A side panel is displayed on the right side of the window for quick access to common view settings.
 
-- **Show Hydrogen**: Toggle hydrogen atom visibility via checkbox
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
 - **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
 - **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly

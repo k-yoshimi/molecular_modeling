@@ -359,13 +359,6 @@ class MolecularModelingGUI(GUI):
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
-        # --- Hydrogen toggle ---
-        self._h_visible_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(panel, text="Show Hydrogen", variable=self._h_visible_var,
-                       command=self._on_h_toggle).pack(anchor=tk.W, padx=8, pady=2)
-
-        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
-
         # --- Color mode ---
         tk.Label(panel, text="Color Mode:").pack(anchor=tk.W, padx=8, pady=(2, 0))
         self._color_mode_var = tk.StringVar(value="element")
@@ -410,14 +403,6 @@ class MolecularModelingGUI(GUI):
         self._mol_colors = {}
         self._update_molecule_visibility_panel()
 
-    def _on_h_toggle(self):
-        """Handle hydrogen toggle from side panel."""
-        self.toggle_hydrogen()
-        # Sync checkbox state with actual visibility
-        if hasattr(self, '_h_visible_var'):
-            visible = getattr(self, '_hydrogen_visible', True)
-            self._h_visible_var.set(visible)
-
     def _on_color_mode_change(self):
         """Handle color mode change from side panel."""
         mode = self._color_mode_var.get()
@@ -458,9 +443,9 @@ class MolecularModelingGUI(GUI):
             if hasattr(self, '_hidden_elements') and sym in self._hidden_elements:
                 vis_var.set(False)
             self._elem_vis_vars[sym] = vis_var
-            cb = tk.Checkbutton(row, text=sym, variable=vis_var, width=3,
+            cb = tk.Checkbutton(row, text=f"{sym:>2s}", variable=vis_var,
                                 command=lambda s=sym: self._on_element_vis_change(s))
-            cb.pack(side=tk.LEFT)
+            cb.pack(side=tk.LEFT, padx=(0, 2))
 
             # Color swatch (Label for reliable bg color on all platforms)
             z = atomic_numbers[sym]
@@ -1407,9 +1392,7 @@ class MolecularModelingGUI(GUI):
         else:
             self._hidden_elements.discard('H')
             self._hydrogen_visible = True
-        # Sync side panel checkboxes
-        if hasattr(self, '_h_visible_var'):
-            self._h_visible_var.set(self._hydrogen_visible)
+        # Sync Element Controls checkbox
         if hasattr(self, '_elem_vis_vars') and 'H' in self._elem_vis_vars:
             self._elem_vis_vars['H'].set(self._hydrogen_visible)
         self._apply_visibility()
