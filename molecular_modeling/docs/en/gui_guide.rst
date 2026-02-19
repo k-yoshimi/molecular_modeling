@@ -84,6 +84,13 @@ MoleculeTools Menu
    * - Individual Atom Substitution...
      - Replace a single atom
 
+Recent Files Menu
+~~~~~~~~~~~~~~~~~
+
+Displays up to 10 recently opened CIF files.
+Click a filename to open it directly.
+History is saved in ``~/.molecular_modeling_recent.json``.
+
 Export Menu
 ~~~~~~~~~~~
 

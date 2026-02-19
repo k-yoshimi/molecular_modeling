@@ -83,6 +83,13 @@ MoleculeTools メニュー
    * - Individual Atom Substitution...
      - 1 つの原子を個別に置換
 
+Recent Files メニュー
+~~~~~~~~~~~~~~~~~~~~
+
+最近開いた CIF ファイルが最大 10 件表示されます。
+ファイル名をクリックすると直接開きます。
+履歴は ``~/.molecular_modeling_recent.json`` に保存されます。
+
 Export メニュー
 ~~~~~~~~~~~~~~~
 

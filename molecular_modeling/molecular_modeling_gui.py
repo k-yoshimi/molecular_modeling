@@ -11,6 +11,8 @@ Usage:
     python molecular_modeling_gui.py [structure_file]
 """
 
+import json
+import os
 import sys
 import threading
 import numpy as np
@@ -142,6 +144,10 @@ class MolecularModelingGUI(GUI):
     ]
 
     MAX_UNDO = 50  # Maximum number of undo snapshots
+    MAX_RECENT = 10  # Maximum number of recent files
+    RECENT_FILE = os.path.join(
+        os.path.expanduser("~"), ".molecular_modeling_recent.json"
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -297,6 +303,56 @@ class MolecularModelingGUI(GUI):
 
         # For 2+ atoms, use ASE's default behavior
         super().status(atoms)
+
+    # =========================================================================
+    # Recent files
+    # =========================================================================
+
+    def _load_recent_files(self):
+        """Load the recent files list from disk."""
+        try:
+            with open(self.RECENT_FILE) as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
+
+    def _save_recent_files(self, files):
+        """Save the recent files list to disk."""
+        try:
+            with open(self.RECENT_FILE, "w") as f:
+                json.dump(files[:self.MAX_RECENT], f)
+        except OSError:
+            pass
+
+    def _add_recent_file(self, filepath):
+        """Add a file to the recent files list."""
+        filepath = os.path.abspath(filepath)
+        files = self._load_recent_files()
+        # Remove if already present, then prepend
+        files = [f for f in files if f != filepath]
+        files.insert(0, filepath)
+        self._save_recent_files(files)
+
+    def _open_recent_file(self, filepath):
+        """Open a recent file."""
+        def callback(key=None):
+            if not os.path.exists(filepath):
+                if messagebox:
+                    messagebox.showerror("Error", f"File not found:\n{filepath}")
+                return
+            try:
+                atoms = read_cif(filepath)
+            except Exception as e:
+                if messagebox:
+                    messagebox.showerror("Error", f"Failed to read:\n{e}")
+                return
+            self._save_undo_state()
+            self.images.initialize([atoms])
+            self.set_frame()
+            self.draw()
+            self.controller.set_atoms(self.atoms)
+            self._add_recent_file(filepath)
+        return callback
 
     # =========================================================================
     # Undo / Redo
@@ -478,6 +534,7 @@ class MolecularModelingGUI(GUI):
             return
 
         self._save_undo_state()
+        self._add_recent_file(filename)
         self.images.initialize([atoms])
         self.set_frame()
         self.draw()
@@ -1044,6 +1101,15 @@ class MolecularModelingGUI(GUI):
                   self.atom_substitution_dialog),
             ]
         ))
+
+        # Recent Files menu
+        recent = self._load_recent_files()
+        if recent:
+            recent_items = []
+            for filepath in recent:
+                label = os.path.basename(filepath)
+                recent_items.append(M(_(label), self._open_recent_file(filepath)))
+            menu.append((_('Recent Files'), recent_items))
 
         # Export menu
         menu.append((
