@@ -128,6 +128,8 @@ Pipeline Menu
      - Export structure files to a selected directory
    * - Run All (Optimize → Render → Export)...
      - Run the full pipeline: optimize → render → export
+   * - Show Optimization Results...
+     - Display optimization results (IoU values, Euler angles, scales) in a table
 
 **Note**: Pipeline operations require a structure with ``mol_id`` information (i.e., built from TOML).
 Processing runs in a background thread so the GUI remains responsive.

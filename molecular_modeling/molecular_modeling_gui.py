@@ -31,10 +31,11 @@ except Exception:
 # tkinter imports
 try:
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, ttk
 except Exception:
     tk = None
     messagebox = None
+    ttk = None
 
 # Local GUI module imports
 from source.gui.molecule_registry import get_registry
@@ -910,6 +911,84 @@ class MolecularModelingGUI(GUI):
                 if messagebox:
                     messagebox.showinfo("Export", f"Saved: {filename}")
 
+    def show_voronoi_results(self, key=None):
+        """Show Voronoi optimization results in a dialog."""
+        if tk is None:
+            return
+        if self.atoms is None:
+            if messagebox:
+                messagebox.showerror("Error", "No structure loaded.")
+            return
+
+        iou = self.atoms.info.get("optimized_iou")
+        angles = self.atoms.info.get("optimized_angles_deg")
+        scales = self.atoms.info.get("optimized_scales")
+
+        if iou is None:
+            if messagebox:
+                messagebox.showinfo(
+                    "Voronoi Results",
+                    "No optimization results found.\n"
+                    "Run Pipeline → Run Optimize (Voronoi) first.",
+                )
+            return
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Voronoi Optimization Results")
+        dialog.resizable(True, True)
+        dialog.transient(self.window.win)
+
+        frame = tk.Frame(dialog, padx=10, pady=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Header
+        site_names = self.atoms.info.get("site_mol_name", [])
+
+        # Create treeview table
+        columns = ("site", "molecule", "iou", "alpha", "beta", "gamma", "scale")
+        tree = ttk.Treeview(frame, columns=columns, show="headings", height=10)
+        tree.heading("site", text="Site")
+        tree.heading("molecule", text="Molecule")
+        tree.heading("iou", text="IoU")
+        tree.heading("alpha", text="α (°)")
+        tree.heading("beta", text="β (°)")
+        tree.heading("gamma", text="γ (°)")
+        tree.heading("scale", text="Scale")
+
+        tree.column("site", width=50, anchor=tk.CENTER)
+        tree.column("molecule", width=100, anchor=tk.W)
+        tree.column("iou", width=80, anchor=tk.CENTER)
+        tree.column("alpha", width=80, anchor=tk.CENTER)
+        tree.column("beta", width=80, anchor=tk.CENTER)
+        tree.column("gamma", width=80, anchor=tk.CENTER)
+        tree.column("scale", width=80, anchor=tk.CENTER)
+
+        for i in range(len(iou)):
+            mol_name = site_names[i] if i < len(site_names) else "?"
+            ang = angles[i] if angles is not None else [0, 0, 0]
+            sc = scales[i] if scales is not None else 1.0
+            tree.insert("", tk.END, values=(
+                i, mol_name, f"{iou[i]:.4f}",
+                f"{ang[0]:.1f}", f"{ang[1]:.1f}", f"{ang[2]:.1f}",
+                f"{sc:.4f}",
+            ))
+
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Summary
+        avg_iou = np.mean(iou)
+        summary = tk.Label(
+            dialog,
+            text=f"Average IoU: {avg_iou:.4f}  |  {len(iou)} sites",
+            anchor=tk.W, padx=10, pady=5,
+        )
+        summary.pack(fill=tk.X)
+
+        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
+
     # =========================================================================
     # Pipeline execution
     # =========================================================================
@@ -1180,6 +1259,8 @@ class MolecularModelingGUI(GUI):
                   self.run_export),
                 M(_('Run All (Optimize → Render → Export)...'),
                   self.run_full_pipeline),
+                M(_('Show Optimization Results...'),
+                  self.show_voronoi_results),
             ]
         ))
 
