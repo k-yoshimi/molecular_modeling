@@ -1,0 +1,780 @@
+#!/usr/bin/env python3
+# molecular_modeling_gui.py
+"""
+Molecular Modeling GUI - ASE-GUI extension for molecular modeling operations.
+
+Extends ASE-GUI with menus for:
+- MoleculeTools: Molecule addition and substitution
+- Export: Structure file export (QE, VASP, CIF)
+
+Usage:
+    python molecular_modeling_gui.py [structure_file]
+"""
+
+import sys
+import numpy as np
+
+from ase.io import read
+from ase.gui.gui import GUI
+import ase.gui.ui as ui
+from ase import Atoms
+
+# i18n support
+try:
+    from ase.gui.i18n import _
+except Exception:
+    def _(s): return s
+
+# tkinter imports
+try:
+    import tkinter as tk
+    from tkinter import messagebox
+except Exception:
+    tk = None
+    messagebox = None
+
+# Local GUI module imports
+from source.gui.molecule_registry import get_registry
+from source.gui.add_molecule_dialog import show_add_molecule_dialog
+from source.gui.molecule_list_dialog import show_molecule_list_dialog
+from source.gui.substitution_dialogs import (
+    show_global_substitution_dialog,
+    show_molecule_substitution_dialog,
+    show_molecule_atom_substitution_dialog,
+    show_atom_substitution_dialog,
+)
+from source.gui.export_dialog import show_export_dialog
+from source.gui.save_molecule_dialog import show_save_molecule_dialog
+from source.gui.controller import get_controller, reset_controller
+
+
+def read_cif(filepath: str) -> Atoms:
+    """Read a CIF file with fallback cleanup for files that break ASE's parser.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the CIF file.
+
+    Returns
+    -------
+    ase.Atoms
+        The structure read from the CIF file.
+    """
+    try:
+        return read(filepath)
+    except Exception:
+        # ASE's CIF parser can fail on files with complex citation loops
+        # (e.g. semicolon-delimited multi-line text fields in ICSD CIFs).
+        # Retry after stripping non-structural citation data.
+        return _read_cif_with_cleanup(filepath)
+
+
+def _read_cif_with_cleanup(filepath: str) -> Atoms:
+    """Read a CIF file after removing citation loops that break ASE's parser."""
+    import tempfile
+    import os
+
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Skip standalone _citation_* tags
+        if line.strip().startswith('_citation'):
+            i += 1
+            continue
+        # Skip loop_ blocks whose headers are all _citation*
+        if line.strip() == 'loop_':
+            j = i + 1
+            while j < len(lines) and lines[j].strip().startswith('_citation'):
+                j += 1
+            if j > i + 1:
+                # Citation loop detected — skip its data rows too
+                in_text_field = False
+                while j < len(lines):
+                    l = lines[j].strip()
+                    if in_text_field:
+                        if l.startswith(';'):
+                            in_text_field = False
+                        j += 1
+                        continue
+                    if l.startswith(';'):
+                        in_text_field = True
+                        j += 1
+                        continue
+                    if (l.startswith('_') or l.startswith('loop_')
+                            or l.startswith('data_') or l.startswith('#')):
+                        break
+                    j += 1
+                i = j
+                continue
+        out.append(line)
+        i += 1
+
+    fd, tmp = tempfile.mkstemp(suffix='.cif')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.writelines(out)
+        return read(tmp)
+    finally:
+        os.unlink(tmp)
+
+
+class MolecularModelingGUI(GUI):
+    """
+    Extended ASE-GUI with molecular modeling capabilities.
+
+    Provides menus for:
+    - MoleculeTools: Add molecules, list molecules, substitutions
+    - Export: Export to various simulation formats
+    """
+
+    # Preset window sizes: (label, width, height)
+    WINDOW_SIZES = [
+        ("Small (450x450)", 450, 450),
+        ("Medium (700x700)", 700, 700),
+        ("Large (1000x800)", 1000, 800),
+        ("Wide (1200x600)", 1200, 600),
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.controller = get_controller()
+        if self.atoms is not None:
+            self.controller.set_atoms(self.atoms)
+        self._repeat_id = None
+        self._setup_toolbar()
+        # Set a reasonable default window size (larger than ASE's 450x450)
+        self._resize_window(700, 700)
+
+    # =========================================================================
+    # View toolbar
+    # =========================================================================
+
+    def _setup_toolbar(self):
+        """Add translate/rotate toolbar above the status bar."""
+        if tk is None:
+            return
+
+        toolbar = tk.Frame(self.window.win)
+        toolbar.pack(side=tk.BOTTOM, fill=tk.X, before=self.window.status)
+
+        # --- Translate buttons ---
+        tk.Label(toolbar, text="Translate:").pack(side=tk.LEFT, padx=(4, 2))
+        translate_buttons = [
+            ("\u25C0", -1, 0),   # ◀
+            ("\u25B6", +1, 0),   # ▶
+            ("\u25B2", 0, +1),   # ▲
+            ("\u25BC", 0, -1),   # ▼
+        ]
+        for label, dx, dy in translate_buttons:
+            btn = tk.Button(toolbar, text=label, width=3)
+            btn.pack(side=tk.LEFT, padx=1)
+            action = lambda dx=dx, dy=dy: self._translate_view(dx, dy)
+            btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
+            btn.bind("<ButtonRelease-1>", self._stop_repeat)
+
+        # --- Rotate buttons ---
+        tk.Label(toolbar, text="  Rotate:").pack(side=tk.LEFT, padx=(8, 2))
+        rotate_buttons = [
+            ("X-", 'x', -5),
+            ("X+", 'x', +5),
+            ("Y-", 'y', -5),
+            ("Y+", 'y', +5),
+            ("Z-", 'z', -5),
+            ("Z+", 'z', +5),
+        ]
+        for label, axis, angle in rotate_buttons:
+            btn = tk.Button(toolbar, text=label, width=3)
+            btn.pack(side=tk.LEFT, padx=1)
+            action = lambda axis=axis, angle=angle: self._rotate_view(axis, angle)
+            btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
+            btn.bind("<ButtonRelease-1>", self._stop_repeat)
+
+        # --- Zoom buttons ---
+        tk.Label(toolbar, text="  Zoom:").pack(side=tk.LEFT, padx=(8, 2))
+        for label, factor in [("-", 1 / 1.1), ("+", 1.1)]:
+            btn = tk.Button(toolbar, text=label, width=3)
+            btn.pack(side=tk.LEFT, padx=1)
+            action = lambda f=factor: self._zoom_view(f)
+            btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
+            btn.bind("<ButtonRelease-1>", self._stop_repeat)
+
+    def _translate_view(self, dx, dy):
+        """Translate the view in screen coordinates. dx, dy are -1 or +1."""
+        step = 20.0 / self.scale
+        self.center -= np.dot(self.axes, np.array([dx * step, -dy * step, 0.0]))
+        self.draw()
+
+    def _zoom_view(self, factor):
+        """Zoom the view by multiplying scale by factor."""
+        self.scale *= factor
+        self.draw()
+
+    def _rotate_view(self, axis, angle_deg):
+        """Rotate the view around the given axis ('x', 'y', 'z') by angle_deg."""
+        angle = np.radians(angle_deg)
+        c, s = np.cos(angle), np.sin(angle)
+        if axis == 'x':
+            R = [[1, 0, 0], [0, c, -s], [0, s, c]]
+        elif axis == 'y':
+            R = [[c, 0, s], [0, 1, 0], [-s, 0, c]]
+        else:  # 'z'
+            R = [[c, -s, 0], [s, c, 0], [0, 0, 1]]
+        self.axes = np.dot(self.axes, np.array(R))
+        self.draw()
+
+    def _start_repeat(self, action):
+        """Execute action and schedule repeat every 50ms."""
+        action()
+        self._repeat_id = self.window.win.after(50, self._start_repeat, action)
+
+    def _stop_repeat(self, event=None):
+        """Cancel the repeating action."""
+        if self._repeat_id is not None:
+            self.window.win.after_cancel(self._repeat_id)
+            self._repeat_id = None
+
+    # =========================================================================
+    # Window size control
+    # =========================================================================
+
+    def _resize_window(self, width, height):
+        """Resize the GUI window to the given width and height in pixels."""
+        win = self.window.win
+        win.geometry(f"{width}x{height}")
+        # Update the internal canvas size tracking so ASE's scale adjusts
+        self.window.size[:] = [width, height]
+
+    def _resize_window_preset(self, width, height):
+        """Resize to a preset size (used as menu callback)."""
+        def callback(key=None):
+            self._resize_window(width, height)
+        return callback
+
+    def _resize_window_custom(self, key=None):
+        """Show a dialog to enter custom window size."""
+        if tk is None:
+            return
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Window Size")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+        dialog.grab_set()
+
+        frame = tk.Frame(dialog, padx=10, pady=10)
+        frame.pack()
+
+        # Get current window size
+        current_w = self.window.win.winfo_width()
+        current_h = self.window.win.winfo_height()
+
+        tk.Label(frame, text="Width:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        width_var = tk.StringVar(value=str(current_w))
+        width_entry = tk.Entry(frame, textvariable=width_var, width=8)
+        width_entry.grid(row=0, column=1, padx=4, pady=2)
+        tk.Label(frame, text="px").grid(row=0, column=2, sticky=tk.W)
+
+        tk.Label(frame, text="Height:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        height_var = tk.StringVar(value=str(current_h))
+        height_entry = tk.Entry(frame, textvariable=height_var, width=8)
+        height_entry.grid(row=1, column=1, padx=4, pady=2)
+        tk.Label(frame, text="px").grid(row=1, column=2, sticky=tk.W)
+
+        def apply_size():
+            try:
+                w = int(width_var.get())
+                h = int(height_var.get())
+                if w < 200 or h < 200:
+                    if messagebox:
+                        messagebox.showerror("Error", "Minimum size is 200x200.",
+                                             parent=dialog)
+                    return
+                self._resize_window(w, h)
+                dialog.destroy()
+            except ValueError:
+                if messagebox:
+                    messagebox.showerror("Error", "Please enter valid integers.",
+                                         parent=dialog)
+
+        btn_frame = tk.Frame(frame)
+        btn_frame.grid(row=2, column=0, columnspan=3, pady=(8, 0))
+        tk.Button(btn_frame, text="OK", width=8, command=apply_size).pack(
+            side=tk.LEFT, padx=4)
+        tk.Button(btn_frame, text="Cancel", width=8,
+                  command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+
+        width_entry.focus_set()
+        width_entry.select_range(0, tk.END)
+        dialog.bind('<Return>', lambda e: apply_size())
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
+
+    # =========================================================================
+    # MoleculeTools methods
+    # =========================================================================
+
+    def load_cif_dialog(self, key=None):
+        """Load a CIF file via file dialog and display the structure."""
+        from tkinter import filedialog
+
+        root = self.window.win if hasattr(self, "window") else None
+        filename = filedialog.askopenfilename(
+            parent=root,
+            title="Load CIF File",
+            filetypes=[("CIF files", "*.cif"), ("All files", "*.*")],
+        )
+        if not filename:
+            return
+
+        try:
+            atoms = read_cif(filename)
+        except Exception as e:
+            if messagebox:
+                messagebox.showerror(
+                    "Error", f"Failed to read CIF file:\n{e}"
+                )
+            return
+
+        self.images.initialize([atoms])
+        self.set_frame()
+        self.draw()
+        self.controller.set_atoms(self.atoms)
+
+    def add_molecule_dialog(self, key=None):
+        """Show add molecule dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+        cell = self.atoms.get_cell() if self.atoms is not None else None
+
+        result = show_add_molecule_dialog(parent=root, cell=cell)
+        if result:
+            # Ensure controller has current atoms reference
+            self.controller.set_atoms(self.atoms)
+
+            add_mode = result.get("add_mode", "single")
+
+            if add_mode == "unitcell":
+                # Add all molecules from unit cell
+                positions = result.get("positions", [])
+                lattice = result.get("lattice")
+                molecule_name = result["molecule_name"]
+
+                # Set cell from molecule's lattice if current cell is default
+                if lattice and self.atoms is not None:
+                    current_cell = self.atoms.get_cell()
+                    if np.allclose(current_cell, np.diag([20, 20, 20])):
+                        self.atoms.set_cell(lattice)
+
+                success_count = 0
+                for pos in positions:
+                    success = self.controller.add_molecule(
+                        molecule_name=molecule_name,
+                        position=pos,
+                    )
+                    if success:
+                        success_count += 1
+
+                if success_count > 0:
+                    self.images.initialize([self.atoms])
+                    self.set_frame()
+                    self.draw()
+                    if messagebox:
+                        messagebox.showinfo(
+                            "Success",
+                            f"Added {success_count} {molecule_name} molecule(s)"
+                        )
+                else:
+                    if messagebox:
+                        messagebox.showerror("Error", "Failed to add molecules.")
+            else:
+                # Single molecule mode
+                success = self.controller.add_molecule(
+                    molecule_name=result["molecule_name"],
+                    position=result["position"],
+                )
+                if success:
+                    self.images.initialize([self.atoms])
+                    self.set_frame()
+                    self.draw()
+                    if messagebox:
+                        messagebox.showinfo(
+                            "Success",
+                            f"Added {result['molecule_name']} at {result['position']}"
+                        )
+                else:
+                    if messagebox:
+                        messagebox.showerror("Error", "Failed to add molecule.")
+
+    def list_molecules_dialog(self, key=None):
+        """Show molecule list dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+        show_molecule_list_dialog(parent=root, atoms=self.atoms)
+
+    def save_molecule_dialog(self, key=None):
+        """Show save selection as molecule dialog."""
+        if self.atoms is None or len(self.atoms) == 0:
+            if messagebox:
+                messagebox.showerror("Error", "No structure loaded.")
+            return
+
+        # Get selected atom indices
+        selected_indices = []
+        if hasattr(self, 'images') and self.images.selected.any():
+            selected_indices = list(np.where(self.images.selected)[0])
+
+        if not selected_indices:
+            if messagebox:
+                messagebox.showerror("Error", "No atoms selected. Select atoms first.")
+            return
+
+        root = self.window.win if hasattr(self, "window") else None
+
+        def highlight_atoms(indices):
+            """Update ASE GUI selection highlight."""
+            self.images.selected[:] = False
+            for i in indices:
+                if 0 <= i < len(self.images.selected):
+                    self.images.selected[i] = True
+            self.draw()
+
+        result = show_save_molecule_dialog(
+            parent=root,
+            atoms=self.atoms,
+            selected_indices=selected_indices,
+            highlight_callback=highlight_atoms,
+        )
+        if result:
+            if messagebox:
+                messagebox.showinfo(
+                    "Success",
+                    f"Saved molecule '{result['molecule_name']}' "
+                    f"({result['num_molecules']} molecule(s)) to\n"
+                    f"{result['toml_path']}",
+                )
+
+    def global_substitution_dialog(self, key=None):
+        """Show global element substitution dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+        result = show_global_substitution_dialog(parent=root, atoms=self.atoms)
+        if result:
+            self.controller.set_atoms(self.atoms)
+            count = self.controller.global_atom_substitution(
+                old_symbol=result["old_symbol"],
+                new_symbol=result["new_symbol"],
+            )
+            self.set_frame()
+            self.draw()
+            if messagebox:
+                messagebox.showinfo(
+                    "Substitution",
+                    f"Replaced {count} {result['old_symbol']} -> {result['new_symbol']}"
+                )
+
+    def molecule_substitution_dialog(self, key=None):
+        """Show molecule substitution dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+
+        # Get mol_id from selected atom if any
+        selected_mol_index = None
+        if hasattr(self, 'images') and self.images.selected.any():
+            selected_indices = np.where(self.images.selected)[0]
+            if len(selected_indices) >= 1 and self.atoms is not None:
+                if "mol_id" in self.atoms.arrays:
+                    mol_ids = self.atoms.get_array("mol_id")
+                    selected_mol_index = int(mol_ids[selected_indices[0]])
+
+        result = show_molecule_substitution_dialog(
+            parent=root, atoms=self.atoms, selected_mol_index=selected_mol_index
+        )
+        if result:
+            # Use molecule_index directly (cell_index is for TOML-based systems)
+            mol_idx = result["molecule_index"]
+            new_molecule = result["new_molecule"]
+
+            self.controller.set_atoms(self.atoms)
+            success = self.controller.substitute_molecule(
+                molecule_index=mol_idx,
+                new_molecule_name=new_molecule,
+            )
+
+            if success:
+                # Get the new atoms object from controller and reinitialize
+                new_atoms = self.controller.get_atoms()
+                self.images.initialize([new_atoms])
+                self.set_frame()
+                self.draw()
+                if messagebox:
+                    messagebox.showinfo(
+                        "Success",
+                        f"Molecule {mol_idx} replaced with {new_molecule}"
+                    )
+            else:
+                if messagebox:
+                    messagebox.showerror(
+                        "Error",
+                        f"Failed to substitute molecule {mol_idx} with {new_molecule}"
+                    )
+
+    def molecule_atom_substitution_dialog(self, key=None):
+        """Show molecule atom substitution dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+
+        # Get mol_id from selected atom if any
+        selected_mol_index = None
+        if hasattr(self, 'images') and self.images.selected.any():
+            selected_indices = np.where(self.images.selected)[0]
+            if len(selected_indices) >= 1 and self.atoms is not None:
+                if "mol_id" in self.atoms.arrays:
+                    mol_ids = self.atoms.get_array("mol_id")
+                    # Use the mol_id of the first selected atom
+                    selected_mol_index = int(mol_ids[selected_indices[0]])
+
+        result = show_molecule_atom_substitution_dialog(
+            parent=root, atoms=self.atoms, selected_mol_index=selected_mol_index
+        )
+        if result:
+            mol_idx = result["molecule_index"]
+            self.controller.set_atoms(self.atoms)
+            success, error_msg = self.controller.substitute_molecule_atoms(
+                molecule_index=mol_idx,
+                new_symbols=result["new_symbols"],
+            )
+            if success:
+                self.set_frame()
+                self.draw()
+                if messagebox:
+                    messagebox.showinfo("Success", "Molecule atoms substituted.")
+            else:
+                if messagebox:
+                    messagebox.showerror("Error", error_msg)
+
+    def atom_substitution_dialog(self, key=None):
+        """Show individual atom substitution dialog."""
+        root = self.window.win if hasattr(self, "window") else None
+
+        # Get selected atom if any
+        selected = None
+        if hasattr(self, 'images') and self.images.selected.any():
+            selected_indices = np.where(self.images.selected)[0]
+            if len(selected_indices) == 1:
+                selected = int(selected_indices[0])
+
+        result = show_atom_substitution_dialog(
+            parent=root,
+            atoms=self.atoms,
+            selected_atom=selected,
+        )
+        if result:
+            # For simplicity, use atom_index directly
+            atom_idx = result["atom_index"]
+            self.controller.set_atoms(self.atoms)
+            success = self.controller.substitute_atom(
+                atom_index=atom_idx,
+                new_symbol=result["new_symbol"],
+            )
+            if success:
+                self.set_frame()
+                self.draw()
+                if messagebox:
+                    messagebox.showinfo("Success", f"Atom {atom_idx} -> {result['new_symbol']}")
+            else:
+                if messagebox:
+                    messagebox.showerror("Error", "Failed to substitute atom.")
+
+    # =========================================================================
+    # Export methods
+    # =========================================================================
+
+    def export_all_dialog(self, key=None):
+        """Show export dialog for all formats."""
+        root = self.window.win if hasattr(self, "window") else None
+        result = show_export_dialog(parent=root, atoms=self.atoms)
+        # Dialog handles its own success/error messages
+
+    def export_qe(self, key=None):
+        """Export to Quantum ESPRESSO format."""
+        self._export_single_format("qe")
+
+    def export_vasp(self, key=None):
+        """Export to VASP format."""
+        self._export_single_format("vasp")
+
+    def export_cif(self, key=None):
+        """Export to CIF format."""
+        self._export_single_format("cif")
+
+    def _export_single_format(self, fmt: str):
+        """Export to a single format."""
+        from tkinter import filedialog
+        from pathlib import Path
+        from ase.io import write
+
+        if self.atoms is None:
+            if messagebox:
+                messagebox.showerror("Error", "No structure to export.")
+            return
+
+        root = self.window.win if hasattr(self, "window") else None
+
+        if fmt == "qe":
+            filename = filedialog.asksaveasfilename(
+                parent=root,
+                title="Save Quantum ESPRESSO Input",
+                defaultextension=".in",
+                filetypes=[("QE Input", "*.in"), ("All files", "*.*")],
+            )
+            if filename:
+                unique_species = sorted(set(self.atoms.get_chemical_symbols()))
+                pseudopotentials = {elem: f"{elem}.pbe-nc.UPF" for elem in unique_species}
+                input_data = {
+                    'control': {'calculation': 'scf', 'prefix': 'molecule', 'outdir': './tmp'},
+                    'system': {'ecutwfc': 40, 'ecutrho': 320},
+                    'electrons': {'conv_thr': 1e-8},
+                }
+                write(filename, self.atoms, format='espresso-in',
+                      pseudopotentials=pseudopotentials, input_data=input_data, kpoints=(1, 1, 1))
+                if messagebox:
+                    messagebox.showinfo("Export", f"Saved: {filename}")
+
+        elif fmt == "vasp":
+            filename = filedialog.asksaveasfilename(
+                parent=root,
+                title="Save VASP POSCAR",
+                defaultextension="",
+                initialfile="POSCAR",
+                filetypes=[("POSCAR", "POSCAR*"), ("All files", "*.*")],
+            )
+            if filename:
+                write(filename, self.atoms, format='vasp', direct=True)
+                if messagebox:
+                    messagebox.showinfo("Export", f"Saved: {filename}")
+
+        elif fmt == "cif":
+            filename = filedialog.asksaveasfilename(
+                parent=root,
+                title="Save CIF",
+                defaultextension=".cif",
+                filetypes=[("CIF files", "*.cif"), ("All files", "*.*")],
+            )
+            if filename:
+                # Create a copy to avoid modifying the original
+                atoms_copy = self.atoms.copy()
+                # Disable PBC to prevent atom wrapping when re-reading
+                # This preserves molecular structures that span cell boundaries
+                atoms_copy.set_pbc(False)
+                write(filename, atoms_copy, format='cif')
+                if messagebox:
+                    messagebox.showinfo("Export", f"Saved: {filename}")
+
+    # =========================================================================
+    # Menu construction
+    # =========================================================================
+
+    def get_menu_data(self):
+        """Build extended menu with MoleculeTools and Export."""
+        menu = super().get_menu_data()
+        M = ui.MenuItem
+
+        # MoleculeTools menu
+        menu.append((
+            _('MoleculeTools'),
+            [
+                M(_('Load CIF...'),
+                  self.load_cif_dialog),
+                M(_('Add Molecule...'),
+                  self.add_molecule_dialog),
+                M(_('List Molecules/Groups'),
+                  self.list_molecules_dialog),
+                M(_('Save Selection as Molecule...'),
+                  self.save_molecule_dialog),
+                M(_('Global Element Substitution...'),
+                  self.global_substitution_dialog),
+                M(_('Molecule Substitution...'),
+                  self.molecule_substitution_dialog),
+                M(_('Molecule Atom Substitution...'),
+                  self.molecule_atom_substitution_dialog),
+                M(_('Individual Atom Substitution...'),
+                  self.atom_substitution_dialog),
+            ]
+        ))
+
+        # Export menu
+        menu.append((
+            _('Export'),
+            [
+                M(_('Export All (QE, VASP, CIF)...'),
+                  self.export_all_dialog),
+                M(_('Quantum ESPRESSO...'),
+                  self.export_qe),
+                M(_('VASP...'),
+                  self.export_vasp),
+                M(_('CIF...'),
+                  self.export_cif),
+            ]
+        ))
+
+        # Window Size menu
+        size_items = []
+        for label, w, h in self.WINDOW_SIZES:
+            size_items.append(M(_(label), self._resize_window_preset(w, h)))
+        size_items.append(M(_('Custom Size...'), self._resize_window_custom))
+        menu.append((_('Window Size'), size_items))
+
+        return menu
+
+
+def launch_gui(atoms: Atoms) -> Atoms:
+    """
+    Launch the molecular modeling GUI with a given atoms object.
+
+    Parameters
+    ----------
+    atoms : ase.Atoms
+        ASE Atoms object to visualize and edit.
+
+    Returns
+    -------
+    ase.Atoms
+        The modified atoms object after GUI is closed.
+
+    Example
+    -------
+    >>> from source.build_system_from_toml import build_system_from_toml
+    >>> from molecular_modeling_gui import launch_gui
+    >>> system = build_system_from_toml(verbose=True)
+    >>> modified_system = launch_gui(system)
+    >>> # Use modified_system for further processing
+    """
+    # Reset controller to fresh state and set atoms
+    controller = reset_controller()
+    controller.set_atoms(atoms)
+
+    # Launch GUI
+    gui = MolecularModelingGUI(images=[atoms])
+    gui.run()
+
+    # Return the modified atoms after GUI closes
+    return gui.atoms
+
+
+def main():
+    """Main entry point."""
+    if len(sys.argv) < 2:
+        # Create empty structure with reasonable default cell
+        atoms = Atoms()
+        atoms.set_cell([20, 20, 20])  # 20x20x20 Angstrom box
+        atoms.set_pbc(True)
+        # Initialize empty groups info
+        atoms.info["groups"] = []
+        atoms.info["site_mol_name"] = []
+    else:
+        atoms = read(sys.argv[1])
+
+    launch_gui(atoms)
+
+
+if __name__ == "__main__":
+    main()
