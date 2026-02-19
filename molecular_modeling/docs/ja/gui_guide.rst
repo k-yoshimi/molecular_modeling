@@ -62,6 +62,10 @@ MoleculeTools メニュー
 
    * - メニュー項目
      - 説明
+   * - Undo (Ctrl+Z)
+     - 直前の操作を取り消す（最大50回）
+   * - Redo (Ctrl+Y)
+     - 取り消した操作をやり直す
    * - Load CIF...
      - CIF ファイルを読み込み、構造を表示
    * - Add Molecule...

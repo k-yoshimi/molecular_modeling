@@ -63,6 +63,10 @@ MoleculeTools Menu
 
    * - Menu Item
      - Description
+   * - Undo (Ctrl+Z)
+     - Undo the last operation (up to 50 steps)
+   * - Redo (Ctrl+Y)
+     - Redo the last undone operation
    * - Load CIF...
      - Load a CIF file and display the structure
    * - Add Molecule...

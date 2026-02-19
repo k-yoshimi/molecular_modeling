@@ -141,12 +141,16 @@ class MolecularModelingGUI(GUI):
         ("Wide (1200x600)", 1200, 600),
     ]
 
+    MAX_UNDO = 50  # Maximum number of undo snapshots
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.controller = get_controller()
         if self.atoms is not None:
             self.controller.set_atoms(self.atoms)
         self._repeat_id = None
+        self._undo_stack = []
+        self._redo_stack = []
         self._setup_toolbar()
         # Set a reasonable default window size (larger than ASE's 450x450)
         self._resize_window(700, 700)
@@ -238,6 +242,84 @@ class MolecularModelingGUI(GUI):
         if self._repeat_id is not None:
             self.window.win.after_cancel(self._repeat_id)
             self._repeat_id = None
+
+    # =========================================================================
+    # Undo / Redo
+    # =========================================================================
+
+    def _save_undo_state(self):
+        """Save the current atoms state to the undo stack."""
+        if self.atoms is None:
+            return
+        snapshot = self.atoms.copy()
+        snapshot.info = dict(self.atoms.info)
+        # Copy arrays (e.g. mol_id)
+        for key in self.atoms.arrays:
+            if key not in ('numbers', 'positions'):
+                snapshot.set_array(key, self.atoms.get_array(key).copy())
+        self._undo_stack.append(snapshot)
+        if len(self._undo_stack) > self.MAX_UNDO:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def _restore_atoms(self, snapshot):
+        """Restore atoms from a snapshot and update the GUI."""
+        self.atoms.positions[:] = snapshot.positions
+        self.atoms.numbers[:] = snapshot.numbers
+        self.atoms.set_cell(snapshot.get_cell())
+        self.atoms.set_pbc(snapshot.get_pbc())
+        self.atoms.info = dict(snapshot.info)
+        # Restore arrays
+        for key in snapshot.arrays:
+            if key not in ('numbers', 'positions'):
+                self.atoms.set_array(key, snapshot.get_array(key).copy())
+        # Handle size change (atoms added/removed)
+        if len(snapshot) != len(self.atoms):
+            self.images.initialize([snapshot.copy()])
+            # Copy info and arrays to the new atoms object
+            self.atoms = self.images[0]
+            self.atoms.info = dict(snapshot.info)
+            for key in snapshot.arrays:
+                if key not in ('numbers', 'positions'):
+                    self.atoms.set_array(key, snapshot.get_array(key).copy())
+        self.controller.set_atoms(self.atoms)
+        self.images.initialize([self.atoms])
+        self.set_frame()
+        self.draw()
+
+    def undo(self, key=None):
+        """Undo the last operation."""
+        if not self._undo_stack:
+            if messagebox:
+                messagebox.showinfo("Undo", "Nothing to undo.")
+            return
+        # Save current state to redo stack
+        if self.atoms is not None:
+            current = self.atoms.copy()
+            current.info = dict(self.atoms.info)
+            for k in self.atoms.arrays:
+                if k not in ('numbers', 'positions'):
+                    current.set_array(k, self.atoms.get_array(k).copy())
+            self._redo_stack.append(current)
+        snapshot = self._undo_stack.pop()
+        self._restore_atoms(snapshot)
+
+    def redo(self, key=None):
+        """Redo the last undone operation."""
+        if not self._redo_stack:
+            if messagebox:
+                messagebox.showinfo("Redo", "Nothing to redo.")
+            return
+        # Save current state to undo stack
+        if self.atoms is not None:
+            current = self.atoms.copy()
+            current.info = dict(self.atoms.info)
+            for k in self.atoms.arrays:
+                if k not in ('numbers', 'positions'):
+                    current.set_array(k, self.atoms.get_array(k).copy())
+            self._undo_stack.append(current)
+        snapshot = self._redo_stack.pop()
+        self._restore_atoms(snapshot)
 
     # =========================================================================
     # Window size control
@@ -340,6 +422,7 @@ class MolecularModelingGUI(GUI):
                 )
             return
 
+        self._save_undo_state()
         self.images.initialize([atoms])
         self.set_frame()
         self.draw()
@@ -352,6 +435,7 @@ class MolecularModelingGUI(GUI):
 
         result = show_add_molecule_dialog(parent=root, cell=cell)
         if result:
+            self._save_undo_state()
             # Ensure controller has current atoms reference
             self.controller.set_atoms(self.atoms)
 
@@ -461,6 +545,7 @@ class MolecularModelingGUI(GUI):
         root = self.window.win if hasattr(self, "window") else None
         result = show_global_substitution_dialog(parent=root, atoms=self.atoms)
         if result:
+            self._save_undo_state()
             self.controller.set_atoms(self.atoms)
             count = self.controller.global_atom_substitution(
                 old_symbol=result["old_symbol"],
@@ -491,6 +576,7 @@ class MolecularModelingGUI(GUI):
             parent=root, atoms=self.atoms, selected_mol_index=selected_mol_index
         )
         if result:
+            self._save_undo_state()
             # Use molecule_index directly (cell_index is for TOML-based systems)
             mol_idx = result["molecule_index"]
             new_molecule = result["new_molecule"]
@@ -537,6 +623,7 @@ class MolecularModelingGUI(GUI):
             parent=root, atoms=self.atoms, selected_mol_index=selected_mol_index
         )
         if result:
+            self._save_undo_state()
             mol_idx = result["molecule_index"]
             self.controller.set_atoms(self.atoms)
             success, error_msg = self.controller.substitute_molecule_atoms(
@@ -569,6 +656,7 @@ class MolecularModelingGUI(GUI):
             selected_atom=selected,
         )
         if result:
+            self._save_undo_state()
             # For simplicity, use atom_index directly
             atom_idx = result["atom_index"]
             self.controller.set_atoms(self.atoms)
@@ -741,6 +829,8 @@ class MolecularModelingGUI(GUI):
         from source.build_molecule_groups import build_molecule_groups
         from source.optimize_voronoi_overlap import optimize_voronoi_overlap
 
+        self._save_undo_state()
+
         def task():
             groups = build_molecule_groups(self.atoms)
             rngs = self.atoms.info.get("rng", {})
@@ -825,6 +915,8 @@ class MolecularModelingGUI(GUI):
         if not out_dir:
             return
 
+        self._save_undo_state()
+
         def task():
             import os
             groups = build_molecule_groups(self.atoms)
@@ -877,6 +969,8 @@ class MolecularModelingGUI(GUI):
         menu.append((
             _('MoleculeTools'),
             [
+                M(_('Undo'), self.undo, 'Ctrl+Z'),
+                M(_('Redo'), self.redo, 'Ctrl+Y'),
                 M(_('Load CIF...'),
                   self.load_cif_dialog),
                 M(_('Add Molecule...'),
