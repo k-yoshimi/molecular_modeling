@@ -303,8 +303,120 @@ class MolecularModelingGUI(GUI):
             self.window.update_status_line(text)
             return
 
-        # For 2+ atoms, use ASE's default behavior
+        from ase.data import chemical_symbols
+
+        if n == 2:
+            # Distance with MIC
+            Z = atoms.numbers[indices]
+            d = atoms.get_distance(int(indices[0]), int(indices[1]), mic=True)
+            s0, s1 = chemical_symbols[Z[0]], chemical_symbols[Z[1]]
+            text = f" #{indices[0]}({s0})-#{indices[1]}({s1}): {d:.3f} Å"
+            # Add molecule info
+            text += self._mol_info_for_indices(atoms, indices)
+            self.window.update_status_line(text)
+            # Log measurement
+            self._log_measurement(f"Distance #{indices[0]}({s0})-#{indices[1]}({s1}): {d:.3f} Å")
+            return
+
+        if n == 3:
+            # Angle with MIC
+            Z = atoms.numbers[indices]
+            angle = atoms.get_angle(int(indices[0]), int(indices[1]), int(indices[2]), mic=True)
+            syms = [chemical_symbols[z] for z in Z]
+            text = (f" #{indices[0]}({syms[0]})-#{indices[1]}({syms[1]})"
+                    f"-#{indices[2]}({syms[2]}): {angle:.1f}°")
+            text += self._mol_info_for_indices(atoms, indices)
+            self.window.update_status_line(text)
+            self._log_measurement(
+                f"Angle #{indices[0]}({syms[0]})-#{indices[1]}({syms[1]})"
+                f"-#{indices[2]}({syms[2]}): {angle:.1f}°"
+            )
+            return
+
+        ordered_indices = [i for i in self.images.selected_ordered
+                          if i < len(atoms)]
+        if n == 4 and len(ordered_indices) == 4:
+            # Dihedral angle with MIC
+            Z = atoms.numbers[indices]
+            dihedral = atoms.get_dihedral(*ordered_indices, mic=True)
+            syms = [chemical_symbols[atoms.numbers[i]] for i in ordered_indices]
+            text = (f" Dihedral #{ordered_indices[0]}({syms[0]})"
+                    f"→#{ordered_indices[1]}({syms[1]})"
+                    f"→#{ordered_indices[2]}({syms[2]})"
+                    f"→#{ordered_indices[3]}({syms[3]}): {dihedral:.1f}°")
+            self.window.update_status_line(text)
+            self._log_measurement(
+                f"Dihedral {syms[0]}→{syms[1]}→{syms[2]}→{syms[3]}: {dihedral:.1f}°"
+            )
+            return
+
+        # Fallback for 5+ atoms
         super().status(atoms)
+
+    def _mol_info_for_indices(self, atoms, indices):
+        """Get molecule info string for a set of atom indices."""
+        if "mol_id" not in atoms.arrays:
+            return ""
+        mol_ids = atoms.get_array("mol_id")
+        site_names = atoms.info.get("site_mol_name", [])
+        mols = set()
+        for idx in indices:
+            mid = int(mol_ids[idx])
+            name = site_names[mid] if mid < len(site_names) else f"mol_{mid}"
+            mols.add(name)
+        return " | " + ", ".join(sorted(mols))
+
+    def _log_measurement(self, text):
+        """Add a measurement to the log."""
+        if not hasattr(self, '_measurement_log'):
+            self._measurement_log = []
+        self._measurement_log.append(text)
+        # Keep last 100 measurements
+        if len(self._measurement_log) > 100:
+            self._measurement_log = self._measurement_log[-100:]
+
+    def show_measurement_log(self, key=None):
+        """Show the measurement log dialog."""
+        if tk is None:
+            return
+
+        log = getattr(self, '_measurement_log', [])
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Measurement Log")
+        dialog.resizable(True, True)
+        dialog.transient(self.window.win)
+
+        frame = tk.Frame(dialog, padx=10, pady=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        text_widget = tk.Text(frame, width=60, height=20, wrap=tk.WORD)
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        if log:
+            for i, entry in enumerate(log, 1):
+                text_widget.insert(tk.END, f"{i}. {entry}\n")
+        else:
+            text_widget.insert(tk.END, "No measurements recorded yet.\n"
+                              "Select 2 atoms for distance, 3 for angle, "
+                              "4 for dihedral angle.")
+        text_widget.configure(state=tk.DISABLED)
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, pady=5)
+
+        def clear_log():
+            self._measurement_log = []
+            text_widget.configure(state=tk.NORMAL)
+            text_widget.delete("1.0", tk.END)
+            text_widget.insert(tk.END, "Log cleared.\n")
+            text_widget.configure(state=tk.DISABLED)
+
+        tk.Button(btn_frame, text="Clear", command=clear_log).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=10)
 
     # =========================================================================
     # Recent files
@@ -1333,6 +1445,9 @@ class MolecularModelingGUI(GUI):
                   self.save_project, 'Ctrl+K'),
                 M(_('Load Project...'),
                   self.load_project, 'Ctrl+T'),
+                M('---'),
+                M(_('Measurement Log...'),
+                  self.show_measurement_log),
             ]
         ))
 

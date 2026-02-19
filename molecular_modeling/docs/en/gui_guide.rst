@@ -89,6 +89,8 @@ MoleculeTools Menu
      - Save project files (input.toml + data/\*.toml) to a chosen directory
    * - Load Project... (Ctrl+T)
      - Load a project from a directory and build the structure
+   * - Measurement Log...
+     - Show measurement log (distance/angle/dihedral history)
 
 Recent Files Menu
 ~~~~~~~~~~~~~~~~~
@@ -175,9 +177,13 @@ The status bar at the bottom shows context-dependent information:
   (e.g., ``48 atoms | (C, H) | 4 groups | Cell: 5.5x5.4x18.7 Å``)
 - **1 atom selected**: Atom details — index, element name, coordinates, molecule name
   (e.g., ``#3 Carbon (C): 1.114, 0.098, 0.812 Å | mol_id=0 (benzene)``)
-- **2 atoms selected**: Inter-atomic distance
-- **3 atoms selected**: Bond angles
-- **4 atoms selected**: Dihedral angle
+- **2 atoms selected**: Inter-atomic distance (MIC corrected) with molecule name
+  (e.g., ``#0(C)-#6(H): 1.089 Å | benzene``)
+- **3 atoms selected**: Bond angle (MIC corrected) with molecule name
+  (e.g., ``#0(C)-#1(C)-#2(C): 120.0° | benzene``)
+- **4 atoms selected**: Dihedral angle (MIC corrected)
+
+Measurements are automatically logged and can be reviewed via **MoleculeTools** → **Measurement Log...**.
 
 Keyboard Shortcuts
 ------------------
