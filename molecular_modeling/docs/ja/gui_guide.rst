@@ -82,6 +82,8 @@ MoleculeTools メニュー
      - 分子内の原子リストを新しいリストに置換
    * - Individual Atom Substitution...
      - 1 つの原子を個別に置換
+   * - Build Supercell...
+     - 繰り返し数を指定してスーパーセルを構築
 
 Recent Files メニュー
 ~~~~~~~~~~~~~~~~~~~~

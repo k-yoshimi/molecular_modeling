@@ -83,6 +83,8 @@ MoleculeTools Menu
      - Replace the atom list within a molecule
    * - Individual Atom Substitution...
      - Replace a single atom
+   * - Build Supercell...
+     - Build a supercell with specified repeat factors
 
 Recent Files Menu
 ~~~~~~~~~~~~~~~~~

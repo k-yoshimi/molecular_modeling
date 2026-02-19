@@ -48,6 +48,7 @@ from source.gui.substitution_dialogs import (
 )
 from source.gui.export_dialog import show_export_dialog
 from source.gui.save_molecule_dialog import show_save_molecule_dialog
+from source.gui.supercell_dialog import show_supercell_dialog
 from source.gui.controller import get_controller, reset_controller
 
 
@@ -785,6 +786,45 @@ class MolecularModelingGUI(GUI):
                 if messagebox:
                     messagebox.showerror("Error", "Failed to substitute atom.")
 
+    def supercell_dialog(self, key=None):
+        """Show supercell builder dialog and apply."""
+        if self.atoms is None or len(self.atoms) == 0:
+            if messagebox:
+                messagebox.showerror("Error", "No structure loaded.")
+            return
+
+        root = self.window.win if hasattr(self, "window") else None
+        result = show_supercell_dialog(
+            parent=root, current_repeats=(1, 1, 1), atoms=self.atoms,
+        )
+        if result:
+            repeat = result["supercell_repeat"]
+            self._save_undo_state()
+            from ase.build import make_supercell
+            P = np.diag(repeat)
+            new_atoms = make_supercell(self.atoms, P)
+            # Replicate mol_id array if present
+            if "mol_id" in self.atoms.arrays:
+                old_ids = self.atoms.get_array("mol_id")
+                n_orig = len(self.atoms)
+                n_cells = repeat[0] * repeat[1] * repeat[2]
+                max_id = old_ids.max() + 1 if len(old_ids) > 0 else 0
+                new_ids = []
+                for cell_i in range(n_cells):
+                    new_ids.extend(old_ids + cell_i * max_id)
+                if len(new_ids) == len(new_atoms):
+                    new_atoms.set_array("mol_id", np.array(new_ids, dtype=int))
+            self.images.initialize([new_atoms])
+            self.set_frame()
+            self.draw()
+            self.controller.set_atoms(self.atoms)
+            if messagebox:
+                messagebox.showinfo(
+                    "Supercell",
+                    f"Built {repeat[0]}x{repeat[1]}x{repeat[2]} supercell\n"
+                    f"({len(new_atoms)} atoms)",
+                )
+
     # =========================================================================
     # Export methods
     # =========================================================================
@@ -1099,6 +1139,8 @@ class MolecularModelingGUI(GUI):
                   self.molecule_atom_substitution_dialog),
                 M(_('Individual Atom Substitution...'),
                   self.atom_substitution_dialog),
+                M(_('Build Supercell...'),
+                  self.supercell_dialog),
             ]
         ))
 
