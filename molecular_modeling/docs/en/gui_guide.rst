@@ -175,6 +175,10 @@ View Settings Menu
      - Color atoms by ``mol_id`` using distinct colors per molecule group
    * - Reset Colors
      - Reset colors to ASE default (jmol)
+   * - Toggle Hydrogen
+     - Toggle visibility of hydrogen atoms
+   * - Element Visibility...
+     - Open dialog to show/hide atoms by element
    * - Small / Medium / Large / Wide
      - Window size presets
    * - Custom Size...

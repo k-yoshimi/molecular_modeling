@@ -174,6 +174,10 @@ View Settings メニュー
      - ``mol_id`` に基づき分子グループごとに異なる色で表示
    * - Reset Colors
      - 色設定を ASE デフォルト（jmol）に戻す
+   * - Toggle Hydrogen
+     - 水素原子の表示/非表示を切り替え
+   * - Element Visibility...
+     - 元素ごとに表示/非表示を設定するダイアログを表示
    * - Small / Medium / Large / Wide
      - ウィンドウサイズのプリセット変更
    * - Custom Size...

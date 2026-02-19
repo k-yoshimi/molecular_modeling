@@ -702,6 +702,69 @@ class MolecularModelingGUI(GUI):
         self.draw()
 
     # =========================================================================
+    # Show/hide atoms
+    # =========================================================================
+
+    def toggle_hydrogen(self, key=None):
+        """Toggle visibility of hydrogen atoms."""
+        if self.atoms is None:
+            return
+        h_mask = np.array(self.atoms.numbers == 1)
+        if not h_mask.any():
+            return
+        # If any H is visible, hide all; otherwise show all
+        n = len(self.atoms)
+        visible = self.images.visible[:n]
+        if visible[h_mask].any():
+            self.images.visible[:n][h_mask] = False
+        else:
+            self.images.visible[:n][h_mask] = True
+        self.draw()
+
+    def toggle_element_visibility(self, key=None):
+        """Open dialog to toggle visibility by element."""
+        if tk is None or self.atoms is None:
+            return
+
+        from ase.data import chemical_symbols
+        elements = sorted(set(chemical_symbols[z] for z in self.atoms.numbers))
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Element Visibility")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Toggle element visibility:", padx=10, pady=5).pack(anchor=tk.W)
+
+        n = len(self.atoms)
+        visible = self.images.visible[:n]
+        syms = self.atoms.get_chemical_symbols()
+
+        frame = tk.Frame(dialog, padx=10)
+        frame.pack(fill=tk.BOTH)
+
+        vars_ = {}
+        for sym in elements:
+            # Check if any atom of this element is visible
+            elem_mask = np.array([s == sym for s in syms])
+            is_visible = visible[elem_mask].any()
+            v = tk.BooleanVar(value=is_visible)
+            vars_[sym] = v
+            tk.Checkbutton(frame, text=sym, variable=v).pack(anchor=tk.W)
+
+        def apply():
+            for sym, v in vars_.items():
+                elem_mask = np.array([s == sym for s in syms])
+                self.images.visible[:n][elem_mask] = v.get()
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Apply", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    # =========================================================================
     # Atom appearance panel
     # =========================================================================
 
@@ -2031,6 +2094,9 @@ class MolecularModelingGUI(GUI):
             M(_('Atom Appearance...'), self.show_appearance_panel),
             M(_('Color by Molecule Group'), self._color_by_molecule_group),
             M(_('Reset Colors'), self._reset_element_colors),
+            M('---'),
+            M(_('Toggle Hydrogen'), self.toggle_hydrogen),
+            M(_('Element Visibility...'), self.toggle_element_visibility),
             M('---'),
         ]
         for label, w, h in self.WINDOW_SIZES:
