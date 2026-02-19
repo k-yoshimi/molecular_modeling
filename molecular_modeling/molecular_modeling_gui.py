@@ -419,6 +419,244 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=10)
 
     # =========================================================================
+    # Atom appearance panel
+    # =========================================================================
+
+    # Distinct colors for molecule groups (up to 20, then recycle)
+    _GROUP_COLORS = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
+    ]
+
+    def show_appearance_panel(self, key=None):
+        """Show the atom appearance settings panel."""
+        if tk is None:
+            return
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Atom Appearance")
+        dialog.resizable(True, True)
+        dialog.transient(self.window.win)
+        dialog.geometry("420x500")
+
+        notebook = ttk.Notebook(dialog)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # --- Tab 1: Color Mode ---
+        color_frame = tk.Frame(notebook, padx=10, pady=10)
+        notebook.add(color_frame, text="Color Mode")
+
+        color_mode_var = tk.StringVar(value="jmol")
+        modes = [
+            ("Default (by element)", "jmol"),
+            ("By molecule group", "mol_group"),
+            ("By tag", "tag"),
+        ]
+        for label, mode in modes:
+            tk.Radiobutton(
+                color_frame, text=label, variable=color_mode_var,
+                value=mode, command=lambda: self._apply_color_mode(color_mode_var.get()),
+            ).pack(anchor=tk.W, pady=2)
+
+        # Custom array modes (if atoms have extra arrays)
+        if self.atoms is not None:
+            skip = {'numbers', 'positions', 'forces', 'momenta',
+                    'initial_charges', 'initial_magmoms', 'tags'}
+            for key_name in self.atoms.arrays:
+                if key_name not in skip and key_name != 'mol_id':
+                    tk.Radiobutton(
+                        color_frame, text=f"By '{key_name}'",
+                        variable=color_mode_var, value=key_name,
+                        command=lambda: self._apply_color_mode(color_mode_var.get()),
+                    ).pack(anchor=tk.W, pady=2)
+
+        # --- Tab 2: Element Colors ---
+        elem_frame = tk.Frame(notebook, padx=10, pady=10)
+        notebook.add(elem_frame, text="Element Colors")
+
+        canvas = tk.Canvas(elem_frame)
+        scroll = ttk.Scrollbar(elem_frame, orient=tk.VERTICAL, command=canvas.yview)
+        inner = tk.Frame(canvas)
+
+        inner.bind("<Configure>",
+                    lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Get unique elements in current structure
+        elements = []
+        if self.atoms is not None:
+            from ase.data import chemical_symbols
+            seen = set()
+            for z in self.atoms.numbers:
+                sym = chemical_symbols[z]
+                if sym not in seen:
+                    seen.add(sym)
+                    elements.append((z, sym))
+            elements.sort(key=lambda x: x[0])
+
+        self._elem_color_labels = {}
+        for z, sym in elements:
+            row = tk.Frame(inner)
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=f"{sym} (Z={z})", width=12, anchor=tk.W).pack(side=tk.LEFT)
+            color_hex = self.colors.get(z, '#808080')
+            lbl = tk.Label(row, text="  ", bg=color_hex, width=4, relief=tk.SUNKEN)
+            lbl.pack(side=tk.LEFT, padx=5)
+            self._elem_color_labels[z] = lbl
+            btn = tk.Button(
+                row, text="Change...",
+                command=lambda z=z, lbl=lbl: self._pick_element_color(z, lbl),
+            )
+            btn.pack(side=tk.LEFT)
+
+        # Reset button
+        tk.Button(
+            elem_frame, text="Reset to Default",
+            command=lambda: self._reset_element_colors(),
+        ).pack(pady=5)
+
+        # --- Tab 3: Size ---
+        size_frame = tk.Frame(notebook, padx=10, pady=10)
+        notebook.add(size_frame, text="Size")
+
+        tk.Label(size_frame, text="Atom Size Scale:").pack(anchor=tk.W, pady=(0, 5))
+
+        current_scale = getattr(self.images, 'atom_scale', 0.89)
+        scale_var = tk.DoubleVar(value=current_scale)
+
+        scale_label = tk.Label(size_frame, text=f"{current_scale:.2f}")
+        scale_label.pack(anchor=tk.W)
+
+        def update_scale(val):
+            v = float(val)
+            self.images.atom_scale = v
+            scale_label.configure(text=f"{v:.2f}")
+            self.draw()
+
+        scale_slider = tk.Scale(
+            size_frame, from_=0.1, to=3.0, resolution=0.05,
+            orient=tk.HORIZONTAL, variable=scale_var,
+            command=update_scale, length=300,
+        )
+        scale_slider.pack(fill=tk.X, pady=5)
+
+        # Per-element size multipliers
+        tk.Label(size_frame, text="\nPer-Element Radius Override:",
+                 font=("", 10, "bold")).pack(anchor=tk.W, pady=(10, 5))
+
+        size_inner = tk.Frame(size_frame)
+        size_inner.pack(fill=tk.X)
+
+        from ase.data import covalent_radii as default_radii
+        for z, sym in elements:
+            row = tk.Frame(size_inner)
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=f"{sym}:", width=6, anchor=tk.W).pack(side=tk.LEFT)
+            current_r = self.images.covalent_radii[z]
+            default_r = default_radii[z]
+            r_var = tk.DoubleVar(value=current_r)
+            tk.Label(row, text=f"(default: {default_r:.2f} Å)", width=18,
+                     anchor=tk.W).pack(side=tk.LEFT)
+            spin = tk.Spinbox(
+                row, from_=0.1, to=5.0, increment=0.05,
+                textvariable=r_var, width=8,
+                command=lambda z=z, v=r_var: self._set_element_radius(z, v),
+            )
+            spin.pack(side=tk.LEFT, padx=5)
+
+        # Close button
+        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
+
+    def _apply_color_mode(self, mode):
+        """Apply a color mode to the current view."""
+        if mode == "mol_group":
+            self._color_by_molecule_group()
+        elif mode == "jmol":
+            self.colormode = 'jmol'
+            self.draw()
+        elif mode == "tag":
+            self.colormode = 'tag'
+            # Set colormode_data for tag mode
+            if self.atoms is not None:
+                tags = self.atoms.get_tags()
+                n_colors = max(len(self._GROUP_COLORS), int(tags.max()) + 1)
+                colorscale = (self._GROUP_COLORS * ((n_colors // len(self._GROUP_COLORS)) + 1))[:n_colors]
+                self.colormode_data = (colorscale, 0, n_colors - 1)
+            self.draw()
+        else:
+            # Custom array mode
+            if self.atoms is not None and mode in self.atoms.arrays:
+                data = self.atoms.get_array(mode)
+                mn, mx = float(data.min()), float(data.max())
+                if mn == mx:
+                    mx = mn + 1
+                n_colors = len(self._GROUP_COLORS)
+                self.colormode = mode
+                self.colormode_data = (self._GROUP_COLORS[:n_colors], mn, mx)
+                self.draw()
+
+    def _color_by_molecule_group(self):
+        """Color atoms by their molecule group (mol_id)."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            if messagebox:
+                messagebox.showinfo(
+                    "Color by Group",
+                    "No molecule groups found (mol_id).\n"
+                    "Load a structure built from TOML first.",
+                )
+            return
+
+        mol_ids = self.atoms.get_array("mol_id")
+        n_groups = int(mol_ids.max()) + 1
+        n_colors = len(self._GROUP_COLORS)
+        colorscale = (self._GROUP_COLORS * ((n_groups // n_colors) + 1))[:max(n_groups, 1)]
+        self.colormode = 'mol_id'
+        self.colormode_data = (colorscale, 0, max(n_groups - 1, 1))
+        self.draw()
+
+    def _pick_element_color(self, z, label_widget):
+        """Open a color picker for the given element."""
+        from tkinter import colorchooser
+        current = self.colors.get(z, '#808080')
+        result = colorchooser.askcolor(color=current, title=f"Choose color for Z={z}")
+        if result and result[1]:
+            hex_color = result[1]
+            self.colors[z] = hex_color
+            label_widget.configure(bg=hex_color)
+            if self.colormode == 'jmol':
+                self.draw()
+
+    def _reset_element_colors(self):
+        """Reset element colors to ASE default (jmol)."""
+        from ase.data.colors import jmol_colors
+        self.colors = {
+            i: ('#{:02X}{:02X}{:02X}'.format(*(int(x * 255) for x in rgb)))
+            for i, rgb in enumerate(jmol_colors)
+        }
+        self.colormode = 'jmol'
+        self.draw()
+        # Update labels if panel is open
+        for z, lbl in getattr(self, '_elem_color_labels', {}).items():
+            try:
+                lbl.configure(bg=self.colors.get(z, '#808080'))
+            except tk.TclError:
+                pass
+
+    def _set_element_radius(self, z, var):
+        """Set the covalent radius for an element."""
+        try:
+            r = var.get()
+            self.images.covalent_radii[z] = r
+            self.draw()
+        except (tk.TclError, ValueError):
+            pass
+
+    # =========================================================================
     # Recent files
     # =========================================================================
 
@@ -1492,12 +1730,17 @@ class MolecularModelingGUI(GUI):
             ]
         ))
 
-        # Window Size menu
-        size_items = []
+        # View Settings menu
+        view_items = [
+            M(_('Atom Appearance...'), self.show_appearance_panel),
+            M(_('Color by Molecule Group'), self._color_by_molecule_group),
+            M(_('Reset Colors'), self._reset_element_colors),
+            M('---'),
+        ]
         for label, w, h in self.WINDOW_SIZES:
-            size_items.append(M(_(label), self._resize_window_preset(w, h)))
-        size_items.append(M(_('Custom Size...'), self._resize_window_custom))
-        menu.append((_('Window Size'), size_items))
+            view_items.append(M(_(label), self._resize_window_preset(w, h)))
+        view_items.append(M(_('Custom Size...'), self._resize_window_custom))
+        menu.append((_('View Settings'), view_items))
 
         return menu
 

@@ -140,10 +140,25 @@ Pipeline Menu
 **Note**: Pipeline operations require a structure with ``mol_id`` information (i.e., built from TOML).
 Processing runs in a background thread so the GUI remains responsive.
 
-Window Size Menu
-~~~~~~~~~~~~~~~~
+View Settings Menu
+~~~~~~~~~~~~~~~~~~
 
-Change the window size using presets or a custom value.
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Menu Item
+     - Description
+   * - Atom Appearance...
+     - Open the atom appearance panel to customize colors, color modes (by element/molecule group/tag), and atom sizes
+   * - Color by Molecule Group
+     - Color atoms by ``mol_id`` using distinct colors per molecule group
+   * - Reset Colors
+     - Reset colors to ASE default (jmol)
+   * - Small / Medium / Large / Wide
+     - Window size presets
+   * - Custom Size...
+     - Specify any window size
 
 View Toolbar
 ------------
@@ -269,6 +284,29 @@ Molecule Substitution Dialog
 - **Molecule Index**: Index of the molecule to replace
   (auto-filled if atoms are selected)
 - **New Molecule**: Select replacement molecule from dropdown
+
+Atom Appearance Panel
+~~~~~~~~~~~~~~~~~~~~~
+
+Open from **View Settings** → **Atom Appearance...**. The panel has three tabs:
+
+**Color Mode tab**:
+
+- **Default (by element)**: Standard jmol element colors
+- **By molecule group**: Color by ``mol_id`` using 20 distinct colors (cycled)
+- **By tag**: Color by tag values
+- Custom arrays are automatically listed as additional color modes
+
+**Element Colors tab**:
+
+- Change the color of each element individually
+- Click **Change...** to open the color picker
+- **Reset to Default** restores jmol default colors
+
+**Size tab**:
+
+- **Atom Size Scale**: Global atom size multiplier (0.1–3.0, slider)
+- **Per-Element Radius Override**: Adjust covalent radius per element
 
 Export Dialog
 ~~~~~~~~~~~~~

@@ -139,10 +139,25 @@ Pipeline メニュー
 **注意**: Pipeline メニューの各操作は ``mol_id`` 情報を持つ構造（TOML から構築した構造）に対してのみ実行できます。
 処理はバックグラウンドスレッドで実行されるため、GUI は操作中もフリーズしません。
 
-Window Size メニュー
-~~~~~~~~~~~~~~~~~~~~
+View Settings メニュー
+~~~~~~~~~~~~~~~~~~~~~
 
-ウィンドウサイズをプリセットまたはカスタム値で変更できます。
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - メニュー項目
+     - 説明
+   * - Atom Appearance...
+     - 原子の色・サイズを変更するパネルを表示。色モード（元素別/分子グループ別/タグ別）、元素ごとの色変更、原子サイズスケール、元素別半径の調整が可能
+   * - Color by Molecule Group
+     - ``mol_id`` に基づき分子グループごとに異なる色で表示
+   * - Reset Colors
+     - 色設定を ASE デフォルト（jmol）に戻す
+   * - Small / Medium / Large / Wide
+     - ウィンドウサイズのプリセット変更
+   * - Custom Size...
+     - 任意のサイズを指定
 
 ビュー操作ツールバー
 --------------------
@@ -268,6 +283,29 @@ Molecule Substitution ダイアログ
 - **Molecule Index**: 置換対象の分子インデックス
   （原子を選択していれば自動設定）
 - **New Molecule**: 置換先の分子名をドロップダウンから選択
+
+Atom Appearance パネル
+~~~~~~~~~~~~~~~~~~~~~
+
+**View Settings** → **Atom Appearance...** から開くパネルです。3 つのタブがあります:
+
+**Color Mode タブ**:
+
+- **Default (by element)**: 元素ごとの標準色（jmol カラー）
+- **By molecule group**: ``mol_id`` に基づき分子グループごとに色分け（20色を循環使用）
+- **By tag**: タグ値に応じた色分け
+- カスタム配列がある場合、追加の色モードが自動的に表示されます
+
+**Element Colors タブ**:
+
+- 構造中の各元素について個別に色を変更可能
+- **Change...** ボタンでカラーピッカーを表示
+- **Reset to Default** で jmol デフォルトに戻す
+
+**Size タブ**:
+
+- **Atom Size Scale**: 全体の原子サイズスケール（0.1〜3.0、スライダーで調整）
+- **Per-Element Radius Override**: 元素ごとの共有結合半径を個別に変更
 
 Export ダイアログ
 ~~~~~~~~~~~~~~~~~
