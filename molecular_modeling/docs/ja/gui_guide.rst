@@ -84,6 +84,10 @@ MoleculeTools メニュー
      - 1 つの原子を個別に置換
    * - Build Supercell...
      - 繰り返し数を指定してスーパーセルを構築
+   * - Save Project... (Ctrl+K)
+     - プロジェクト（input.toml + data/\*.toml）を指定ディレクトリに保存
+   * - Load Project... (Ctrl+T)
+     - プロジェクトディレクトリから構造を読み込み
 
 Recent Files メニュー
 ~~~~~~~~~~~~~~~~~~~~
@@ -197,6 +201,10 @@ Window Size メニュー
      - Voronoi IoU 最適化を実行
    * - Ctrl+H
      - 最適化結果を表示
+   * - Ctrl+K
+     - プロジェクトを保存
+   * - Ctrl+T
+     - プロジェクトを読み込み
 
 ASE-GUI 標準のキーボードショートカット（Ctrl+O で開く、Ctrl+S で保存など）もそのまま使用できます。
 

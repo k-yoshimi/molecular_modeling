@@ -85,6 +85,10 @@ MoleculeTools Menu
      - Replace a single atom
    * - Build Supercell...
      - Build a supercell with specified repeat factors
+   * - Save Project... (Ctrl+K)
+     - Save project files (input.toml + data/\*.toml) to a chosen directory
+   * - Load Project... (Ctrl+T)
+     - Load a project from a directory and build the structure
 
 Recent Files Menu
 ~~~~~~~~~~~~~~~~~
@@ -198,6 +202,10 @@ Keyboard Shortcuts
      - Run Voronoi IoU optimization
    * - Ctrl+H
      - Show optimization results
+   * - Ctrl+K
+     - Save project
+   * - Ctrl+T
+     - Load project
 
 Standard ASE-GUI keyboard shortcuts (Ctrl+O to open, Ctrl+S to save, etc.) are also available.
 

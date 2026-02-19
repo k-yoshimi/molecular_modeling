@@ -990,6 +990,114 @@ class MolecularModelingGUI(GUI):
         tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
 
     # =========================================================================
+    # Project save/load
+    # =========================================================================
+
+    def save_project(self, key=None):
+        """Save project files (input.toml + data/*.toml) to a chosen directory."""
+        if tk is None:
+            return
+        from tkinter import filedialog
+        import shutil
+
+        src_dir = os.getcwd()
+        input_src = os.path.join(src_dir, "input", "input.toml")
+        data_src = os.path.join(src_dir, "data")
+
+        if not os.path.isfile(input_src):
+            if messagebox:
+                messagebox.showerror(
+                    "Error",
+                    "No input/input.toml found in the working directory.\n"
+                    "Save is only available when a TOML project exists.",
+                )
+            return
+
+        dest_dir = filedialog.askdirectory(
+            title="Save Project To...",
+            parent=self.window.win,
+        )
+        if not dest_dir:
+            return
+
+        try:
+            # Create input/ and data/ directories
+            dest_input = os.path.join(dest_dir, "input")
+            dest_data = os.path.join(dest_dir, "data")
+            os.makedirs(dest_input, exist_ok=True)
+            os.makedirs(dest_data, exist_ok=True)
+
+            # Copy input.toml
+            shutil.copy2(input_src, os.path.join(dest_input, "input.toml"))
+
+            # Copy data/*.toml files
+            if os.path.isdir(data_src):
+                for fname in os.listdir(data_src):
+                    if fname.endswith(".toml"):
+                        shutil.copy2(
+                            os.path.join(data_src, fname),
+                            os.path.join(dest_data, fname),
+                        )
+
+            if messagebox:
+                messagebox.showinfo(
+                    "Save Project",
+                    f"Project saved to:\n{dest_dir}",
+                )
+        except Exception as e:
+            if messagebox:
+                messagebox.showerror("Error", f"Failed to save project:\n{e}")
+
+    def load_project(self, key=None):
+        """Load a project from a directory containing input/input.toml + data/*.toml."""
+        if tk is None:
+            return
+        from tkinter import filedialog
+
+        proj_dir = filedialog.askdirectory(
+            title="Select Project Directory...",
+            parent=self.window.win,
+        )
+        if not proj_dir:
+            return
+
+        input_file = os.path.join(proj_dir, "input", "input.toml")
+        if not os.path.isfile(input_file):
+            if messagebox:
+                messagebox.showerror(
+                    "Error",
+                    f"No input/input.toml found in:\n{proj_dir}",
+                )
+            return
+
+        try:
+            # Temporarily change to project directory and build
+            original_dir = os.getcwd()
+            os.chdir(proj_dir)
+            try:
+                from source.build_system_from_toml import build_system_from_toml
+                new_atoms = build_system_from_toml(verbose=True)
+            finally:
+                os.chdir(original_dir)
+
+            self._save_undo_state()
+            self.atoms = new_atoms
+            self.images[self.frame] = new_atoms
+            self.set_frame(self.frame)
+            self.draw()
+
+            if messagebox:
+                messagebox.showinfo(
+                    "Load Project",
+                    f"Loaded project from:\n{proj_dir}\n"
+                    f"{len(new_atoms)} atoms, "
+                    f"{len(new_atoms.info.get('groups', []))} molecule sites",
+                )
+        except Exception as e:
+            if messagebox:
+                messagebox.showerror("Error", f"Failed to load project:\n{e}")
+
+    # =========================================================================
     # Pipeline execution
     # =========================================================================
 
@@ -1220,6 +1328,11 @@ class MolecularModelingGUI(GUI):
                   self.atom_substitution_dialog),
                 M(_('Build Supercell...'),
                   self.supercell_dialog),
+                M('---'),
+                M(_('Save Project...'),
+                  self.save_project, 'Ctrl+K'),
+                M(_('Load Project...'),
+                  self.load_project, 'Ctrl+T'),
             ]
         ))
 
