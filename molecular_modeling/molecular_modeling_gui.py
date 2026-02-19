@@ -1896,6 +1896,97 @@ class MolecularModelingGUI(GUI):
                 if messagebox:
                     messagebox.showerror("Error", "Failed to substitute atom.")
 
+    def batch_substitution_dialog(self, key=None):
+        """Show batch substitution dialog for multiple element replacements at once."""
+        if tk is None or self.atoms is None or len(self.atoms) == 0:
+            return
+
+        elements = sorted(set(self.atoms.get_chemical_symbols()))
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Batch Element Substitution")
+        dialog.resizable(False, True)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Define element substitution rules:",
+                 font=("TkDefaultFont", 10, "bold"), padx=10, pady=8).pack(anchor=tk.W)
+
+        # Scrollable frame for rules
+        rules_frame = tk.Frame(dialog)
+        rules_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+
+        rule_widgets = []
+
+        def add_rule(old="", new=""):
+            row = tk.Frame(rules_frame)
+            row.pack(fill=tk.X, pady=2)
+
+            old_var = tk.StringVar(value=old)
+            new_var = tk.StringVar(value=new)
+
+            old_combo = ttk.Combobox(row, textvariable=old_var, values=elements,
+                                     width=8, state="readonly")
+            old_combo.pack(side=tk.LEFT, padx=2)
+            tk.Label(row, text="→").pack(side=tk.LEFT, padx=4)
+            new_entry = tk.Entry(row, textvariable=new_var, width=8)
+            new_entry.pack(side=tk.LEFT, padx=2)
+
+            def remove():
+                row.destroy()
+                rule_widgets.remove((old_var, new_var, row))
+
+            tk.Button(row, text="×", command=remove, width=2).pack(side=tk.LEFT, padx=4)
+            rule_widgets.append((old_var, new_var, row))
+
+        # Add initial empty rule
+        add_rule()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="+ Add Rule", command=add_rule).pack(side=tk.LEFT, padx=5)
+
+        ttk.Separator(dialog, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=5)
+
+        def apply_batch():
+            rules = []
+            for old_var, new_var, _ in rule_widgets:
+                old_sym = old_var.get().strip()
+                new_sym = new_var.get().strip()
+                if old_sym and new_sym:
+                    rules.append((old_sym, new_sym))
+
+            if not rules:
+                if messagebox:
+                    messagebox.showwarning("Batch Substitution",
+                                           "No valid rules defined.", parent=dialog)
+                return
+
+            self._save_undo_state()
+            self.controller.set_atoms(self.atoms)
+            total = 0
+            results = []
+            for old_sym, new_sym in rules:
+                count = self.controller.global_atom_substitution(
+                    old_symbol=old_sym, new_symbol=new_sym)
+                total += count
+                results.append(f"{old_sym} → {new_sym}: {count} atoms")
+
+            self.set_frame()
+            self._update_element_visibility_panel()
+            self.draw()
+
+            if messagebox:
+                msg = "\n".join(results) + f"\n\nTotal: {total} atoms replaced"
+                messagebox.showinfo("Batch Substitution", msg, parent=dialog)
+            dialog.destroy()
+
+        action_frame = tk.Frame(dialog)
+        action_frame.pack(pady=8)
+        tk.Button(action_frame, text="Apply All", command=apply_batch, width=10
+                  ).pack(side=tk.LEFT, padx=5)
+        tk.Button(action_frame, text="Cancel", command=dialog.destroy, width=10
+                  ).pack(side=tk.LEFT, padx=5)
+
     def supercell_dialog(self, key=None):
         """Show supercell builder dialog and apply."""
         if self.atoms is None or len(self.atoms) == 0:
@@ -2670,6 +2761,8 @@ class MolecularModelingGUI(GUI):
                   self.molecule_atom_substitution_dialog),
                 M(_('Individual Atom Substitution...'),
                   self.atom_substitution_dialog),
+                M(_('Batch Element Substitution...'),
+                  self.batch_substitution_dialog),
                 M(_('Build Supercell...'),
                   self.supercell_dialog),
                 M(_('Cell Parameters...'),
