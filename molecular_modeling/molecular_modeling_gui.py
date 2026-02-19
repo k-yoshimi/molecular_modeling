@@ -1352,9 +1352,9 @@ class MolecularModelingGUI(GUI):
 
     def _apply_color_mode(self, mode):
         """Apply a color mode to the current view."""
-        if mode == "mol_group":
+        if mode in ("mol_group", "mol_id"):
             self._color_by_molecule_group()
-        elif mode == "jmol":
+        elif mode in ("jmol", "element"):
             self.colormode = 'jmol'
             self.draw()
         elif mode == "tag":
