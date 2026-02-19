@@ -160,6 +160,7 @@ class MolecularModelingGUI(GUI):
         self._undo_stack = []
         self._redo_stack = []
         self._setup_toolbar()
+        self._setup_side_panel()
         # Set a reasonable default window size (larger than ASE's 450x450)
         self._resize_window(700, 700)
 
@@ -216,6 +217,23 @@ class MolecularModelingGUI(GUI):
             btn.bind("<ButtonPress-1>", lambda e, a=action: self._start_repeat(a))
             btn.bind("<ButtonRelease-1>", self._stop_repeat)
 
+        # --- Separator ---
+        sep = ttk.Separator(toolbar, orient=tk.VERTICAL)
+        sep.pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        # --- Action buttons ---
+        action_buttons = [
+            ("\u21A9", "Undo", lambda: self.undo()),
+            ("\u21AA", "Redo", lambda: self.redo()),
+            ("\u2716", "Delete", lambda: self.delete_selected_atoms()),
+            ("\u2725", "Move", lambda: self.move_molecule_dialog()),
+            ("\u21BB", "Rotate", lambda: self.rotate_molecule_dialog()),
+        ]
+        for symbol, tip, callback in action_buttons:
+            btn = tk.Button(toolbar, text=symbol, width=3, command=callback)
+            btn.pack(side=tk.LEFT, padx=1)
+            self._add_tooltip(btn, tip)
+
     def _translate_view(self, dx, dy):
         """Translate the view in screen coordinates. dx, dy are -1 or +1."""
         step = 20.0 / self.scale
@@ -250,6 +268,185 @@ class MolecularModelingGUI(GUI):
         if self._repeat_id is not None:
             self.window.win.after_cancel(self._repeat_id)
             self._repeat_id = None
+
+    @staticmethod
+    def _add_tooltip(widget, text):
+        """Add a hover tooltip to a widget."""
+        tip = None
+
+        def show(event):
+            nonlocal tip
+            if tip is not None:
+                return
+            x = widget.winfo_rootx() + widget.winfo_width() // 2
+            y = widget.winfo_rooty() + widget.winfo_height() + 4
+            tip = tk.Toplevel(widget)
+            tip.wm_overrideredirect(True)
+            tip.wm_geometry(f"+{x}+{y}")
+            label = tk.Label(
+                tip, text=text, background="#ffffe0", relief=tk.SOLID,
+                borderwidth=1, font=("TkDefaultFont", 9),
+            )
+            label.pack()
+
+        def hide(event):
+            nonlocal tip
+            if tip is not None:
+                tip.destroy()
+                tip = None
+
+        widget.bind("<Enter>", show)
+        widget.bind("<Leave>", hide)
+
+    # =========================================================================
+    # Side panel
+    # =========================================================================
+
+    def _setup_side_panel(self):
+        """Add a side panel on the right with quick-access view controls."""
+        if tk is None:
+            return
+
+        # Repack canvas to make room for side panel on the right
+        canvas = self.window.canvas
+        canvas.pack_forget()
+
+        self._side_panel = tk.Frame(self.window.win, width=160, relief=tk.GROOVE,
+                                    borderwidth=1)
+        self._side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        self._side_panel.pack_propagate(False)
+        self._side_panel_visible = True
+
+        # Repack canvas to fill remaining space
+        canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        panel = self._side_panel
+
+        # --- Title ---
+        tk.Label(panel, text="View Controls", font=("TkDefaultFont", 10, "bold")
+                 ).pack(fill=tk.X, padx=4, pady=(6, 4))
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
+
+        # --- Hydrogen toggle ---
+        self._h_visible_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(panel, text="Show Hydrogen", variable=self._h_visible_var,
+                       command=self._on_h_toggle).pack(anchor=tk.W, padx=8, pady=2)
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
+
+        # --- Color mode ---
+        tk.Label(panel, text="Color Mode:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+        self._color_mode_var = tk.StringVar(value="element")
+        modes = [("By Element", "element"), ("By Molecule", "mol_id"), ("By Tag", "tag")]
+        for label, val in modes:
+            tk.Radiobutton(panel, text=label, variable=self._color_mode_var,
+                           value=val, command=self._on_color_mode_change
+                           ).pack(anchor=tk.W, padx=16)
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
+
+        # --- Atom size ---
+        tk.Label(panel, text="Atom Size:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+        self._atom_size_var = tk.DoubleVar(value=1.0)
+        size_scale = tk.Scale(panel, from_=0.3, to=3.0, resolution=0.1,
+                              orient=tk.HORIZONTAL, variable=self._atom_size_var,
+                              command=self._on_atom_size_change, length=130)
+        size_scale.pack(padx=8, pady=2)
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
+
+        # --- Element visibility ---
+        tk.Label(panel, text="Element Visibility:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+        self._elem_vis_frame = tk.Frame(panel)
+        self._elem_vis_frame.pack(fill=tk.X, padx=8, pady=2)
+        self._elem_vis_vars = {}
+        self._update_element_visibility_panel()
+
+    def _on_h_toggle(self):
+        """Handle hydrogen toggle from side panel."""
+        self.toggle_hydrogen()
+        # Sync checkbox state with actual visibility
+        if hasattr(self, '_h_visible_var'):
+            visible = getattr(self, '_hydrogen_visible', True)
+            self._h_visible_var.set(visible)
+
+    def _on_color_mode_change(self):
+        """Handle color mode change from side panel."""
+        mode = self._color_mode_var.get()
+        self._apply_color_mode(mode)
+
+    def _on_atom_size_change(self, value=None):
+        """Handle atom size change from side panel."""
+        scale = self._atom_size_var.get()
+        self.images.atom_scale = scale
+        self.draw()
+
+    def _update_element_visibility_panel(self):
+        """Rebuild the element visibility checkboxes based on current atoms."""
+        if not hasattr(self, '_elem_vis_frame'):
+            return
+        for w in self._elem_vis_frame.winfo_children():
+            w.destroy()
+        self._elem_vis_vars.clear()
+
+        atoms = self.atoms
+        if atoms is None or len(atoms) == 0:
+            return
+
+        symbols = sorted(set(atoms.get_chemical_symbols()))
+        for sym in symbols:
+            var = tk.BooleanVar(value=True)
+            # Check if currently hidden
+            if hasattr(self, '_hidden_elements') and sym in self._hidden_elements:
+                var.set(False)
+            self._elem_vis_vars[sym] = var
+            cb = tk.Checkbutton(self._elem_vis_frame, text=sym, variable=var,
+                                command=lambda s=sym: self._on_element_vis_change(s))
+            cb.pack(anchor=tk.W)
+
+    def _on_element_vis_change(self, symbol):
+        """Handle element visibility toggle from side panel."""
+        if not hasattr(self, '_hidden_elements'):
+            self._hidden_elements = set()
+
+        var = self._elem_vis_vars.get(symbol)
+        if var is None:
+            return
+
+        if var.get():
+            self._hidden_elements.discard(symbol)
+        else:
+            self._hidden_elements.add(symbol)
+
+        # Update visibility
+        atoms = self.atoms
+        if atoms is None or len(atoms) == 0:
+            return
+        natoms = len(atoms)
+        visible = np.ones(natoms, dtype=bool)
+        symbols = atoms.get_chemical_symbols()
+        for i, s in enumerate(symbols):
+            if s in self._hidden_elements:
+                visible[i] = False
+        self.images.visible = visible
+        self.draw()
+
+    def toggle_side_panel(self, key=None):
+        """Toggle the side panel visibility."""
+        if not hasattr(self, '_side_panel'):
+            return
+        if self._side_panel_visible:
+            self._side_panel.pack_forget()
+            self._side_panel_visible = False
+        else:
+            # Repack: unpack canvas, pack side panel, repack canvas
+            canvas = self.window.canvas
+            canvas.pack_forget()
+            self._side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            self._side_panel_visible = True
+            self._update_element_visibility_panel()
 
     # =========================================================================
     # Enhanced status bar
@@ -865,10 +1062,21 @@ class MolecularModelingGUI(GUI):
         # If any H is visible, hide all; otherwise show all
         n = len(self.atoms)
         visible = self.images.visible[:n]
+        if not hasattr(self, '_hidden_elements'):
+            self._hidden_elements = set()
         if visible[h_mask].any():
             self.images.visible[:n][h_mask] = False
+            self._hidden_elements.add('H')
+            self._hydrogen_visible = False
         else:
             self.images.visible[:n][h_mask] = True
+            self._hidden_elements.discard('H')
+            self._hydrogen_visible = True
+        # Sync side panel checkbox
+        if hasattr(self, '_h_visible_var'):
+            self._h_visible_var.set(self._hydrogen_visible)
+        if hasattr(self, '_elem_vis_vars') and 'H' in self._elem_vis_vars:
+            self._elem_vis_vars['H'].set(self._hydrogen_visible)
         self.draw()
 
     def toggle_element_visibility(self, key=None):
@@ -1244,6 +1452,7 @@ class MolecularModelingGUI(GUI):
         self.controller.set_atoms(self.atoms)
         self.images.initialize([self.atoms])
         self.set_frame()
+        self._update_element_visibility_panel()
         self.draw()
 
     def undo(self, key=None):
@@ -1397,6 +1606,7 @@ class MolecularModelingGUI(GUI):
         self._add_recent_file(filename)
         self.images.initialize([atoms])
         self.set_frame()
+        self._update_element_visibility_panel()
         self.draw()
         self.controller.set_atoms(self.atoms)
 
@@ -1430,6 +1640,7 @@ class MolecularModelingGUI(GUI):
         self._add_recent_file(filename)
         self.images.initialize([atoms])
         self.set_frame()
+        self._update_element_visibility_panel()
         self.draw()
         self.controller.set_atoms(self.atoms)
 
@@ -2304,6 +2515,7 @@ class MolecularModelingGUI(GUI):
             M('---'),
             M(_('Toggle Hydrogen'), self.toggle_hydrogen),
             M(_('Element Visibility...'), self.toggle_element_visibility),
+            M(_('Toggle Side Panel'), self.toggle_side_panel),
             M('---'),
         ]
         for label, w, h in self.WINDOW_SIZES:

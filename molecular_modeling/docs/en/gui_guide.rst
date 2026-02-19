@@ -185,6 +185,8 @@ View Settings Menu
      - Toggle visibility of hydrogen atoms
    * - Element Visibility...
      - Open dialog to show/hide atoms by element
+   * - Toggle Side Panel
+     - Show or hide the side panel (quick-access view controls)
    * - Small / Medium / Large / Wide
      - Window size presets
    * - Custom Size...
@@ -212,6 +214,21 @@ Each button supports press-and-hold for continuous operation.
    * - Zoom
      - \- +
      - Zoom in/out
+   * - Actions
+     - ↩ ↪ ✖ ✥ ↻
+     - Undo / Redo / Delete selected / Move / Rotate (each button has a tooltip)
+
+Side Panel
+~~~~~~~~~~
+
+A side panel is displayed on the right side of the window for quick access to common view settings.
+
+- **Show Hydrogen**: Toggle hydrogen atom visibility via checkbox
+- **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
+- **Atom Size**: Adjust atom size scale with a slider (0.3–3.0)
+- **Element Visibility**: Toggle individual element visibility with checkboxes
+
+The side panel can be shown/hidden via **View Settings** → **Toggle Side Panel**.
 
 Status Bar
 ----------
