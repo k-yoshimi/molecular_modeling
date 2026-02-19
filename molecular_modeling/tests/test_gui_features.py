@@ -103,6 +103,8 @@ class FakeGUI:
         self._focus_active = False
         self._focus_backup = None
         self._hidden_elements = set()
+        self._hidden_molecules = set()
+        self._mol_colors = {}
         self._hydrogen_visible = True
         self._draw_count = 0
 
@@ -355,6 +357,65 @@ class FakeGUI:
         if count > 0:
             self.atoms.set_chemical_symbols(symbols)
         return count
+
+    def set_element_radius(self, z, radius):
+        """Set covalent radius for element z (mirrors _on_element_size_change)."""
+        self.images.covalent_radii[z] = radius
+        self.draw()
+
+    def set_element_color(self, z, hex_color):
+        """Set color for element z (mirrors _on_element_color_pick)."""
+        self.colors[z] = hex_color
+        self.draw()
+
+    def apply_molecule_visibility(self):
+        """Apply molecule visibility (mirrors _apply_molecule_visibility)."""
+        atoms = self.atoms
+        if atoms is None or "mol_id" not in atoms.arrays:
+            return
+        n = len(atoms)
+        mol_ids = atoms.get_array("mol_id")
+        visible = np.ones(n, dtype=bool)
+
+        # Apply element visibility
+        if hasattr(self, "_hidden_elements"):
+            symbols = atoms.get_chemical_symbols()
+            for i, s in enumerate(symbols):
+                if s in self._hidden_elements:
+                    visible[i] = False
+
+        # Apply molecule visibility
+        for i in range(n):
+            if int(mol_ids[i]) in self._hidden_molecules:
+                visible[i] = False
+
+        self.images.visible[:n] = visible
+        self.draw()
+
+    def select_molecule(self, group_id):
+        """Select all atoms in a molecule group (mirrors _on_mol_select)."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        n = len(self.atoms)
+        self.images.selected[:n] = (mol_ids == group_id)
+        self.draw()
+
+    def apply_mol_group_colors(self):
+        """Apply custom molecule group colors (mirrors _apply_mol_group_colors)."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        n_groups = int(mol_ids.max()) + 1
+        n_colors = len(self._GROUP_COLORS)
+        colorscale = []
+        for g_id in range(n_groups):
+            color = self._mol_colors.get(
+                g_id, self._GROUP_COLORS[g_id % n_colors])
+            colorscale.append(color)
+        self.colormode = "mol_id"
+        self.colormode_data = (colorscale, 0, max(n_groups - 1, 1))
+        self.draw()
 
 
 # ===========================================================================
@@ -1015,3 +1076,203 @@ class TestIntegration:
         gui.redo()
         # After redo, C should be Si
         assert "Si" in gui.atoms.get_chemical_symbols()
+
+
+# ===========================================================================
+# Per-Element Size Tests
+# ===========================================================================
+
+
+class TestPerElementSize:
+    """Test per-element radius control."""
+
+    def test_set_element_radius(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+        original_r = gui.images.covalent_radii[z_c]
+
+        gui.set_element_radius(z_c, 0.5)
+        assert gui.images.covalent_radii[z_c] == 0.5
+        assert gui.images.covalent_radii[z_c] != original_r
+
+    def test_set_multiple_element_radii(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+        z_h = atomic_numbers["H"]
+
+        gui.set_element_radius(z_c, 0.3)
+        gui.set_element_radius(z_h, 0.1)
+
+        assert gui.images.covalent_radii[z_c] == 0.3
+        assert gui.images.covalent_radii[z_h] == 0.1
+
+    def test_element_radius_does_not_affect_others(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+        z_n = atomic_numbers["N"]
+        original_n_r = gui.images.covalent_radii[z_n]
+
+        gui.set_element_radius(z_c, 0.1)
+        assert gui.images.covalent_radii[z_n] == original_n_r
+
+
+# ===========================================================================
+# Per-Element Color Tests
+# ===========================================================================
+
+
+class TestPerElementColor:
+    """Test per-element color control."""
+
+    def test_set_element_color(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+
+        gui.set_element_color(z_c, "#FF0000")
+        assert gui.colors[z_c] == "#FF0000"
+
+    def test_set_multiple_element_colors(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+        z_h = atomic_numbers["H"]
+
+        gui.set_element_color(z_c, "#FF0000")
+        gui.set_element_color(z_h, "#00FF00")
+
+        assert gui.colors[z_c] == "#FF0000"
+        assert gui.colors[z_h] == "#00FF00"
+
+    def test_element_color_independent_of_size(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        from ase.data import atomic_numbers
+        z_c = atomic_numbers["C"]
+
+        gui.set_element_color(z_c, "#0000FF")
+        original_r = gui.images.covalent_radii[z_c]
+        gui.set_element_radius(z_c, 0.2)
+
+        assert gui.colors[z_c] == "#0000FF"
+        assert gui.images.covalent_radii[z_c] == 0.2
+
+
+# ===========================================================================
+# Molecule Visibility Tests
+# ===========================================================================
+
+
+class TestMoleculeVisibility:
+    """Test molecule group visibility, selection, and color control."""
+
+    def test_hide_molecule_group(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._hidden_molecules.add(0)
+        gui.apply_molecule_visibility()
+
+        n = len(gui.atoms)
+        mol_ids = gui.atoms.get_array("mol_id")
+        for i in range(n):
+            if mol_ids[i] == 0:
+                assert not gui.images.visible[i], f"Atom {i} in group 0 should be hidden"
+            else:
+                assert gui.images.visible[i], f"Atom {i} in group 1 should be visible"
+
+    def test_hide_then_show_molecule(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._hidden_molecules.add(1)
+        gui.apply_molecule_visibility()
+
+        # Group 1 atoms hidden
+        mol_ids = gui.atoms.get_array("mol_id")
+        for i in range(len(gui.atoms)):
+            if mol_ids[i] == 1:
+                assert not gui.images.visible[i]
+
+        # Show again
+        gui._hidden_molecules.discard(1)
+        gui.apply_molecule_visibility()
+        assert gui.images.visible[:len(gui.atoms)].all()
+
+    def test_hide_all_molecules(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._hidden_molecules = {0, 1}
+        gui.apply_molecule_visibility()
+
+        assert not gui.images.visible[:len(gui.atoms)].any()
+
+    def test_molecule_and_element_visibility_combined(self, atoms_with_mol):
+        """Hiding both a molecule group and an element should combine."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._hidden_molecules.add(0)    # Hide group 0 (atoms 0,1,2)
+        gui._hidden_elements.add("N")   # Hide N (atom 4)
+        gui.apply_molecule_visibility()
+
+        n = len(gui.atoms)
+        mol_ids = gui.atoms.get_array("mol_id")
+        symbols = gui.atoms.get_chemical_symbols()
+        for i in range(n):
+            if mol_ids[i] == 0 or symbols[i] == "N":
+                assert not gui.images.visible[i], f"Atom {i} should be hidden"
+            else:
+                assert gui.images.visible[i], f"Atom {i} should be visible"
+
+    def test_select_molecule(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.select_molecule(0)
+
+        n = len(gui.atoms)
+        mol_ids = gui.atoms.get_array("mol_id")
+        for i in range(n):
+            if mol_ids[i] == 0:
+                assert gui.images.selected[i], f"Atom {i} should be selected"
+            else:
+                assert not gui.images.selected[i], f"Atom {i} should not be selected"
+
+    def test_select_different_molecule(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.select_molecule(0)
+        gui.select_molecule(1)
+
+        # Now only group 1 should be selected
+        mol_ids = gui.atoms.get_array("mol_id")
+        for i in range(len(gui.atoms)):
+            if mol_ids[i] == 1:
+                assert gui.images.selected[i]
+            else:
+                assert not gui.images.selected[i]
+
+    def test_molecule_custom_color(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._mol_colors[0] = "#FF0000"
+        gui._mol_colors[1] = "#0000FF"
+        gui.apply_mol_group_colors()
+
+        assert gui.colormode == "mol_id"
+        colorscale = gui.colormode_data[0]
+        assert colorscale[0] == "#FF0000"
+        assert colorscale[1] == "#0000FF"
+
+    def test_molecule_color_with_default(self, atoms_with_mol):
+        """Only set color for one group, other should use default."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._mol_colors[0] = "#123456"
+        gui.apply_mol_group_colors()
+
+        colorscale = gui.colormode_data[0]
+        assert colorscale[0] == "#123456"
+        assert colorscale[1] == gui._GROUP_COLORS[1]  # default
+
+    def test_molecule_visibility_no_mol_id(self):
+        """Molecule visibility should be a no-op without mol_id."""
+        atoms = Atoms("CH4", positions=[[0, 0, 0], [1, 0, 0], [0, 1, 0],
+                                        [0, 0, 1], [1, 1, 0]])
+        atoms.set_cell([10, 10, 10])
+        gui = FakeGUI(atoms)
+        gui._hidden_molecules.add(0)
+        gui.apply_molecule_visibility()
+        # Should be a no-op, all visible
+        assert gui.images.visible[:len(gui.atoms)].all()

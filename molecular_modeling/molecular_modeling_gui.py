@@ -359,12 +359,55 @@ class MolecularModelingGUI(GUI):
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
 
-        # --- Element visibility ---
-        tk.Label(panel, text="Element Visibility:").pack(anchor=tk.W, padx=8, pady=(2, 0))
-        self._elem_vis_frame = tk.Frame(panel)
-        self._elem_vis_frame.pack(fill=tk.X, padx=8, pady=2)
+        # --- Element visibility & size ---
+        tk.Label(panel, text="Element Controls:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+
+        # Scrollable container for element rows
+        elem_container = tk.Frame(panel)
+        elem_container.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+
+        self._elem_canvas = tk.Canvas(elem_container, highlightthickness=0)
+        self._elem_scrollbar = ttk.Scrollbar(
+            elem_container, orient=tk.VERTICAL, command=self._elem_canvas.yview)
+        self._elem_vis_frame = tk.Frame(self._elem_canvas)
+        self._elem_vis_frame.bind(
+            "<Configure>",
+            lambda e: self._elem_canvas.configure(
+                scrollregion=self._elem_canvas.bbox("all")))
+        self._elem_canvas.create_window((0, 0), window=self._elem_vis_frame, anchor="nw")
+        self._elem_canvas.configure(yscrollcommand=self._elem_scrollbar.set)
+        self._elem_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._elem_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
         self._elem_vis_vars = {}
+        self._elem_size_vars = {}
         self._update_element_visibility_panel()
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
+
+        # --- Molecule visibility ---
+        tk.Label(panel, text="Molecule Controls:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+
+        mol_container = tk.Frame(panel)
+        mol_container.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+
+        self._mol_canvas = tk.Canvas(mol_container, highlightthickness=0)
+        self._mol_scrollbar = ttk.Scrollbar(
+            mol_container, orient=tk.VERTICAL, command=self._mol_canvas.yview)
+        self._mol_vis_frame = tk.Frame(self._mol_canvas)
+        self._mol_vis_frame.bind(
+            "<Configure>",
+            lambda e: self._mol_canvas.configure(
+                scrollregion=self._mol_canvas.bbox("all")))
+        self._mol_canvas.create_window((0, 0), window=self._mol_vis_frame, anchor="nw")
+        self._mol_canvas.configure(yscrollcommand=self._mol_scrollbar.set)
+        self._mol_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._mol_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._mol_vis_vars = {}
+        self._mol_color_btns = {}
+        self._mol_colors = {}
+        self._update_molecule_visibility_panel()
 
     def _on_h_toggle(self):
         """Handle hydrogen toggle from side panel."""
@@ -386,27 +429,97 @@ class MolecularModelingGUI(GUI):
         self.draw()
 
     def _update_element_visibility_panel(self):
-        """Rebuild the element visibility checkboxes based on current atoms."""
+        """Rebuild the element visibility checkboxes, color buttons, and size sliders."""
         if not hasattr(self, '_elem_vis_frame'):
             return
         for w in self._elem_vis_frame.winfo_children():
             w.destroy()
         self._elem_vis_vars.clear()
+        self._elem_size_vars.clear()
+        if not hasattr(self, '_elem_color_btns'):
+            self._elem_color_btns = {}
+        self._elem_color_btns.clear()
 
         atoms = self.atoms
         if atoms is None or len(atoms) == 0:
             return
 
+        from ase.data import atomic_numbers, covalent_radii as default_radii
+        from ase.data.colors import jmol_colors
+
         symbols = sorted(set(atoms.get_chemical_symbols()))
         for sym in symbols:
-            var = tk.BooleanVar(value=True)
-            # Check if currently hidden
+            row = tk.Frame(self._elem_vis_frame)
+            row.pack(fill=tk.X, pady=1)
+
+            # Visibility checkbox
+            vis_var = tk.BooleanVar(value=True)
             if hasattr(self, '_hidden_elements') and sym in self._hidden_elements:
-                var.set(False)
-            self._elem_vis_vars[sym] = var
-            cb = tk.Checkbutton(self._elem_vis_frame, text=sym, variable=var,
+                vis_var.set(False)
+            self._elem_vis_vars[sym] = vis_var
+            cb = tk.Checkbutton(row, text=sym, variable=vis_var, width=3,
                                 command=lambda s=sym: self._on_element_vis_change(s))
-            cb.pack(anchor=tk.W)
+            cb.pack(side=tk.LEFT)
+
+            # Color button
+            z = atomic_numbers[sym]
+            current_color = self.colors.get(
+                z,
+                '#{:02X}{:02X}{:02X}'.format(
+                    *(int(x * 255) for x in jmol_colors[z])),
+            )
+            color_btn = tk.Button(row, text=" ", width=2, bg=current_color,
+                                  activebackground=current_color,
+                                  command=lambda z_=z, s=sym: self._on_element_color_pick(z_, s))
+            color_btn.pack(side=tk.LEFT, padx=1)
+            self._elem_color_btns[sym] = color_btn
+            self._add_tooltip(color_btn, f"Change {sym} color")
+
+            # Size slider
+            default_r = default_radii[z]
+            current_r = self.images.covalent_radii[z]
+            size_var = tk.DoubleVar(value=round(current_r, 2))
+            self._elem_size_vars[sym] = (z, size_var)
+
+            slider = tk.Scale(
+                row, from_=0.05, to=default_r * 3, resolution=0.05,
+                orient=tk.HORIZONTAL, variable=size_var, length=60,
+                showvalue=False,
+                command=lambda val, z_=z: self._on_element_size_change(z_, val),
+            )
+            slider.pack(side=tk.LEFT, padx=1)
+            self._add_tooltip(slider, f"{sym} size ({current_r:.2f} Å)")
+
+        # Also update molecule panel if it exists
+        if hasattr(self, '_mol_vis_frame'):
+            self._update_molecule_visibility_panel()
+
+    def _on_element_color_pick(self, z, symbol):
+        """Open color picker for an element from the side panel."""
+        from tkinter import colorchooser
+        from ase.data.colors import jmol_colors
+        current = self.colors.get(
+            z,
+            '#{:02X}{:02X}{:02X}'.format(*(int(x * 255) for x in jmol_colors[z])),
+        )
+        result = colorchooser.askcolor(color=current, title=f"Color for {symbol}")
+        if result and result[1]:
+            hex_color = result[1]
+            self.colors[z] = hex_color
+            # Update button color
+            btn = self._elem_color_btns.get(symbol)
+            if btn:
+                try:
+                    btn.configure(bg=hex_color, activebackground=hex_color)
+                except Exception:
+                    pass
+            self.draw()
+
+    def _on_element_size_change(self, z, value=None):
+        """Handle per-element size change from side panel slider."""
+        r = float(value) if value is not None else 0.5
+        self.images.covalent_radii[z] = r
+        self.draw()
 
     def _on_element_vis_change(self, symbol):
         """Handle element visibility toggle from side panel."""
@@ -435,6 +548,146 @@ class MolecularModelingGUI(GUI):
         self.images.visible = visible
         self.draw()
 
+    def _update_molecule_visibility_panel(self):
+        """Rebuild the molecule visibility controls based on current mol_id."""
+        if not hasattr(self, '_mol_vis_frame'):
+            return
+        for w in self._mol_vis_frame.winfo_children():
+            w.destroy()
+        self._mol_vis_vars.clear()
+        self._mol_color_btns.clear()
+
+        atoms = self.atoms
+        if atoms is None or len(atoms) == 0:
+            return
+        if "mol_id" not in atoms.arrays:
+            tk.Label(self._mol_vis_frame, text="(no mol_id)", fg="gray"
+                     ).pack(anchor=tk.W)
+            return
+
+        mol_ids = atoms.get_array("mol_id")
+        site_names = atoms.info.get("site_mol_name", [])
+        n_groups = int(mol_ids.max()) + 1
+        n_colors = len(self._GROUP_COLORS)
+
+        if not hasattr(self, '_hidden_molecules'):
+            self._hidden_molecules = set()
+
+        for g_id in range(n_groups):
+            name = site_names[g_id] if g_id < len(site_names) else f"mol_{g_id}"
+            n_atoms = int((mol_ids == g_id).sum())
+
+            row = tk.Frame(self._mol_vis_frame)
+            row.pack(fill=tk.X, pady=1)
+
+            # Visibility checkbox
+            vis_var = tk.BooleanVar(value=(g_id not in self._hidden_molecules))
+            self._mol_vis_vars[g_id] = vis_var
+            cb = tk.Checkbutton(row, text=f"{name}({n_atoms})", variable=vis_var,
+                                command=lambda gid=g_id: self._on_mol_vis_change(gid))
+            cb.pack(side=tk.LEFT)
+
+            # Color button
+            color = self._mol_colors.get(g_id, self._GROUP_COLORS[g_id % n_colors])
+            color_btn = tk.Button(row, text=" ", width=2, bg=color,
+                                  activebackground=color,
+                                  command=lambda gid=g_id, n=name: self._on_mol_color_pick(gid, n))
+            color_btn.pack(side=tk.LEFT, padx=1)
+            self._mol_color_btns[g_id] = color_btn
+
+            # Select button
+            sel_btn = tk.Button(row, text="Sel", width=3,
+                                command=lambda gid=g_id: self._on_mol_select(gid))
+            sel_btn.pack(side=tk.LEFT, padx=1)
+            self._add_tooltip(sel_btn, f"Select {name}")
+
+    def _on_mol_vis_change(self, group_id):
+        """Toggle molecule group visibility."""
+        if not hasattr(self, '_hidden_molecules'):
+            self._hidden_molecules = set()
+
+        var = self._mol_vis_vars.get(group_id)
+        if var is None:
+            return
+
+        if var.get():
+            self._hidden_molecules.discard(group_id)
+        else:
+            self._hidden_molecules.add(group_id)
+
+        self._apply_molecule_visibility()
+
+    def _apply_molecule_visibility(self):
+        """Apply current molecule visibility settings."""
+        atoms = self.atoms
+        if atoms is None or "mol_id" not in atoms.arrays:
+            return
+        n = len(atoms)
+        mol_ids = atoms.get_array("mol_id")
+        visible = self.images.visible[:n].copy()
+
+        # Apply element visibility first
+        if hasattr(self, '_hidden_elements'):
+            symbols = atoms.get_chemical_symbols()
+            for i, s in enumerate(symbols):
+                if s in self._hidden_elements:
+                    visible[i] = False
+                elif i < n:
+                    visible[i] = True
+
+        # Apply molecule visibility
+        for i in range(n):
+            if int(mol_ids[i]) in self._hidden_molecules:
+                visible[i] = False
+
+        self.images.visible[:n] = visible
+        self.draw()
+
+    def _on_mol_color_pick(self, group_id, name):
+        """Open color picker for a molecule group."""
+        from tkinter import colorchooser
+        n_colors = len(self._GROUP_COLORS)
+        current = self._mol_colors.get(
+            group_id, self._GROUP_COLORS[group_id % n_colors])
+        result = colorchooser.askcolor(color=current, title=f"Color for {name}")
+        if result and result[1]:
+            hex_color = result[1]
+            self._mol_colors[group_id] = hex_color
+            btn = self._mol_color_btns.get(group_id)
+            if btn:
+                try:
+                    btn.configure(bg=hex_color, activebackground=hex_color)
+                except Exception:
+                    pass
+            # Apply color if in mol_id color mode
+            if self.colormode == 'mol_id':
+                self._apply_mol_group_colors()
+
+    def _apply_mol_group_colors(self):
+        """Apply custom molecule group colors."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        n_groups = int(mol_ids.max()) + 1
+        n_colors = len(self._GROUP_COLORS)
+        colorscale = []
+        for g_id in range(n_groups):
+            color = self._mol_colors.get(
+                g_id, self._GROUP_COLORS[g_id % n_colors])
+            colorscale.append(color)
+        self.colormode = 'mol_id'
+        self.colormode_data = (colorscale, 0, max(n_groups - 1, 1))
+        self.draw()
+
+    def _on_mol_select(self, group_id):
+        """Select all atoms in a molecule group."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        n = len(self.atoms)
+        self.images.selected[:n] = (mol_ids == group_id)
+        self.draw()
+
     def toggle_side_panel(self, key=None):
         """Toggle the side panel visibility."""
         if not hasattr(self, '_side_panel'):
@@ -450,6 +703,7 @@ class MolecularModelingGUI(GUI):
             canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             self._side_panel_visible = True
             self._update_element_visibility_panel()
+            self._update_molecule_visibility_panel()
 
     # =========================================================================
     # Enhanced status bar

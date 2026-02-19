@@ -239,7 +239,8 @@ View Settings メニュー
 - **Show Hydrogen**: 水素原子の表示/非表示をチェックボックスで切り替え
 - **Color Mode**: 色分けモードをラジオボタンで切り替え（元素別 / 分子グループ別 / タグ別）
 - **Atom Size**: スライダーで原子サイズスケールを調整（0.3〜3.0）
-- **Element Visibility**: 元素ごとに表示/非表示をチェックボックスで個別制御
+- **Element Controls**: 元素ごとに [表示チェック][色ボタン][サイズスライダー] を一行で制御
+- **Molecule Controls**: 分子グループごとに [表示チェック][色ボタン][選択ボタン] を一行で制御。色は By Molecule モード時に反映
 
 サイドパネルは **View Settings** → **Toggle Side Panel** で表示/非表示を切り替えられます。
 
