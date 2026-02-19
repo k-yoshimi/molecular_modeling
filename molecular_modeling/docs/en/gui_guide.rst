@@ -151,6 +151,19 @@ Each button supports press-and-hold for continuous operation.
      - \- +
      - Zoom in/out
 
+Status Bar
+----------
+
+The status bar at the bottom shows context-dependent information:
+
+- **No atoms selected**: System overview — atom count, elements, molecule groups, cell size
+  (e.g., ``48 atoms | (C, H) | 4 groups | Cell: 5.5x5.4x18.7 Å``)
+- **1 atom selected**: Atom details — index, element name, coordinates, molecule name
+  (e.g., ``#3 Carbon (C): 1.114, 0.098, 0.812 Å | mol_id=0 (benzene)``)
+- **2 atoms selected**: Inter-atomic distance
+- **3 atoms selected**: Bond angles
+- **4 atoms selected**: Dihedral angle
+
 Mouse Controls
 --------------
 

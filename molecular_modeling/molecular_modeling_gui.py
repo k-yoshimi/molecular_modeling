@@ -244,6 +244,61 @@ class MolecularModelingGUI(GUI):
             self._repeat_id = None
 
     # =========================================================================
+    # Enhanced status bar
+    # =========================================================================
+
+    def status(self, atoms):
+        """Override ASE status to show structure info and molecule details."""
+        natoms = len(atoms)
+        indices = np.arange(natoms)[self.images.selected[:natoms]]
+        n = len(indices)
+
+        if n == 0:
+            # Show system overview
+            parts = [f"{natoms} atoms"]
+            # Element composition
+            syms = atoms.get_chemical_symbols()
+            unique = sorted(set(syms))
+            if unique:
+                parts.append("(" + ", ".join(unique) + ")")
+            # Molecule groups
+            if "mol_id" in atoms.arrays:
+                mol_ids = atoms.get_array("mol_id")
+                n_groups = len(set(mol_ids))
+                parts.append(f"{n_groups} groups")
+            # Cell info
+            cell = atoms.get_cell()
+            lengths = cell.lengths()
+            if lengths.any():
+                parts.append(
+                    f"Cell: {lengths[0]:.1f}x{lengths[1]:.1f}x{lengths[2]:.1f} Å"
+                )
+            text = " | ".join(parts)
+            self.window.update_status_line(text)
+            return
+
+        if n == 1:
+            # Show atom details + molecule name
+            Z = atoms.numbers[indices]
+            R = atoms.positions[indices]
+            from ase.data import atomic_names, chemical_symbols
+            idx = indices[0]
+            text = (f" #{idx} {atomic_names[Z[0]]} ({chemical_symbols[Z[0]]}): "
+                    f"{R[0][0]:.3f}, {R[0][1]:.3f}, {R[0][2]:.3f} Å")
+            # Add mol_id and molecule name
+            if "mol_id" in atoms.arrays:
+                mol_id = int(atoms.get_array("mol_id")[idx])
+                text += f" | mol_id={mol_id}"
+                site_names = atoms.info.get("site_mol_name", [])
+                if mol_id < len(site_names):
+                    text += f" ({site_names[mol_id]})"
+            self.window.update_status_line(text)
+            return
+
+        # For 2+ atoms, use ASE's default behavior
+        super().status(atoms)
+
+    # =========================================================================
     # Undo / Redo
     # =========================================================================
 
