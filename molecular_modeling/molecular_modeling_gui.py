@@ -419,6 +419,184 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=10)
 
     # =========================================================================
+    # Selection helpers
+    # =========================================================================
+
+    def select_by_element(self, key=None):
+        """Open dialog to select atoms by element symbol."""
+        if tk is None or self.atoms is None:
+            return
+
+        from ase.data import chemical_symbols
+        elements = sorted(set(chemical_symbols[z] for z in self.atoms.numbers))
+        if not elements:
+            return
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Select by Element")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Select elements:", padx=10, pady=5).pack(anchor=tk.W)
+
+        frame = tk.Frame(dialog, padx=10)
+        frame.pack(fill=tk.BOTH)
+
+        vars_ = {}
+        for sym in elements:
+            v = tk.BooleanVar(value=False)
+            vars_[sym] = v
+            tk.Checkbutton(frame, text=sym, variable=v).pack(anchor=tk.W)
+
+        mode_var = tk.StringVar(value="replace")
+        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Radiobutton(mode_frame, text="Replace selection", variable=mode_var,
+                       value="replace").pack(anchor=tk.W)
+        tk.Radiobutton(mode_frame, text="Add to selection", variable=mode_var,
+                       value="add").pack(anchor=tk.W)
+
+        def apply():
+            syms = self.atoms.get_chemical_symbols()
+            selected = {s for s, v in vars_.items() if v.get()}
+            mask = np.array([s in selected for s in syms])
+            n = len(self.atoms)
+            if mode_var.get() == "replace":
+                self.images.selected[:n] = mask
+            else:
+                self.images.selected[:n] |= mask
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Select", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def select_by_molecule(self, key=None):
+        """Open dialog to select atoms by molecule group."""
+        if tk is None or self.atoms is None:
+            return
+
+        if "mol_id" not in self.atoms.arrays:
+            if messagebox:
+                messagebox.showinfo("Select by Molecule",
+                                    "No molecule groups found (mol_id).")
+            return
+
+        mol_ids = self.atoms.get_array("mol_id")
+        site_names = self.atoms.info.get("site_mol_name", [])
+        groups = self.atoms.info.get("groups", [])
+        n_groups = int(mol_ids.max()) + 1
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Select by Molecule")
+        dialog.resizable(True, True)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text="Select molecule groups:", padx=10, pady=5).pack(anchor=tk.W)
+
+        frame = tk.Frame(dialog, padx=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(frame, height=200)
+        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=canvas.yview)
+        inner = tk.Frame(canvas)
+        inner.bind("<Configure>",
+                    lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        vars_ = {}
+        for i in range(n_groups):
+            name = site_names[i] if i < len(site_names) else f"mol_{i}"
+            n_atoms = len(groups[i]) if i < len(groups) else 0
+            v = tk.BooleanVar(value=False)
+            vars_[i] = v
+            tk.Checkbutton(inner, text=f"#{i} {name} ({n_atoms} atoms)",
+                          variable=v).pack(anchor=tk.W)
+
+        mode_var = tk.StringVar(value="replace")
+        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Radiobutton(mode_frame, text="Replace selection", variable=mode_var,
+                       value="replace").pack(anchor=tk.W)
+        tk.Radiobutton(mode_frame, text="Add to selection", variable=mode_var,
+                       value="add").pack(anchor=tk.W)
+
+        def apply():
+            selected_groups = {g for g, v in vars_.items() if v.get()}
+            n = len(self.atoms)
+            mask = np.array([int(mol_ids[i]) in selected_groups for i in range(n)])
+            if mode_var.get() == "replace":
+                self.images.selected[:n] = mask
+            else:
+                self.images.selected[:n] |= mask
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Select", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def select_by_sphere(self, key=None):
+        """Open dialog to select atoms within a radius of a selected atom."""
+        if tk is None or self.atoms is None:
+            return
+
+        n = len(self.atoms)
+        indices = np.arange(n)[self.images.selected[:n]]
+        if len(indices) == 0:
+            if messagebox:
+                messagebox.showinfo("Select by Sphere",
+                                    "Select one atom as the center first.")
+            return
+
+        center_idx = int(indices[0])
+        center_pos = self.atoms.positions[center_idx]
+
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Select by Sphere")
+        dialog.resizable(False, False)
+        dialog.transient(self.window.win)
+
+        tk.Label(dialog, text=f"Center: atom #{center_idx}", padx=10, pady=5).pack(anchor=tk.W)
+
+        row = tk.Frame(dialog, padx=10)
+        row.pack(fill=tk.X)
+        tk.Label(row, text="Radius (Å):").pack(side=tk.LEFT)
+        r_var = tk.DoubleVar(value=3.0)
+        tk.Spinbox(row, from_=0.5, to=50.0, increment=0.5,
+                   textvariable=r_var, width=8).pack(side=tk.LEFT, padx=5)
+
+        mode_var = tk.StringVar(value="replace")
+        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Radiobutton(mode_frame, text="Replace selection", variable=mode_var,
+                       value="replace").pack(anchor=tk.W)
+        tk.Radiobutton(mode_frame, text="Add to selection", variable=mode_var,
+                       value="add").pack(anchor=tk.W)
+
+        def apply():
+            radius = r_var.get()
+            dists = np.linalg.norm(self.atoms.positions - center_pos, axis=1)
+            mask = dists <= radius
+            if mode_var.get() == "replace":
+                self.images.selected[:n] = mask
+            else:
+                self.images.selected[:n] |= mask
+            self.draw()
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text="Select", command=apply).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    # =========================================================================
     # Atom appearance panel
     # =========================================================================
 
@@ -1710,6 +1888,16 @@ class MolecularModelingGUI(GUI):
                   self.export_vasp),
                 M(_('CIF...'),
                   self.export_cif),
+            ]
+        ))
+
+        # Selection menu
+        menu.append((
+            _('Selection'),
+            [
+                M(_('Select by Element...'), self.select_by_element),
+                M(_('Select by Molecule...'), self.select_by_molecule),
+                M(_('Select by Sphere...'), self.select_by_sphere),
             ]
         ))
 

@@ -117,6 +117,22 @@ Export Menu
    * - CIF...
      - Export as CIF file
 
+Selection Menu
+~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Menu Item
+     - Description
+   * - Select by Element...
+     - Select atoms by element symbol. Multiple elements can be chosen. Supports replace/add selection modes
+   * - Select by Molecule...
+     - Select atoms by molecule group (mol_id). Shows group name and atom count
+   * - Select by Sphere...
+     - Select atoms within a given radius of the currently selected atom
+
 Pipeline Menu
 ~~~~~~~~~~~~~
 
