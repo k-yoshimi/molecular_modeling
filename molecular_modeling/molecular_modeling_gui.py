@@ -1447,9 +1447,9 @@ class MolecularModelingGUI(GUI):
             return
 
         # --- Show focus dialog ---
-        dialog = tk.Toplevel(self.window)
+        dialog = tk.Toplevel(self.window.win)
         dialog.title("Focus Selection")
-        dialog.transient(self.window)
+        dialog.transient(self.window.win)
         dialog.grab_set()
 
         # Mode selection
@@ -1521,7 +1521,7 @@ class MolecularModelingGUI(GUI):
 
         dialog.resizable(False, False)
         dialog.geometry("+%d+%d" % (
-            self.window.winfo_x() + 100, self.window.winfo_y() + 100))
+            self.window.win.winfo_x() + 100, self.window.win.winfo_y() + 100))
 
     def _execute_focus(self, indices, focus_mol_ids, mode):
         """Apply focus with given indices and molecule group set.
