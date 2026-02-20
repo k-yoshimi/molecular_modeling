@@ -1419,7 +1419,12 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms/molecules: show preview window with controls."""
+        """Focus on selected atoms/molecules: show preview window with controls.
+
+        The preview window is non-modal so that the user can click atoms in
+        the main view to add/remove them from the selection.  The preview
+        updates automatically when the selection changes.
+        """
         if self.atoms is None or len(self.atoms) == 0:
             return
 
@@ -1465,12 +1470,15 @@ class MolecularModelingGUI(GUI):
         positions = self.atoms.positions
         numbers = self.atoms.numbers
 
-        # --- Build preview window ---
+        # Track previous selection to detect changes
+        prev_selected = [self.images.selected[:n].copy()]
+
+        # --- Build preview window (non-modal) ---
         dialog = tk.Toplevel(self.window.win)
         dialog.title("Focus Selection — Preview")
-        dialog.transient(self.window.win)
+        # No grab_set() — main view stays interactive
 
-        # Matplotlib 3D preview (top half)
+        # Matplotlib 3D preview (top)
         import matplotlib
         matplotlib.use('TkAgg')
         from matplotlib.figure import Figure
@@ -1482,61 +1490,13 @@ class MolecularModelingGUI(GUI):
         canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True,
                                            padx=5, pady=(5, 0))
 
-        def draw_preview():
-            """Redraw the 3D preview based on current checkbox state."""
-            ax.clear()
-            mode = mode_var.get()
-            visible = np.zeros(n, dtype=bool)
-            if mode == "atoms":
-                visible[indices] = True
-            else:
-                for g_id, var in mol_vars.items():
-                    if var.get():
-                        visible[mol_ids == g_id] = True
-                if n_ungrouped > 0 and ungrouped_var.get():
-                    visible[ungrouped_mask] = True
-
-            vis_idx = np.where(visible)[0]
-            if len(vis_idx) == 0:
-                ax.set_title("No atoms selected")
-                canvas_widget.draw_idle()
-                return
-
-            # Draw visible atoms (colored)
-            vis_pos = positions[vis_idx]
-            vis_colors = [jmol_colors[numbers[i]] for i in vis_idx]
-            vis_sizes = [default_radii[numbers[i]] * 120 for i in vis_idx]
-            ax.scatter(vis_pos[:, 0], vis_pos[:, 1], vis_pos[:, 2],
-                       c=vis_colors, s=vis_sizes, alpha=1.0,
-                       edgecolors='black', linewidths=0.3, depthshade=True)
-
-            # Draw hidden atoms (faded gray)
-            hid_idx = np.where(~visible)[0]
-            if len(hid_idx) > 0:
-                hid_pos = positions[hid_idx]
-                hid_sizes = [default_radii[numbers[i]] * 60 for i in hid_idx]
-                ax.scatter(hid_pos[:, 0], hid_pos[:, 1], hid_pos[:, 2],
-                           c='lightgray', s=hid_sizes, alpha=0.25,
-                           edgecolors='none', depthshade=True)
-
-            # Auto-scale axes equally
-            all_pos = positions
-            mid = all_pos.mean(axis=0)
-            max_range = (all_pos.max(axis=0) - all_pos.min(axis=0)).max() / 2
-            if max_range < 0.1:
-                max_range = 5.0
-            ax.set_xlim(mid[0] - max_range, mid[0] + max_range)
-            ax.set_ylim(mid[1] - max_range, mid[1] + max_range)
-            ax.set_zlim(mid[2] - max_range, mid[2] + max_range)
-            ax.set_xlabel('X (Å)')
-            ax.set_ylabel('Y (Å)')
-            ax.set_zlabel('Z (Å)')
-            ax.set_title(f"{len(vis_idx)} atoms shown")
-            canvas_widget.draw_idle()
-
-        # --- Controls (bottom half) ---
+        # --- Controls (bottom) ---
         ctrl_frame = tk.Frame(dialog)
         ctrl_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        # Status label
+        status_label = tk.Label(ctrl_frame, text="", anchor=tk.W, fg="gray")
+        status_label.pack(fill=tk.X, padx=5, pady=(0, 4))
 
         # Mode selection
         mode_var = tk.StringVar(value="molecules")
@@ -1544,10 +1504,10 @@ class MolecularModelingGUI(GUI):
         mode_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         tk.Radiobutton(mode_frame, text="Selected atoms only",
                         variable=mode_var, value="atoms",
-                        command=draw_preview).pack(anchor=tk.W)
+                        command=lambda: draw_preview()).pack(anchor=tk.W)
         tk.Radiobutton(mode_frame, text="Whole molecules",
                         variable=mode_var, value="molecules",
-                        command=draw_preview).pack(anchor=tk.W)
+                        command=lambda: draw_preview()).pack(anchor=tk.W)
 
         # Molecule checkboxes
         mol_frame = tk.LabelFrame(ctrl_frame, text="Molecules", padx=8, pady=4)
@@ -1567,7 +1527,7 @@ class MolecularModelingGUI(GUI):
                      relief=tk.RAISED, borderwidth=1).pack(side=tk.LEFT, padx=(0, 4))
             tk.Checkbutton(row, text=f"{name} ({n_atoms} atoms)",
                            variable=var,
-                           command=draw_preview).pack(side=tk.LEFT)
+                           command=lambda: draw_preview()).pack(side=tk.LEFT)
 
         ungrouped_var = tk.BooleanVar(value=False)
         if n_ungrouped > 0:
@@ -1575,32 +1535,124 @@ class MolecularModelingGUI(GUI):
                 ungrouped_var.set(True)
             tk.Checkbutton(mol_frame, text=f"(ungrouped atoms) ({n_ungrouped})",
                            variable=ungrouped_var,
-                           command=draw_preview).pack(anchor=tk.W)
+                           command=lambda: draw_preview()).pack(anchor=tk.W)
 
-        # Draw initial preview
+        # Help text
+        tk.Label(ctrl_frame,
+                 text="Click/Shift+Click atoms in the main view to change selection",
+                 fg="blue", font=("TkDefaultFont", 9)).pack(padx=5, pady=(0, 4))
+
+        def _get_focus_visible():
+            """Compute visibility mask from current state."""
+            cur_sel = self.images.selected[:n]
+            mode = mode_var.get()
+            visible = np.zeros(n, dtype=bool)
+            if mode == "atoms":
+                visible[cur_sel] = True
+                # Also include checked molecule groups
+                for g_id, var in mol_vars.items():
+                    if var.get():
+                        visible[mol_ids == g_id] = True
+            else:
+                # Auto-check molecules that contain selected atoms
+                cur_indices = np.where(cur_sel)[0]
+                if has_mol_id and len(cur_indices) > 0:
+                    sel_groups = set(int(mol_ids[i]) for i in cur_indices)
+                    for g_id in sel_groups:
+                        if g_id in mol_vars:
+                            mol_vars[g_id].set(True)
+                for g_id, var in mol_vars.items():
+                    if var.get():
+                        visible[mol_ids == g_id] = True
+                if n_ungrouped > 0 and ungrouped_var.get():
+                    visible[ungrouped_mask] = True
+            return visible
+
+        def draw_preview():
+            """Redraw the 3D preview."""
+            ax.clear()
+            visible = _get_focus_visible()
+            vis_idx = np.where(visible)[0]
+
+            n_selected = int(self.images.selected[:n].sum())
+            status_label.configure(
+                text=f"Main view: {n_selected} atoms selected | "
+                     f"Preview: {len(vis_idx)} atoms shown")
+
+            if len(vis_idx) == 0:
+                ax.set_title("No atoms to focus")
+                canvas_widget.draw_idle()
+                return
+
+            # Visible atoms (colored)
+            vis_pos = positions[vis_idx]
+            vis_colors = [jmol_colors[numbers[i]] for i in vis_idx]
+            vis_sizes = [default_radii[numbers[i]] * 120 for i in vis_idx]
+            ax.scatter(vis_pos[:, 0], vis_pos[:, 1], vis_pos[:, 2],
+                       c=vis_colors, s=vis_sizes, alpha=1.0,
+                       edgecolors='black', linewidths=0.3, depthshade=True)
+
+            # Hidden atoms (faded)
+            hid_idx = np.where(~visible)[0]
+            if len(hid_idx) > 0:
+                hid_pos = positions[hid_idx]
+                hid_sizes = [default_radii[numbers[i]] * 60 for i in hid_idx]
+                ax.scatter(hid_pos[:, 0], hid_pos[:, 1], hid_pos[:, 2],
+                           c='lightgray', s=hid_sizes, alpha=0.25,
+                           edgecolors='none', depthshade=True)
+
+            # Auto-scale
+            mid = positions.mean(axis=0)
+            max_range = (positions.max(axis=0) - positions.min(axis=0)).max() / 2
+            if max_range < 0.1:
+                max_range = 5.0
+            ax.set_xlim(mid[0] - max_range, mid[0] + max_range)
+            ax.set_ylim(mid[1] - max_range, mid[1] + max_range)
+            ax.set_zlim(mid[2] - max_range, mid[2] + max_range)
+            ax.set_xlabel('X (Å)')
+            ax.set_ylabel('Y (Å)')
+            ax.set_zlabel('Z (Å)')
+            ax.set_title(f"{len(vis_idx)} atoms shown")
+            canvas_widget.draw_idle()
+
+        # --- Poll selection changes from main view ---
+        poll_id = [None]
+
+        def poll_selection():
+            """Periodically check if main-view selection changed."""
+            try:
+                if not dialog.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            cur = self.images.selected[:n].copy()
+            if not np.array_equal(cur, prev_selected[0]):
+                prev_selected[0] = cur
+                draw_preview()
+            poll_id[0] = dialog.after(200, poll_selection)
+
+        # Draw initial preview & start polling
         draw_preview()
+        poll_id[0] = dialog.after(200, poll_selection)
 
         def on_ok():
-            mode = mode_var.get()
+            if poll_id[0] is not None:
+                dialog.after_cancel(poll_id[0])
+            visible = _get_focus_visible()
+            focus_indices = np.where(visible)[0]
             checked_groups = {gid for gid, v in mol_vars.items() if v.get()}
-            include_ungrouped = ungrouped_var.get()
             dialog.destroy()
 
-            if mode == "atoms":
-                self._execute_focus(indices, set(), "atoms", backup=backup)
-            else:
-                focus_indices = set()
-                for g_id in checked_groups:
-                    focus_indices.update(np.where(mol_ids == g_id)[0])
-                if include_ungrouped and n_ungrouped > 0:
-                    focus_indices.update(np.where(ungrouped_mask)[0])
-                if len(focus_indices) == 0:
-                    dialog.destroy()
-                    return
-                self._execute_focus(
-                    np.array(sorted(focus_indices)),
-                    checked_groups, "molecules", backup=backup,
-                )
+            if len(focus_indices) == 0:
+                return
+            mode = mode_var.get()
+            self._execute_focus(
+                focus_indices, checked_groups, mode, backup=backup)
+
+        def on_cancel():
+            if poll_id[0] is not None:
+                dialog.after_cancel(poll_id[0])
+            dialog.destroy()
 
         # OK / Cancel buttons
         btn_frame = tk.Frame(ctrl_frame)
@@ -1608,10 +1660,10 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
             side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Cancel", width=8,
-                  command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+                  command=on_cancel).pack(side=tk.LEFT, padx=5)
 
-        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
-        dialog.geometry("500x650+%d+%d" % (
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+        dialog.geometry("500x700+%d+%d" % (
             self.window.win.winfo_x() + 50, self.window.win.winfo_y() + 50))
 
     def _execute_focus(self, indices, focus_mol_ids, mode, backup=None):

@@ -319,15 +319,23 @@ Dialog Details
 Focus Selection Dialog
 ~~~~~~~~~~~~~~~~~~~~~~
 
-When you run **Focus on Selection** (Ctrl+F) with atoms selected, the Focus dialog appears.
+When you run **Focus on Selection** (Ctrl+F) with atoms selected, a preview window appears.
 
+The window is **non-modal**, so the main view remains interactive.
+
+- **3D Preview** (top): Focused atoms are shown in color; non-focused atoms are shown as faded gray. The plot can be rotated and zoomed
+- **Status**: Shows the number of selected atoms in the main view and atoms shown in the preview
 - **Mode**:
 
-  - **Selected atoms only**: Show only the selected atoms (classic behavior)
-  - **Whole molecules**: Select focus targets by molecule group
+  - **Selected atoms only**: Show atoms selected in the main view plus any checked molecule groups
+  - **Whole molecules**: Select focus targets by molecule group. Clicking an atom in the main view automatically checks its molecule group
 
-- **Molecules**: Each molecule group is listed with a checkbox. Groups containing selected atoms are pre-checked. Additional groups can be checked
+- **Molecules**: Each molecule group is listed with a checkbox and color swatch. Groups containing selected atoms are pre-checked
 - **(ungrouped atoms)**: Shown if there are atoms without a ``mol_id``
+
+**Adding/removing atoms from the main view**:
+
+While the preview window is open, clicking atoms (Shift+click to add) in the main view updates the preview in real-time. This allows adding or removing individual atoms from the focus.
 
 **Side panel controls during focus mode**:
 
