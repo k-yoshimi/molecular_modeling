@@ -321,21 +321,28 @@ Focus Selection Dialog
 
 When you run **Focus on Selection** (Ctrl+F) with atoms selected, a preview window appears.
 
-The window is **non-modal**, so the main view remains interactive.
+The window is **non-modal**, so clicking atoms in the main view is possible.
 
 - **3D Preview** (top): Focused atoms are shown in color; non-focused atoms are shown as faded gray. The plot can be rotated and zoomed
-- **Status**: Shows the number of selected atoms in the main view and atoms shown in the preview
-- **Mode**:
+- **Status**: Shows the number of focused atoms
+- **Click Action**:
 
-  - **Selected atoms only**: Show atoms selected in the main view plus any checked molecule groups
-  - **Whole molecules**: Select focus targets by molecule group. Clicking an atom in the main view automatically checks its molecule group
+  - **Add**: Clicking an atom (or its molecule group) in the main view adds it to the focus
+  - **Delete**: Clicking an atom (or its molecule group) in the main view removes it from the focus
 
-- **Molecules**: Each molecule group is listed with a checkbox and color swatch. Groups containing selected atoms are pre-checked
-- **(ungrouped atoms)**: Shown if there are atoms without a ``mol_id``
+- **Unit**:
 
-**Adding/removing atoms from the main view**:
+  - **Atom**: Add/delete individual atoms
+  - **Molecule**: Add/delete the whole molecule group of the clicked atom
 
-While the preview window is open, clicking atoms (Shift+click to add) in the main view updates the preview in real-time. This allows adding or removing individual atoms from the focus.
+- **Molecules**: Each molecule group is listed with a checkbox and color swatch. Toggling checkboxes adds/removes groups from the focus set
+
+**Example workflow**:
+
+1. Select atoms and click Focus → preview shows molecules of selected atoms
+2. Switch to Add + Molecule, click another atom → its molecule is added to preview
+3. Switch to Delete + Atom, click a specific atom → only that atom is removed
+4. Click OK to apply focus mode
 
 **Side panel controls during focus mode**:
 

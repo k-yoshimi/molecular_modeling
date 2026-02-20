@@ -1419,11 +1419,10 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms/molecules: show preview window with controls.
+        """Focus on selected atoms/molecules: show preview window with Add/Delete.
 
-        The preview window is non-modal so that the user can click atoms in
-        the main view to add/remove them from the selection.  The preview
-        updates automatically when the selection changes.
+        The preview window is non-modal.  The user can click atoms in the
+        main view while in Add or Delete mode to modify the focus set.
         """
         if self.atoms is None or len(self.atoms) == 0:
             return
@@ -1443,6 +1442,7 @@ class MolecularModelingGUI(GUI):
             n_groups = int(mol_ids.max()) + 1
             selected_groups = set(int(mol_ids[i]) for i in indices)
         else:
+            mol_ids = None
             n_groups = 0
             selected_groups = set()
 
@@ -1458,25 +1458,24 @@ class MolecularModelingGUI(GUI):
             'scale': getattr(self, 'scale', None),
         }
 
-        # Compute ungrouped mask
-        ungrouped_mask = np.ones(n, dtype=bool)
-        for g_id in range(n_groups):
-            ungrouped_mask[mol_ids == g_id] = False
-        n_ungrouped = int(ungrouped_mask.sum())
+        # --- Focus set: the set of atom indices to show ---
+        # Initialize with selected atoms' whole molecules
+        focus_set = set()
+        for g_id in selected_groups:
+            focus_set.update(np.where(mol_ids == g_id)[0])
 
-        # --- Atom colors for preview ---
+        # Atom colors for preview
         from ase.data.colors import jmol_colors
         from ase.data import covalent_radii as default_radii
         positions = self.atoms.positions
         numbers = self.atoms.numbers
 
-        # Track previous selection to detect changes
+        # Track previous selection
         prev_selected = [self.images.selected[:n].copy()]
 
         # --- Build preview window (non-modal) ---
         dialog = tk.Toplevel(self.window.win)
         dialog.title("Focus Selection — Preview")
-        # No grab_set() — main view stays interactive
 
         # Matplotlib 3D preview (top)
         import matplotlib
@@ -1498,16 +1497,28 @@ class MolecularModelingGUI(GUI):
         status_label = tk.Label(ctrl_frame, text="", anchor=tk.W, fg="gray")
         status_label.pack(fill=tk.X, padx=5, pady=(0, 4))
 
-        # Mode selection
-        mode_var = tk.StringVar(value="molecules")
-        mode_frame = tk.LabelFrame(ctrl_frame, text="Mode", padx=8, pady=4)
-        mode_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        tk.Radiobutton(mode_frame, text="Selected atoms only",
-                        variable=mode_var, value="atoms",
-                        command=lambda: draw_preview()).pack(anchor=tk.W)
-        tk.Radiobutton(mode_frame, text="Whole molecules",
-                        variable=mode_var, value="molecules",
-                        command=lambda: draw_preview()).pack(anchor=tk.W)
+        # Click-action mode (Add / Delete)
+        action_var = tk.StringVar(value="add")
+        action_frame = tk.LabelFrame(ctrl_frame, text="Click Action", padx=8, pady=4)
+        action_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+
+        # Unit (atom / molecule)
+        unit_var = tk.StringVar(value="molecule")
+
+        row1 = tk.Frame(action_frame)
+        row1.pack(fill=tk.X)
+        tk.Radiobutton(row1, text="Add", variable=action_var,
+                        value="add", fg="green").pack(side=tk.LEFT)
+        tk.Radiobutton(row1, text="Delete", variable=action_var,
+                        value="delete", fg="red").pack(side=tk.LEFT, padx=(10, 0))
+
+        row2 = tk.Frame(action_frame)
+        row2.pack(fill=tk.X, pady=(2, 0))
+        tk.Label(row2, text="Unit:").pack(side=tk.LEFT)
+        tk.Radiobutton(row2, text="Atom", variable=unit_var,
+                        value="atom").pack(side=tk.LEFT)
+        tk.Radiobutton(row2, text="Molecule", variable=unit_var,
+                        value="molecule").pack(side=tk.LEFT)
 
         # Molecule checkboxes
         mol_frame = tk.LabelFrame(ctrl_frame, text="Molecules", padx=8, pady=4)
@@ -1527,60 +1538,82 @@ class MolecularModelingGUI(GUI):
                      relief=tk.RAISED, borderwidth=1).pack(side=tk.LEFT, padx=(0, 4))
             tk.Checkbutton(row, text=f"{name} ({n_atoms} atoms)",
                            variable=var,
-                           command=lambda: draw_preview()).pack(side=tk.LEFT)
-
-        ungrouped_var = tk.BooleanVar(value=False)
-        if n_ungrouped > 0:
-            if any(ungrouped_mask[i] for i in indices):
-                ungrouped_var.set(True)
-            tk.Checkbutton(mol_frame, text=f"(ungrouped atoms) ({n_ungrouped})",
-                           variable=ungrouped_var,
-                           command=lambda: draw_preview()).pack(anchor=tk.W)
+                           command=lambda gid=g_id: on_mol_checkbox(gid)
+                           ).pack(side=tk.LEFT)
 
         # Help text
         tk.Label(ctrl_frame,
-                 text="Click/Shift+Click atoms in the main view to change selection",
+                 text="Click atoms in the main view to Add/Delete from focus",
                  fg="blue", font=("TkDefaultFont", 9)).pack(padx=5, pady=(0, 4))
 
-        def _get_focus_visible():
-            """Compute visibility mask from current state."""
-            cur_sel = self.images.selected[:n]
-            mode = mode_var.get()
-            visible = np.zeros(n, dtype=bool)
-            if mode == "atoms":
-                visible[cur_sel] = True
-                # Also include checked molecule groups
-                for g_id, var in mol_vars.items():
-                    if var.get():
-                        visible[mol_ids == g_id] = True
+        def on_mol_checkbox(g_id):
+            """Handle molecule checkbox toggle."""
+            var = mol_vars[g_id]
+            group_atoms = set(np.where(mol_ids == g_id)[0])
+            if var.get():
+                focus_set.update(group_atoms)
             else:
-                # Auto-check molecules that contain selected atoms
-                cur_indices = np.where(cur_sel)[0]
-                if has_mol_id and len(cur_indices) > 0:
-                    sel_groups = set(int(mol_ids[i]) for i in cur_indices)
-                    for g_id in sel_groups:
-                        if g_id in mol_vars:
-                            mol_vars[g_id].set(True)
-                for g_id, var in mol_vars.items():
-                    if var.get():
-                        visible[mol_ids == g_id] = True
-                if n_ungrouped > 0 and ungrouped_var.get():
-                    visible[ungrouped_mask] = True
-            return visible
+                focus_set.difference_update(group_atoms)
+            draw_preview()
+
+        def sync_mol_checkboxes():
+            """Update molecule checkboxes to reflect focus_set."""
+            for g_id, var in mol_vars.items():
+                group_atoms = set(np.where(mol_ids == g_id)[0])
+                var.set(group_atoms.issubset(focus_set) and len(group_atoms) > 0)
+
+        def on_selection_change():
+            """Handle selection change from main view click."""
+            cur = self.images.selected[:n]
+            prev = prev_selected[0]
+            # Find newly selected atoms (clicked)
+            newly_selected = np.where(cur & ~prev)[0]
+            newly_deselected = np.where(~cur & prev)[0]
+
+            action = action_var.get()
+            unit = unit_var.get()
+
+            # Use newly clicked atoms (selected or deselected)
+            clicked = set()
+            if len(newly_selected) > 0:
+                clicked.update(newly_selected)
+            elif len(newly_deselected) > 0:
+                clicked.update(newly_deselected)
+
+            if not clicked:
+                prev_selected[0] = cur.copy()
+                return
+
+            if unit == "molecule" and mol_ids is not None:
+                # Expand to whole molecule groups
+                expanded = set()
+                for i in clicked:
+                    g_id = int(mol_ids[i])
+                    expanded.update(np.where(mol_ids == g_id)[0])
+                clicked = expanded
+
+            if action == "add":
+                focus_set.update(clicked)
+            else:  # delete
+                focus_set.difference_update(clicked)
+
+            prev_selected[0] = cur.copy()
+            sync_mol_checkboxes()
+            draw_preview()
 
         def draw_preview():
             """Redraw the 3D preview."""
             ax.clear()
-            visible = _get_focus_visible()
+            visible = np.zeros(n, dtype=bool)
+            for i in focus_set:
+                if 0 <= i < n:
+                    visible[i] = True
             vis_idx = np.where(visible)[0]
 
-            n_selected = int(self.images.selected[:n].sum())
-            status_label.configure(
-                text=f"Main view: {n_selected} atoms selected | "
-                     f"Preview: {len(vis_idx)} atoms shown")
+            status_label.configure(text=f"Focus: {len(vis_idx)} / {n} atoms")
 
             if len(vis_idx) == 0:
-                ax.set_title("No atoms to focus")
+                ax.set_title("No atoms in focus")
                 canvas_widget.draw_idle()
                 return
 
@@ -1617,10 +1650,9 @@ class MolecularModelingGUI(GUI):
 
         # --- Hook into draw() to detect selection changes ---
         original_draw = self.draw
-        drawing = [False]  # guard against recursion
+        drawing = [False]
 
         def hooked_draw():
-            """Wrapper around draw() that updates the preview on selection change."""
             original_draw()
             if drawing[0]:
                 return
@@ -1631,10 +1663,9 @@ class MolecularModelingGUI(GUI):
                 return
             cur = self.images.selected[:n].copy()
             if not np.array_equal(cur, prev_selected[0]):
-                prev_selected[0] = cur
                 drawing[0] = True
                 try:
-                    draw_preview()
+                    on_selection_change()
                 finally:
                     drawing[0] = False
 
@@ -1644,20 +1675,17 @@ class MolecularModelingGUI(GUI):
         draw_preview()
 
         def on_ok():
-            self.draw = original_draw  # restore
-            visible = _get_focus_visible()
-            focus_indices = np.where(visible)[0]
+            self.draw = original_draw
             checked_groups = {gid for gid, v in mol_vars.items() if v.get()}
             dialog.destroy()
-
+            focus_indices = np.array(sorted(focus_set))
             if len(focus_indices) == 0:
                 return
-            mode = mode_var.get()
             self._execute_focus(
-                focus_indices, checked_groups, mode, backup=backup)
+                focus_indices, checked_groups, "molecules", backup=backup)
 
         def on_cancel():
-            self.draw = original_draw  # restore
+            self.draw = original_draw
             dialog.destroy()
 
         # OK / Cancel buttons
