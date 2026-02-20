@@ -147,7 +147,7 @@ Selection Menu
    * - Rotate Molecule/Atoms...
      - Rotate selected molecule/atoms around their center of mass by Euler angles
    * - Focus on Selection (Ctrl+F)
-     - Open the Focus dialog to choose focus targets by atoms or whole molecules. Selected atoms' molecule groups are pre-checked. Additional molecules can be added. While in focus mode, side panel Molecule Controls checkboxes add/remove molecules from the focused view
+     - Open the Focus dialog with 3D preview. The main view highlights focused atoms; clicking toggles automatically (focused → remove, unfocused → add). Unit selector switches between Atom/Molecule granularity. After confirming with OK, side panel Molecule Controls checkboxes add/remove molecules from the focused view
    * - Exit Focus Mode (Ctrl+Shift+F)
      - Exit focus mode and restore all atom visibility and the original view
    * - Toggle Drag Mode
@@ -326,11 +326,6 @@ The window is **non-modal**, so clicking atoms in the main view is possible.
 
 - **3D Preview** (top): Focused atoms are shown in color; non-focused atoms are shown as faded gray. The plot can be rotated and zoomed
 - **Status**: Shows the number of focused atoms
-- **Click Action**:
-
-  - **Add**: Clicking an atom (or its molecule group) in the main view adds it to the focus
-  - **Delete**: Clicking an atom (or its molecule group) in the main view removes it from the focus
-
 - **Unit**:
 
   - **Atom**: Add/delete individual atoms
@@ -338,16 +333,23 @@ The window is **non-modal**, so clicking atoms in the main view is possible.
 
 - **Molecules**: Each molecule group is listed with a checkbox and color swatch. Toggling checkboxes adds/removes groups from the focus set
 
-**Auto-toggle behavior**: The main view highlights currently focused atoms as selected (highlighted).
-Clicking an atom that is already in the focus set removes it; clicking an atom not in the focus set adds it.
-This makes it intuitive to see and modify the focus set without switching between Add/Delete modes.
+**Auto-toggle behavior**:
+
+The main view highlights currently focused atoms as selected (highlighted).
+No Add/Delete mode switching is needed — clicking automatically toggles:
+
+- Click an **unfocused** atom → **adds** it to the focus set
+- Click a **focused** atom → **removes** it from the focus set
+
+Regular click, Ctrl+click, and Shift+click all work.
 
 **Example workflow**:
 
-1. Select atoms and click Focus → preview shows molecules of selected atoms
-2. Switch to Add + Molecule, click another atom → its molecule is added to preview
-3. Switch to Delete + Atom, click a specific atom → only that atom is removed
-4. Click OK to apply focus mode
+1. Select atoms and click Focus → preview shows molecules of selected atoms, main view highlights the focus set
+2. Set Unit to Molecule, click another atom → its molecule is added to the preview, main view highlight updates
+3. Set Unit to Atom, click a specific focused atom → only that atom is removed
+4. Use the Molecules checkboxes in the dialog to add/remove whole molecule groups
+5. Click OK to apply focus mode, or Cancel to restore the original state
 
 **Side panel controls during focus mode**:
 
