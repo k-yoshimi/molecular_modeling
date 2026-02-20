@@ -1749,13 +1749,15 @@ class MolecularModelingGUI(GUI):
         drawing = [False]
 
         def hooked_draw():
-            original_draw()
             if drawing[0]:
+                original_draw()
                 return
             try:
                 if not dialog.winfo_exists():
+                    original_draw()
                     return
             except tk.TclError:
+                original_draw()
                 return
             cur = self.images.selected[:n].copy()
             # Compare with expected focus set selection
@@ -1769,6 +1771,8 @@ class MolecularModelingGUI(GUI):
                     on_click_detected()
                 finally:
                     drawing[0] = False
+            # Always render with the (possibly corrected) selection
+            original_draw()
 
         self.draw = hooked_draw
 
