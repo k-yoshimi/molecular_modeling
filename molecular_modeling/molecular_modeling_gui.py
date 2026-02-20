@@ -1419,7 +1419,7 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms/molecules: show dialog with live preview."""
+        """Focus on selected atoms/molecules: show preview window with controls."""
         if self.atoms is None or len(self.atoms) == 0:
             return
 
@@ -1446,21 +1446,45 @@ class MolecularModelingGUI(GUI):
             self._execute_focus(indices, set(), "atoms")
             return
 
-        # Save state for preview/cancel
-        preview_backup = {
+        # Save backup for unfocus
+        backup = {
             'visible': self.images.visible[:n].copy(),
             'center': self.center.copy() if hasattr(self, 'center') else None,
             'scale': getattr(self, 'scale', None),
         }
 
-        # Compute ungrouped mask once
+        # Compute ungrouped mask
         ungrouped_mask = np.ones(n, dtype=bool)
         for g_id in range(n_groups):
             ungrouped_mask[mol_ids == g_id] = False
         n_ungrouped = int(ungrouped_mask.sum())
 
-        # --- Live preview helper ---
-        def update_preview(*_args):
+        # --- Atom colors for preview ---
+        from ase.data.colors import jmol_colors
+        from ase.data import covalent_radii as default_radii
+        positions = self.atoms.positions
+        numbers = self.atoms.numbers
+
+        # --- Build preview window ---
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Focus Selection — Preview")
+        dialog.transient(self.window.win)
+
+        # Matplotlib 3D preview (top half)
+        import matplotlib
+        matplotlib.use('TkAgg')
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+        fig = Figure(figsize=(5, 4), dpi=90)
+        ax = fig.add_subplot(111, projection='3d')
+        canvas_widget = FigureCanvasTkAgg(fig, master=dialog)
+        canvas_widget.get_tk_widget().pack(fill=tk.BOTH, expand=True,
+                                           padx=5, pady=(5, 0))
+
+        def draw_preview():
+            """Redraw the 3D preview based on current checkbox state."""
+            ax.clear()
             mode = mode_var.get()
             visible = np.zeros(n, dtype=bool)
             if mode == "atoms":
@@ -1471,43 +1495,79 @@ class MolecularModelingGUI(GUI):
                         visible[mol_ids == g_id] = True
                 if n_ungrouped > 0 and ungrouped_var.get():
                     visible[ungrouped_mask] = True
-            self.images.visible[:n] = visible
-            vis_indices = np.where(visible)[0]
-            if len(vis_indices) > 0:
-                positions = self.atoms.positions[vis_indices]
-                self.center = positions.mean(axis=0)
-            self.draw()
 
-        # --- Show focus dialog ---
-        dialog = tk.Toplevel(self.window.win)
-        dialog.title("Focus Selection")
-        dialog.transient(self.window.win)
-        dialog.grab_set()
+            vis_idx = np.where(visible)[0]
+            if len(vis_idx) == 0:
+                ax.set_title("No atoms selected")
+                canvas_widget.draw_idle()
+                return
+
+            # Draw visible atoms (colored)
+            vis_pos = positions[vis_idx]
+            vis_colors = [jmol_colors[numbers[i]] for i in vis_idx]
+            vis_sizes = [default_radii[numbers[i]] * 120 for i in vis_idx]
+            ax.scatter(vis_pos[:, 0], vis_pos[:, 1], vis_pos[:, 2],
+                       c=vis_colors, s=vis_sizes, alpha=1.0,
+                       edgecolors='black', linewidths=0.3, depthshade=True)
+
+            # Draw hidden atoms (faded gray)
+            hid_idx = np.where(~visible)[0]
+            if len(hid_idx) > 0:
+                hid_pos = positions[hid_idx]
+                hid_sizes = [default_radii[numbers[i]] * 60 for i in hid_idx]
+                ax.scatter(hid_pos[:, 0], hid_pos[:, 1], hid_pos[:, 2],
+                           c='lightgray', s=hid_sizes, alpha=0.25,
+                           edgecolors='none', depthshade=True)
+
+            # Auto-scale axes equally
+            all_pos = positions
+            mid = all_pos.mean(axis=0)
+            max_range = (all_pos.max(axis=0) - all_pos.min(axis=0)).max() / 2
+            if max_range < 0.1:
+                max_range = 5.0
+            ax.set_xlim(mid[0] - max_range, mid[0] + max_range)
+            ax.set_ylim(mid[1] - max_range, mid[1] + max_range)
+            ax.set_zlim(mid[2] - max_range, mid[2] + max_range)
+            ax.set_xlabel('X (Å)')
+            ax.set_ylabel('Y (Å)')
+            ax.set_zlabel('Z (Å)')
+            ax.set_title(f"{len(vis_idx)} atoms shown")
+            canvas_widget.draw_idle()
+
+        # --- Controls (bottom half) ---
+        ctrl_frame = tk.Frame(dialog)
+        ctrl_frame.pack(fill=tk.X, padx=5, pady=5)
 
         # Mode selection
         mode_var = tk.StringVar(value="molecules")
-        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=8, pady=4)
-        mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        mode_frame = tk.LabelFrame(ctrl_frame, text="Mode", padx=8, pady=4)
+        mode_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
         tk.Radiobutton(mode_frame, text="Selected atoms only",
                         variable=mode_var, value="atoms",
-                        command=update_preview).pack(anchor=tk.W)
+                        command=draw_preview).pack(anchor=tk.W)
         tk.Radiobutton(mode_frame, text="Whole molecules",
                         variable=mode_var, value="molecules",
-                        command=update_preview).pack(anchor=tk.W)
+                        command=draw_preview).pack(anchor=tk.W)
 
         # Molecule checkboxes
-        mol_frame = tk.LabelFrame(dialog, text="Molecules", padx=8, pady=4)
-        mol_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        mol_frame = tk.LabelFrame(ctrl_frame, text="Molecules", padx=8, pady=4)
+        mol_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
+        n_colors = len(self._GROUP_COLORS)
         mol_vars = {}
         for g_id in range(n_groups):
             name = site_names[g_id] if g_id < len(site_names) else f"mol_{g_id}"
             n_atoms = int((mol_ids == g_id).sum())
             var = tk.BooleanVar(value=(g_id in selected_groups))
             mol_vars[g_id] = var
-            tk.Checkbutton(mol_frame, text=f"{name} ({n_atoms} atoms)",
+            row = tk.Frame(mol_frame)
+            row.pack(fill=tk.X, anchor=tk.W)
+            color = self._mol_colors.get(g_id, self._GROUP_COLORS[g_id % n_colors])
+            tk.Label(row, text="  ", bg=color, width=2,
+                     relief=tk.RAISED, borderwidth=1).pack(side=tk.LEFT, padx=(0, 4))
+            tk.Checkbutton(row, text=f"{name} ({n_atoms} atoms)",
                            variable=var,
-                           command=update_preview).pack(anchor=tk.W)
+                           command=draw_preview).pack(side=tk.LEFT)
 
         ungrouped_var = tk.BooleanVar(value=False)
         if n_ungrouped > 0:
@@ -1515,10 +1575,10 @@ class MolecularModelingGUI(GUI):
                 ungrouped_var.set(True)
             tk.Checkbutton(mol_frame, text=f"(ungrouped atoms) ({n_ungrouped})",
                            variable=ungrouped_var,
-                           command=update_preview).pack(anchor=tk.W)
+                           command=draw_preview).pack(anchor=tk.W)
 
-        # Apply initial preview
-        update_preview()
+        # Draw initial preview
+        draw_preview()
 
         def on_ok():
             mode = mode_var.get()
@@ -1527,8 +1587,7 @@ class MolecularModelingGUI(GUI):
             dialog.destroy()
 
             if mode == "atoms":
-                self._execute_focus(indices, set(), "atoms",
-                                    backup=preview_backup)
+                self._execute_focus(indices, set(), "atoms", backup=backup)
             else:
                 focus_indices = set()
                 for g_id in checked_groups:
@@ -1536,37 +1595,24 @@ class MolecularModelingGUI(GUI):
                 if include_ungrouped and n_ungrouped > 0:
                     focus_indices.update(np.where(ungrouped_mask)[0])
                 if len(focus_indices) == 0:
-                    on_cancel()
+                    dialog.destroy()
                     return
                 self._execute_focus(
                     np.array(sorted(focus_indices)),
-                    checked_groups,
-                    "molecules",
-                    backup=preview_backup,
+                    checked_groups, "molecules", backup=backup,
                 )
 
-        def on_cancel():
-            # Restore pre-dialog state
-            self.images.visible[:n] = preview_backup['visible']
-            if preview_backup['center'] is not None:
-                self.center = preview_backup['center']
-            if preview_backup['scale'] is not None:
-                self.scale = preview_backup['scale']
-            self.draw()
-            dialog.destroy()
-
-        # Buttons
-        btn_frame = tk.Frame(dialog)
-        btn_frame.pack(pady=10)
+        # OK / Cancel buttons
+        btn_frame = tk.Frame(ctrl_frame)
+        btn_frame.pack(pady=(5, 0))
         tk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
             side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Cancel", width=8,
-                  command=on_cancel).pack(side=tk.LEFT, padx=5)
+                  command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
-        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-        dialog.resizable(False, False)
-        dialog.geometry("+%d+%d" % (
-            self.window.win.winfo_x() + 100, self.window.win.winfo_y() + 100))
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+        dialog.geometry("500x650+%d+%d" % (
+            self.window.win.winfo_x() + 50, self.window.win.winfo_y() + 50))
 
     def _execute_focus(self, indices, focus_mol_ids, mode, backup=None):
         """Apply focus with given indices and molecule group set.
