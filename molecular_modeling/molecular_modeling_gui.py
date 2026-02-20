@@ -1419,7 +1419,7 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms/molecules: show dialog then hide others."""
+        """Focus on selected atoms/molecules: show dialog with live preview."""
         if self.atoms is None or len(self.atoms) == 0:
             return
 
@@ -1446,6 +1446,38 @@ class MolecularModelingGUI(GUI):
             self._execute_focus(indices, set(), "atoms")
             return
 
+        # Save state for preview/cancel
+        preview_backup = {
+            'visible': self.images.visible[:n].copy(),
+            'center': self.center.copy() if hasattr(self, 'center') else None,
+            'scale': getattr(self, 'scale', None),
+        }
+
+        # Compute ungrouped mask once
+        ungrouped_mask = np.ones(n, dtype=bool)
+        for g_id in range(n_groups):
+            ungrouped_mask[mol_ids == g_id] = False
+        n_ungrouped = int(ungrouped_mask.sum())
+
+        # --- Live preview helper ---
+        def update_preview(*_args):
+            mode = mode_var.get()
+            visible = np.zeros(n, dtype=bool)
+            if mode == "atoms":
+                visible[indices] = True
+            else:
+                for g_id, var in mol_vars.items():
+                    if var.get():
+                        visible[mol_ids == g_id] = True
+                if n_ungrouped > 0 and ungrouped_var.get():
+                    visible[ungrouped_mask] = True
+            self.images.visible[:n] = visible
+            vis_indices = np.where(visible)[0]
+            if len(vis_indices) > 0:
+                positions = self.atoms.positions[vis_indices]
+                self.center = positions.mean(axis=0)
+            self.draw()
+
         # --- Show focus dialog ---
         dialog = tk.Toplevel(self.window.win)
         dialog.title("Focus Selection")
@@ -1457,9 +1489,11 @@ class MolecularModelingGUI(GUI):
         mode_frame = tk.LabelFrame(dialog, text="Mode", padx=8, pady=4)
         mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
         tk.Radiobutton(mode_frame, text="Selected atoms only",
-                        variable=mode_var, value="atoms").pack(anchor=tk.W)
+                        variable=mode_var, value="atoms",
+                        command=update_preview).pack(anchor=tk.W)
         tk.Radiobutton(mode_frame, text="Whole molecules",
-                        variable=mode_var, value="molecules").pack(anchor=tk.W)
+                        variable=mode_var, value="molecules",
+                        command=update_preview).pack(anchor=tk.W)
 
         # Molecule checkboxes
         mol_frame = tk.LabelFrame(dialog, text="Molecules", padx=8, pady=4)
@@ -1472,21 +1506,19 @@ class MolecularModelingGUI(GUI):
             var = tk.BooleanVar(value=(g_id in selected_groups))
             mol_vars[g_id] = var
             tk.Checkbutton(mol_frame, text=f"{name} ({n_atoms} atoms)",
-                           variable=var).pack(anchor=tk.W)
+                           variable=var,
+                           command=update_preview).pack(anchor=tk.W)
 
-        # Check for ungrouped atoms (atoms not belonging to any molecule)
-        ungrouped_mask = np.ones(n, dtype=bool)
-        if has_mol_id:
-            for g_id in range(n_groups):
-                ungrouped_mask[mol_ids == g_id] = False
-        n_ungrouped = int(ungrouped_mask.sum())
         ungrouped_var = tk.BooleanVar(value=False)
         if n_ungrouped > 0:
-            # Check if any selected atom is ungrouped
             if any(ungrouped_mask[i] for i in indices):
                 ungrouped_var.set(True)
             tk.Checkbutton(mol_frame, text=f"(ungrouped atoms) ({n_ungrouped})",
-                           variable=ungrouped_var).pack(anchor=tk.W)
+                           variable=ungrouped_var,
+                           command=update_preview).pack(anchor=tk.W)
+
+        # Apply initial preview
+        update_preview()
 
         def on_ok():
             mode = mode_var.get()
@@ -1495,21 +1527,33 @@ class MolecularModelingGUI(GUI):
             dialog.destroy()
 
             if mode == "atoms":
-                self._execute_focus(indices, set(), "atoms")
+                self._execute_focus(indices, set(), "atoms",
+                                    backup=preview_backup)
             else:
-                # Build visible indices from checked molecule groups
                 focus_indices = set()
                 for g_id in checked_groups:
                     focus_indices.update(np.where(mol_ids == g_id)[0])
                 if include_ungrouped and n_ungrouped > 0:
                     focus_indices.update(np.where(ungrouped_mask)[0])
                 if len(focus_indices) == 0:
+                    on_cancel()
                     return
                 self._execute_focus(
                     np.array(sorted(focus_indices)),
                     checked_groups,
                     "molecules",
+                    backup=preview_backup,
                 )
+
+        def on_cancel():
+            # Restore pre-dialog state
+            self.images.visible[:n] = preview_backup['visible']
+            if preview_backup['center'] is not None:
+                self.center = preview_backup['center']
+            if preview_backup['scale'] is not None:
+                self.scale = preview_backup['scale']
+            self.draw()
+            dialog.destroy()
 
         # Buttons
         btn_frame = tk.Frame(dialog)
@@ -1517,28 +1561,33 @@ class MolecularModelingGUI(GUI):
         tk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
             side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Cancel", width=8,
-                  command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+                  command=on_cancel).pack(side=tk.LEFT, padx=5)
 
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
         dialog.resizable(False, False)
         dialog.geometry("+%d+%d" % (
             self.window.win.winfo_x() + 100, self.window.win.winfo_y() + 100))
 
-    def _execute_focus(self, indices, focus_mol_ids, mode):
+    def _execute_focus(self, indices, focus_mol_ids, mode, backup=None):
         """Apply focus with given indices and molecule group set.
 
         Args:
             indices: atom indices to make visible
             focus_mol_ids: set of mol_id values included in focus
             mode: "atoms" or "molecules"
+            backup: pre-saved backup dict (from preview); if None, create one
         """
         n = len(self.atoms)
 
-        # Save pre-focus state
-        self._focus_backup = {
-            'visible': self.images.visible[:n].copy(),
-            'center': self.center.copy() if hasattr(self, 'center') else None,
-            'scale': getattr(self, 'scale', None),
-        }
+        # Save pre-focus state (use provided backup if available)
+        if backup is not None:
+            self._focus_backup = backup
+        else:
+            self._focus_backup = {
+                'visible': self.images.visible[:n].copy(),
+                'center': self.center.copy() if hasattr(self, 'center') else None,
+                'scale': getattr(self, 'scale', None),
+            }
         self._focus_active = True
         self._focus_mol_ids = set(focus_mol_ids)
         self._focus_mode = mode
