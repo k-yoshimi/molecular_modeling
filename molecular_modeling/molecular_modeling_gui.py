@@ -1634,7 +1634,12 @@ class MolecularModelingGUI(GUI):
                 var.set(group_atoms.issubset(focus_set) and len(group_atoms) > 0)
 
         def on_click_detected():
-            """Handle a click in the main view: auto-toggle."""
+            """Handle a click in the main view: auto-toggle.
+
+            A real user click changes exactly 1 atom in ASE-GUI's selection.
+            Bulk selection changes (e.g. window focus loss clearing selection)
+            are ignored and the main view is re-synced to match focus_set.
+            """
             cur = self.images.selected[:n]
             # Build expected selection from focus_set
             expected = np.zeros(n, dtype=bool)
@@ -1646,32 +1651,31 @@ class MolecularModelingGUI(GUI):
             newly_on = np.where(cur & ~expected)[0]
             newly_off = np.where(~cur & expected)[0]
 
-            clicked = set()
-            if len(newly_on) > 0:
-                clicked.update(int(i) for i in newly_on)
-            elif len(newly_off) > 0:
-                clicked.update(int(i) for i in newly_off)
-
-            if not clicked:
-                # Restore main view to show focus set
+            # A genuine click changes exactly 1 atom.
+            # If many atoms changed at once, it's a spurious event
+            # (e.g. selection cleared by window focus change) — just re-sync.
+            total_diff = len(newly_on) + len(newly_off)
+            if total_diff == 0 or total_diff > 1:
                 sync_main_view()
                 return
 
+            # Determine the single clicked atom
+            if len(newly_on) == 1:
+                clicked_atom = int(newly_on[0])
+            else:
+                clicked_atom = int(newly_off[0])
+
             unit = unit_var.get()
 
-            # Get the first clicked atom to determine toggle direction
-            first_clicked = next(iter(clicked))
-
             if unit == "molecule" and mol_ids is not None:
-                # Expand to whole molecule groups
-                expanded = set()
-                for i in clicked:
-                    g_id = int(mol_ids[i])
-                    expanded.update(int(j) for j in np.where(mol_ids == g_id)[0])
-                clicked = expanded
+                # Expand to whole molecule group
+                g_id = int(mol_ids[clicked_atom])
+                clicked = set(int(j) for j in np.where(mol_ids == g_id)[0])
+            else:
+                clicked = {clicked_atom}
 
             # Auto-toggle: if clicked atom was in focus, remove; else add
-            if first_clicked in focus_set:
+            if clicked_atom in focus_set:
                 focus_set.difference_update(clicked)
             else:
                 focus_set.update(clicked)
