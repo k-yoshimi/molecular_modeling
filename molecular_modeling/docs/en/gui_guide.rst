@@ -202,6 +202,22 @@ View Settings Menu
    * - Custom Size...
      - Specify any window size
 
+Help Menu
+~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Menu Item
+     - Description
+   * - Keyboard Shortcuts...
+     - Show a dialog listing keyboard shortcuts and mouse controls
+   * - Open User Guide...
+     - Open the built HTML documentation in the browser (requires ``docs/_build/html/``; shows build instructions if not available)
+   * - About...
+     - Show version information
+
 View Toolbar
 ------------
 

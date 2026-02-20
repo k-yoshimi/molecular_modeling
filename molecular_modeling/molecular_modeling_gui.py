@@ -3608,6 +3608,111 @@ class MolecularModelingGUI(GUI):
         self._run_pipeline_in_thread("Full Pipeline", task)
 
     # =========================================================================
+    # Help menu actions
+    # =========================================================================
+
+    def show_keyboard_shortcuts(self, key=None):
+        """Show a dialog with keyboard shortcuts."""
+        if tk is None:
+            return
+        dialog = tk.Toplevel(self.window.win)
+        dialog.title("Keyboard Shortcuts")
+        dialog.transient(self.window.win)
+
+        shortcuts = [
+            ("Ctrl+Z", "Undo"),
+            ("Ctrl+Y", "Redo"),
+            ("Ctrl+L", "Load structure file"),
+            ("Ctrl+J", "Add molecule"),
+            ("Ctrl+D", "Export to all formats"),
+            ("Ctrl+P", "Run Voronoi optimization"),
+            ("Ctrl+H", "Show optimization results"),
+            ("Ctrl+K", "Save project"),
+            ("Ctrl+T", "Load project"),
+            ("Ctrl+F", "Focus on selection"),
+            ("Ctrl+Shift+F", "Exit focus mode"),
+            ("", ""),
+            ("Left click", "Select atom"),
+            ("Shift+click", "Add to selection"),
+            ("Ctrl+click", "Toggle selection"),
+            ("Left drag", "Rotate view"),
+            ("Right drag", "Translate view"),
+            ("Mouse wheel", "Zoom"),
+        ]
+
+        frame = tk.Frame(dialog, padx=16, pady=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(frame, text="Keyboard Shortcuts",
+                 font=("TkDefaultFont", 12, "bold")).pack(anchor=tk.W, pady=(0, 8))
+
+        for key_str, desc in shortcuts:
+            if not key_str:
+                ttk.Separator(frame, orient=tk.HORIZONTAL).pack(
+                    fill=tk.X, pady=4)
+                continue
+            row = tk.Frame(frame)
+            row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=key_str, font=("TkFixedFont", 10, "bold"),
+                     width=16, anchor=tk.W, fg="#333366").pack(side=tk.LEFT)
+            tk.Label(row, text=desc, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
+
+        tk.Label(frame, text="\nStandard ASE-GUI shortcuts (Ctrl+O, Ctrl+S, etc.) "
+                 "are also available.",
+                 fg="gray", wraplength=350, justify=tk.LEFT).pack(
+                     anchor=tk.W, pady=(8, 0))
+
+        tk.Button(frame, text="Close", width=10,
+                  command=dialog.destroy).pack(pady=(12, 0))
+        dialog.geometry("+%d+%d" % (
+            self.window.win.winfo_x() + 80, self.window.win.winfo_y() + 40))
+
+    def open_user_guide(self, key=None):
+        """Open the HTML user guide in the default browser."""
+        import webbrowser
+
+        # Locate docs relative to this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        docs_base = os.path.join(script_dir, "docs", "_build", "html")
+
+        # Try Japanese first, then English
+        candidates = [
+            os.path.join(docs_base, "ja", "gui_guide.html"),
+            os.path.join(docs_base, "en", "gui_guide.html"),
+            os.path.join(docs_base, "ja", "index.html"),
+            os.path.join(docs_base, "en", "index.html"),
+        ]
+
+        for path in candidates:
+            if os.path.isfile(path):
+                webbrowser.open("file://" + path)
+                return
+
+        # HTML not built — show instructions
+        if messagebox:
+            messagebox.showinfo(
+                "User Guide",
+                "HTML documentation has not been built yet.\n\n"
+                "To build it, run:\n"
+                "  cd docs\n"
+                "  make html\n\n"
+                f"Docs source: {os.path.join(script_dir, 'docs')}"
+            )
+
+    def show_about(self, key=None):
+        """Show the About dialog."""
+        if messagebox is None:
+            return
+        messagebox.showinfo(
+            "About Molecular Modeling Toolkit",
+            "Molecular Modeling Toolkit\n"
+            "Version 0.1.0\n\n"
+            "ASE-GUI extension for molecular modeling,\n"
+            "Voronoi cell optimization, and structure export.\n\n"
+            "Built on ASE (Atomic Simulation Environment)"
+        )
+
+    # =========================================================================
     # Menu construction
     # =========================================================================
 
@@ -3734,6 +3839,17 @@ class MolecularModelingGUI(GUI):
             view_items.append(M(_(label), self._resize_window_preset(w, h)))
         view_items.append(M(_('Custom Size...'), self._resize_window_custom))
         menu.append((_('View Settings'), view_items))
+
+        # Help menu
+        menu.append((
+            _('Help'),
+            [
+                M(_('Keyboard Shortcuts...'), self.show_keyboard_shortcuts),
+                M(_('Open User Guide...'), self.open_user_guide),
+                M('---'),
+                M(_('About...'), self.show_about),
+            ]
+        ))
 
         return menu
 

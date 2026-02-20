@@ -201,6 +201,22 @@ View Settings メニュー
    * - Custom Size...
      - 任意のサイズを指定
 
+Help メニュー
+~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
+
+   * - メニュー項目
+     - 説明
+   * - Keyboard Shortcuts...
+     - キーボードショートカットとマウス操作の一覧をダイアログで表示
+   * - Open User Guide...
+     - ビルド済み HTML マニュアルをブラウザで表示（``docs/_build/html/`` が必要。未ビルドの場合はビルド手順を案内）
+   * - About...
+     - バージョン情報を表示
+
 ビュー操作ツールバー
 --------------------
 
