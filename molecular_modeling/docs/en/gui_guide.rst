@@ -147,7 +147,7 @@ Selection Menu
    * - Rotate Molecule/Atoms...
      - Rotate selected molecule/atoms around their center of mass by Euler angles
    * - Focus on Selection (Ctrl+F)
-     - Show only selected atoms, center view, and auto-zoom. Focus mode for editing a subset
+     - Open the Focus dialog to choose focus targets by atoms or whole molecules. Selected atoms' molecule groups are pre-checked. Additional molecules can be added. While in focus mode, side panel Molecule Controls checkboxes add/remove molecules from the focused view
    * - Exit Focus Mode (Ctrl+Shift+F)
      - Exit focus mode and restore all atom visibility and the original view
    * - Toggle Drag Mode
@@ -242,11 +242,11 @@ Side Panel
 
 A side panel is displayed on the right side of the window for quick access to common view settings.
 
-- **Focus / Unfocus**: Buttons to enter/exit focus mode (show only selected atoms). While in focus mode, the Focus button is disabled and the Restore button is highlighted
+- **Focus / Unfocus**: Buttons to enter/exit focus mode. While in focus mode, the Focus button is disabled and the Restore button is highlighted
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
 - **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
 - **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly
-- **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color swatch][select button]. Click the color swatch to pick a custom molecule color. Colors are applied in By Molecule color mode
+- **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color swatch][select button]. Click the color swatch to pick a custom molecule color. Colors are applied in By Molecule color mode. **In focus mode**, the checkboxes act as focus add/remove controls — checking adds the molecule to the focused view, unchecking removes it
 
 The side panel can be shown/hidden via **View Settings** → **Toggle Side Panel**.
 
@@ -315,6 +315,26 @@ Standard ASE-GUI mouse controls are available:
 
 Dialog Details
 --------------
+
+Focus Selection Dialog
+~~~~~~~~~~~~~~~~~~~~~~
+
+When you run **Focus on Selection** (Ctrl+F) with atoms selected, the Focus dialog appears.
+
+- **Mode**:
+
+  - **Selected atoms only**: Show only the selected atoms (classic behavior)
+  - **Whole molecules**: Select focus targets by molecule group
+
+- **Molecules**: Each molecule group is listed with a checkbox. Groups containing selected atoms are pre-checked. Additional groups can be checked
+- **(ungrouped atoms)**: Shown if there are atoms without a ``mol_id``
+
+**Side panel controls during focus mode**:
+
+While in focus mode, the Molecule Controls checkboxes in the side panel act as focus add/remove controls:
+
+- Check a molecule → adds it to the focused view
+- Uncheck a molecule → removes it from the focused view
 
 Add Molecule Dialog
 ~~~~~~~~~~~~~~~~~~~

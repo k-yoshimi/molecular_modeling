@@ -709,7 +709,12 @@ class MolecularModelingGUI(GUI):
             self._add_tooltip(sel_btn, f"Select {name}")
 
     def _on_mol_vis_change(self, group_id):
-        """Toggle molecule group visibility."""
+        """Toggle molecule group visibility (or focus inclusion in focus mode)."""
+        # In focus mode, delegate to focus toggle
+        if getattr(self, '_focus_active', False):
+            self._toggle_focus_molecule(group_id)
+            return
+
         if not hasattr(self, '_hidden_molecules'):
             self._hidden_molecules = set()
 
@@ -1414,16 +1419,119 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms: hide others and center view."""
+        """Focus on selected atoms/molecules: show dialog then hide others."""
         if self.atoms is None or len(self.atoms) == 0:
             return
 
         n = len(self.atoms)
-        indices = np.arange(n)[self.images.selected[:n]]
+        selected = self.images.selected[:n]
+        indices = np.arange(n)[selected]
         if len(indices) == 0:
             if messagebox:
                 messagebox.showinfo("Focus", "Select atoms first.")
             return
+
+        has_mol_id = "mol_id" in self.atoms.arrays
+        if has_mol_id:
+            mol_ids = self.atoms.get_array("mol_id")
+            site_names = self.atoms.info.get("site_mol_name", [])
+            n_groups = int(mol_ids.max()) + 1
+            selected_groups = set(int(mol_ids[i]) for i in indices)
+        else:
+            n_groups = 0
+            selected_groups = set()
+
+        # If no molecules or only one group, skip dialog
+        if n_groups <= 1:
+            self._execute_focus(indices, set(), "atoms")
+            return
+
+        # --- Show focus dialog ---
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Focus Selection")
+        dialog.transient(self.window)
+        dialog.grab_set()
+
+        # Mode selection
+        mode_var = tk.StringVar(value="molecules")
+        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=8, pady=4)
+        mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        tk.Radiobutton(mode_frame, text="Selected atoms only",
+                        variable=mode_var, value="atoms").pack(anchor=tk.W)
+        tk.Radiobutton(mode_frame, text="Whole molecules",
+                        variable=mode_var, value="molecules").pack(anchor=tk.W)
+
+        # Molecule checkboxes
+        mol_frame = tk.LabelFrame(dialog, text="Molecules", padx=8, pady=4)
+        mol_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        mol_vars = {}
+        for g_id in range(n_groups):
+            name = site_names[g_id] if g_id < len(site_names) else f"mol_{g_id}"
+            n_atoms = int((mol_ids == g_id).sum())
+            var = tk.BooleanVar(value=(g_id in selected_groups))
+            mol_vars[g_id] = var
+            tk.Checkbutton(mol_frame, text=f"{name} ({n_atoms} atoms)",
+                           variable=var).pack(anchor=tk.W)
+
+        # Check for ungrouped atoms (atoms not belonging to any molecule)
+        ungrouped_mask = np.ones(n, dtype=bool)
+        if has_mol_id:
+            for g_id in range(n_groups):
+                ungrouped_mask[mol_ids == g_id] = False
+        n_ungrouped = int(ungrouped_mask.sum())
+        ungrouped_var = tk.BooleanVar(value=False)
+        if n_ungrouped > 0:
+            # Check if any selected atom is ungrouped
+            if any(ungrouped_mask[i] for i in indices):
+                ungrouped_var.set(True)
+            tk.Checkbutton(mol_frame, text=f"(ungrouped atoms) ({n_ungrouped})",
+                           variable=ungrouped_var).pack(anchor=tk.W)
+
+        def on_ok():
+            mode = mode_var.get()
+            checked_groups = {gid for gid, v in mol_vars.items() if v.get()}
+            include_ungrouped = ungrouped_var.get()
+            dialog.destroy()
+
+            if mode == "atoms":
+                self._execute_focus(indices, set(), "atoms")
+            else:
+                # Build visible indices from checked molecule groups
+                focus_indices = set()
+                for g_id in checked_groups:
+                    focus_indices.update(np.where(mol_ids == g_id)[0])
+                if include_ungrouped and n_ungrouped > 0:
+                    focus_indices.update(np.where(ungrouped_mask)[0])
+                if len(focus_indices) == 0:
+                    return
+                self._execute_focus(
+                    np.array(sorted(focus_indices)),
+                    checked_groups,
+                    "molecules",
+                )
+
+        # Buttons
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        tk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
+            side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", width=8,
+                  command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        dialog.resizable(False, False)
+        dialog.geometry("+%d+%d" % (
+            self.window.winfo_x() + 100, self.window.winfo_y() + 100))
+
+    def _execute_focus(self, indices, focus_mol_ids, mode):
+        """Apply focus with given indices and molecule group set.
+
+        Args:
+            indices: atom indices to make visible
+            focus_mol_ids: set of mol_id values included in focus
+            mode: "atoms" or "molecules"
+        """
+        n = len(self.atoms)
 
         # Save pre-focus state
         self._focus_backup = {
@@ -1432,33 +1540,74 @@ class MolecularModelingGUI(GUI):
             'scale': getattr(self, 'scale', None),
         }
         self._focus_active = True
+        self._focus_mol_ids = set(focus_mol_ids)
+        self._focus_mode = mode
 
         # Update button states
         if hasattr(self, '_focus_btn'):
             self._focus_btn.configure(state=tk.DISABLED)
             self._unfocus_btn.configure(state=tk.NORMAL, bg="#ffcccc")
 
-        # Hide non-selected atoms
+        # Set visibility
         visible = np.zeros(n, dtype=bool)
         visible[indices] = True
         self.images.visible[:n] = visible
 
-        # Center on selected atoms
-        positions = self.atoms.positions[indices]
-        center_pos = positions.mean(axis=0)
-        self.center = center_pos
+        # Update side panel molecule checkboxes to reflect focus state
+        self._sync_mol_panel_to_focus()
 
-        # Auto-zoom to fit selection
+        # Center and zoom on visible atoms
+        self._center_and_zoom(indices)
+
+    def _center_and_zoom(self, indices):
+        """Center view and auto-zoom on given atom indices."""
+        positions = self.atoms.positions[indices]
+        self.center = positions.mean(axis=0)
+
         if len(indices) > 1:
             span = positions.max(axis=0) - positions.min(axis=0)
             max_span = max(span.max(), 1.0)
-            # Estimate appropriate scale
             canvas_size = min(self.window.canvas.winfo_width(),
                               self.window.canvas.winfo_height())
             if canvas_size > 0:
                 self.scale = canvas_size / (max_span * 3.0)
 
         self.draw()
+
+    def _sync_mol_panel_to_focus(self):
+        """Update side panel molecule checkboxes to match focus state."""
+        if not hasattr(self, '_mol_vis_vars'):
+            return
+        for g_id, var in self._mol_vis_vars.items():
+            var.set(g_id in self._focus_mol_ids)
+
+    def _toggle_focus_molecule(self, group_id):
+        """Add or remove a molecule group from the current focus."""
+        if not getattr(self, '_focus_active', False):
+            return
+        if "mol_id" not in self.atoms.arrays:
+            return
+
+        mol_ids = self.atoms.get_array("mol_id")
+        n = len(self.atoms)
+
+        if group_id in self._focus_mol_ids:
+            # Remove from focus
+            self._focus_mol_ids.discard(group_id)
+            mask = (mol_ids == group_id)
+            self.images.visible[:n][mask] = False
+        else:
+            # Add to focus
+            self._focus_mol_ids.add(group_id)
+            mask = (mol_ids == group_id)
+            self.images.visible[:n][mask] = True
+
+        # Re-center on all visible atoms
+        visible_indices = np.where(self.images.visible[:n])[0]
+        if len(visible_indices) > 0:
+            self._center_and_zoom(visible_indices)
+        else:
+            self.draw()
 
     def unfocus(self, key=None):
         """Exit focus mode: restore all atom visibility."""
@@ -1483,11 +1632,18 @@ class MolecularModelingGUI(GUI):
 
         self._focus_active = False
         self._focus_backup = None
+        self._focus_mol_ids = set()
+        self._focus_mode = None
 
         # Reset button states
         if hasattr(self, '_unfocus_btn'):
             self._unfocus_btn.configure(state=tk.DISABLED, bg="SystemButtonFace")
             self._focus_btn.configure(state=tk.NORMAL)
+
+        # Restore side panel molecule checkboxes to normal visibility state
+        if hasattr(self, '_mol_vis_vars') and hasattr(self, '_hidden_molecules'):
+            for g_id, var in self._mol_vis_vars.items():
+                var.set(g_id not in self._hidden_molecules)
 
         self.draw()
 

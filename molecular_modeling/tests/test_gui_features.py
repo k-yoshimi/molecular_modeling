@@ -102,6 +102,8 @@ class FakeGUI:
         self._redo_stack = []
         self._focus_active = False
         self._focus_backup = None
+        self._focus_mol_ids = set()
+        self._focus_mode = None
         self._hidden_elements = set()
         self._hidden_molecules = set()
         self._mol_colors = {}
@@ -280,24 +282,81 @@ class FakeGUI:
         self.draw()
 
     def focus_selection(self, key=None):
+        """Focus on selected atoms (simplified: no dialog, direct focus)."""
         if self.atoms is None or len(self.atoms) == 0:
             return
         n = len(self.atoms)
         indices = np.arange(n)[self.images.selected[:n]]
         if len(indices) == 0:
             return
+        self._execute_focus(indices, set(), "atoms")
+
+    def focus_molecules(self, mol_ids_to_focus):
+        """Focus on specific molecule groups (test helper for dialog flow)."""
+        if self.atoms is None or len(self.atoms) == 0:
+            return
+        if "mol_id" not in self.atoms.arrays:
+            return
+        n = len(self.atoms)
+        mol_ids = self.atoms.get_array("mol_id")
+        focus_indices = []
+        for g_id in mol_ids_to_focus:
+            focus_indices.extend(np.where(mol_ids == g_id)[0])
+        if not focus_indices:
+            return
+        self._execute_focus(
+            np.array(sorted(focus_indices)), set(mol_ids_to_focus), "molecules"
+        )
+
+    def _execute_focus(self, indices, focus_mol_ids, mode):
+        """Apply focus with given indices and molecule group set."""
+        n = len(self.atoms)
         self._focus_backup = {
             "visible": self.images.visible[:n].copy(),
             "center": self.center.copy(),
             "scale": self.scale,
         }
         self._focus_active = True
+        self._focus_mol_ids = set(focus_mol_ids)
+        self._focus_mode = mode
         visible = np.zeros(n, dtype=bool)
         visible[indices] = True
         self.images.visible[:n] = visible
         positions = self.atoms.positions[indices]
         self.center = positions.mean(axis=0)
         self.draw()
+
+    def _toggle_focus_molecule(self, group_id):
+        """Add or remove a molecule group from the current focus."""
+        if not getattr(self, "_focus_active", False):
+            return
+        if "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        n = len(self.atoms)
+        if group_id in self._focus_mol_ids:
+            self._focus_mol_ids.discard(group_id)
+            mask = mol_ids == group_id
+            self.images.visible[:n][mask] = False
+        else:
+            self._focus_mol_ids.add(group_id)
+            mask = mol_ids == group_id
+            self.images.visible[:n][mask] = True
+        visible_indices = np.where(self.images.visible[:n])[0]
+        if len(visible_indices) > 0:
+            self.center = self.atoms.positions[visible_indices].mean(axis=0)
+        self.draw()
+
+    def on_mol_vis_change(self, group_id):
+        """Simulate side panel molecule checkbox toggle."""
+        if getattr(self, "_focus_active", False):
+            self._toggle_focus_molecule(group_id)
+            return
+        if group_id in self._hidden_molecules:
+            self._hidden_molecules.discard(group_id)
+        else:
+            self._hidden_molecules.add(group_id)
+        self.apply_visibility()
 
     def unfocus(self, key=None):
         if not getattr(self, "_focus_active", False):
@@ -315,6 +374,8 @@ class FakeGUI:
             self.scale = backup["scale"]
         self._focus_active = False
         self._focus_backup = None
+        self._focus_mol_ids = set()
+        self._focus_mode = None
         self.draw()
 
     def _delete_selected_with_metadata(self):
@@ -735,6 +796,91 @@ class TestFocusMode:
         gui.unfocus()
         # After unfocus, the second focus backup is restored
         assert gui._focus_active is False
+
+    def test_focus_molecules_shows_whole_group(self, atoms_with_mol):
+        """Focus on molecule group 0 shows all atoms in that group."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0})  # benzene = atoms 0,1,2
+
+        n = len(gui.atoms)
+        assert gui.images.visible[0]
+        assert gui.images.visible[1]
+        assert gui.images.visible[2]
+        for i in range(3, n):
+            assert not gui.images.visible[i]
+        assert gui._focus_active
+        assert gui._focus_mol_ids == {0}
+
+    def test_focus_multiple_molecules(self, atoms_with_mol):
+        """Focus on multiple molecule groups shows all their atoms."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0, 1})
+
+        n = len(gui.atoms)
+        for i in range(n):
+            assert gui.images.visible[i], f"Atom {i} should be visible"
+
+    def test_toggle_add_molecule_in_focus(self, atoms_with_mol):
+        """Add a molecule group while in focus mode."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0})  # Start with benzene only
+
+        # Add water (group 1) via side panel toggle
+        gui._toggle_focus_molecule(1)
+
+        assert gui._focus_mol_ids == {0, 1}
+        n = len(gui.atoms)
+        for i in range(n):
+            assert gui.images.visible[i], f"Atom {i} should be visible"
+
+    def test_toggle_remove_molecule_in_focus(self, atoms_with_mol):
+        """Remove a molecule group while in focus mode."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0, 1})  # Start with both groups
+
+        # Remove benzene (group 0)
+        gui._toggle_focus_molecule(0)
+
+        assert gui._focus_mol_ids == {1}
+        # Atoms 0,1,2 (benzene) should be hidden
+        assert not gui.images.visible[0]
+        assert not gui.images.visible[1]
+        assert not gui.images.visible[2]
+        # Atoms 3,4,5 (water) should be visible
+        assert gui.images.visible[3]
+        assert gui.images.visible[4]
+        assert gui.images.visible[5]
+
+    def test_mol_vis_change_delegates_in_focus(self, atoms_with_mol):
+        """Side panel checkbox delegates to focus toggle in focus mode."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0})
+
+        # Simulate side panel checkbox toggle for group 1
+        gui.on_mol_vis_change(1)
+
+        assert 1 in gui._focus_mol_ids
+        assert gui.images.visible[3]  # water atom visible
+
+    def test_unfocus_clears_focus_mol_ids(self, atoms_with_mol):
+        """Unfocus clears focus state including mol_ids."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0})
+        gui.unfocus()
+
+        assert gui._focus_mol_ids == set()
+        assert gui._focus_mode is None
+        assert gui._focus_active is False
+
+    def test_focus_recenters_on_toggle(self, atoms_with_mol):
+        """Adding a molecule in focus mode recenters view."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.focus_molecules({0})  # benzene: atoms at [0,0,0], [1.5,0,0], [0.5,0.5,0]
+        center_before = gui.center.copy()
+
+        gui._toggle_focus_molecule(1)  # add water: atoms at [2,0.5,0], [3,0,0], [4,0,0]
+        # Center should change (now includes all 6 atoms)
+        assert not np.allclose(gui.center, center_before)
 
 
 # ===========================================================================
