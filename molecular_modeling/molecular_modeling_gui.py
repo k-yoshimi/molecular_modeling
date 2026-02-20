@@ -1534,10 +1534,8 @@ class MolecularModelingGUI(GUI):
         }
 
         # --- Focus set: the set of atom indices to show ---
-        # Initialize with selected atoms' whole molecules
-        focus_set = set()
-        for g_id in selected_groups:
-            focus_set.update(int(i) for i in np.where(mol_ids == g_id)[0])
+        # Initialize with exactly the selected atoms (not expanded to molecules)
+        focus_set = set(int(i) for i in indices)
 
         # Atom colors for preview
         from ase.data.colors import jmol_colors
@@ -1573,7 +1571,7 @@ class MolecularModelingGUI(GUI):
         unit_frame = tk.LabelFrame(ctrl_frame, text="Unit", padx=8, pady=4)
         unit_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        unit_var = tk.StringVar(value="molecule")
+        unit_var = tk.StringVar(value="atom")
         tk.Radiobutton(unit_frame, text="Atom", variable=unit_var,
                         value="atom").pack(side=tk.LEFT)
         tk.Radiobutton(unit_frame, text="Molecule", variable=unit_var,
@@ -1588,7 +1586,9 @@ class MolecularModelingGUI(GUI):
         for g_id in range(n_groups):
             name = site_names[g_id] if g_id < len(site_names) else f"mol_{g_id}"
             n_atoms = int((mol_ids == g_id).sum())
-            var = tk.BooleanVar(value=(g_id in selected_groups))
+            group_atoms = set(int(j) for j in np.where(mol_ids == g_id)[0])
+            var = tk.BooleanVar(value=(group_atoms.issubset(focus_set)
+                                       and len(group_atoms) > 0))
             mol_vars[g_id] = var
             row = tk.Frame(mol_frame)
             row.pack(fill=tk.X, anchor=tk.W)
