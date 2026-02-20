@@ -241,6 +241,7 @@ Side Panel
 ~~~~~~~~~~
 
 A side panel is displayed on the right side of the window for quick access to common view settings.
+The panel is scrollable — use the **mouse wheel** to scroll up/down when content overflows.
 
 - **Focus / Unfocus**: Buttons to enter/exit focus mode. While in focus mode, the Focus button is disabled and the Restore button is highlighted
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)

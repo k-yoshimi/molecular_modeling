@@ -438,7 +438,7 @@ class MolecularModelingGUI(GUI):
         canvas = self.window.canvas
         canvas.pack_forget()
 
-        self._side_panel = tk.Frame(self.window.win, width=160, relief=tk.GROOVE,
+        self._side_panel = tk.Frame(self.window.win, width=180, relief=tk.GROOVE,
                                     borderwidth=1)
         self._side_panel.pack(side=tk.RIGHT, fill=tk.Y)
         self._side_panel.pack_propagate(False)
@@ -447,7 +447,72 @@ class MolecularModelingGUI(GUI):
         # Repack canvas to fill remaining space
         canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        panel = self._side_panel
+        # --- Scrollable wrapper for the entire side panel ---
+        sp_canvas = tk.Canvas(self._side_panel, highlightthickness=0)
+        sp_scrollbar = ttk.Scrollbar(self._side_panel, orient=tk.VERTICAL,
+                                      command=sp_canvas.yview)
+        panel = tk.Frame(sp_canvas)
+        self._side_panel_inner = panel
+        self._side_panel_canvas = sp_canvas
+
+        panel.bind(
+            "<Configure>",
+            lambda e: sp_canvas.configure(scrollregion=sp_canvas.bbox("all")))
+        sp_canvas.create_window((0, 0), window=panel, anchor="nw")
+        sp_canvas.configure(yscrollcommand=sp_scrollbar.set)
+
+        sp_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        sp_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Mouse wheel scrolling on the side panel
+        def _on_mousewheel(event):
+            try:
+                if not sp_canvas.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            # macOS uses event.delta directly; Linux uses Button-4/5
+            if event.num == 4:
+                sp_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                sp_canvas.yview_scroll(1, "units")
+            else:
+                # macOS / Windows: delta is ±120 (Windows) or ±1 (macOS)
+                delta = event.delta
+                if abs(delta) > 10:
+                    delta = delta // 120
+                sp_canvas.yview_scroll(-delta, "units")
+
+        self._sp_mousewheel_handler = _on_mousewheel
+
+        # Bind to the canvas and propagate to all children
+        def _bind_wheel(widget):
+            widget.bind("<MouseWheel>", _on_mousewheel)       # macOS/Windows
+            widget.bind("<Button-4>", _on_mousewheel)          # Linux scroll up
+            widget.bind("<Button-5>", _on_mousewheel)          # Linux scroll down
+
+        _bind_wheel(sp_canvas)
+        _bind_wheel(panel)
+        self._sp_bind_wheel = _bind_wheel
+
+        # Rebind wheel to new children when panel is reconfigured
+        def _bind_children(event):
+            for child in panel.winfo_children():
+                _bind_wheel_recursive(child)
+
+        def _bind_wheel_recursive(widget):
+            _bind_wheel(widget)
+            for child in widget.winfo_children():
+                _bind_wheel_recursive(child)
+
+        panel.bind("<Map>", _bind_children)
+        self._sp_bind_wheel_recursive = _bind_wheel_recursive
+
+        # Update inner frame width when canvas resizes
+        def _on_canvas_configure(event):
+            sp_canvas.itemconfigure(
+                sp_canvas.find_withtag("all")[0], width=event.width)
+        sp_canvas.bind("<Configure>", _on_canvas_configure)
 
         # --- Title ---
         tk.Label(panel, text="View Controls", font=("TkDefaultFont", 10, "bold")
@@ -481,8 +546,8 @@ class MolecularModelingGUI(GUI):
         # --- Element visibility & size ---
         tk.Label(panel, text="Element Controls:").pack(anchor=tk.W, padx=8, pady=(2, 0))
 
-        elem_container, self._elem_vis_frame = self._create_scrollable_frame(panel)
-        elem_container.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+        self._elem_vis_frame = tk.Frame(panel)
+        self._elem_vis_frame.pack(fill=tk.X, padx=4, pady=2)
 
         self._elem_vis_vars = {}
         self._elem_size_vars = {}
@@ -503,8 +568,8 @@ class MolecularModelingGUI(GUI):
         # --- Molecule visibility ---
         tk.Label(panel, text="Molecule Controls:").pack(anchor=tk.W, padx=8, pady=(2, 0))
 
-        mol_container, self._mol_vis_frame = self._create_scrollable_frame(panel)
-        mol_container.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+        self._mol_vis_frame = tk.Frame(panel)
+        self._mol_vis_frame.pack(fill=tk.X, padx=4, pady=2)
 
         self._mol_vis_vars = {}
         self._mol_color_btns = {}
@@ -586,6 +651,10 @@ class MolecularModelingGUI(GUI):
             if not hasattr(self, '_elem_size_tip_setters'):
                 self._elem_size_tip_setters = {}
             self._elem_size_tip_setters[sym] = size_tip_setter
+
+        # Bind mouse wheel to new element widgets
+        if hasattr(self, '_sp_bind_wheel_recursive'):
+            self._sp_bind_wheel_recursive(self._elem_vis_frame)
 
         # Also update molecule panel if it exists
         if hasattr(self, '_mol_vis_frame'):
@@ -707,6 +776,10 @@ class MolecularModelingGUI(GUI):
                                 command=lambda gid=g_id: self._on_mol_select(gid))
             sel_btn.pack(side=tk.LEFT, padx=1)
             self._add_tooltip(sel_btn, f"Select {name}")
+
+        # Bind mouse wheel to new molecule widgets
+        if hasattr(self, '_sp_bind_wheel_recursive'):
+            self._sp_bind_wheel_recursive(self._mol_vis_frame)
 
     def _on_mol_vis_change(self, group_id):
         """Toggle molecule group visibility (or focus inclusion in focus mode)."""
