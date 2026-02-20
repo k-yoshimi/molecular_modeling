@@ -1615,11 +1615,15 @@ class MolecularModelingGUI(GUI):
             ax.set_title(f"{len(vis_idx)} atoms shown")
             canvas_widget.draw_idle()
 
-        # --- Poll selection changes from main view ---
-        poll_id = [None]
+        # --- Hook into draw() to detect selection changes ---
+        original_draw = self.draw
+        drawing = [False]  # guard against recursion
 
-        def poll_selection():
-            """Periodically check if main-view selection changed."""
+        def hooked_draw():
+            """Wrapper around draw() that updates the preview on selection change."""
+            original_draw()
+            if drawing[0]:
+                return
             try:
                 if not dialog.winfo_exists():
                     return
@@ -1628,16 +1632,19 @@ class MolecularModelingGUI(GUI):
             cur = self.images.selected[:n].copy()
             if not np.array_equal(cur, prev_selected[0]):
                 prev_selected[0] = cur
-                draw_preview()
-            poll_id[0] = dialog.after(200, poll_selection)
+                drawing[0] = True
+                try:
+                    draw_preview()
+                finally:
+                    drawing[0] = False
 
-        # Draw initial preview & start polling
+        self.draw = hooked_draw
+
+        # Draw initial preview
         draw_preview()
-        poll_id[0] = dialog.after(200, poll_selection)
 
         def on_ok():
-            if poll_id[0] is not None:
-                dialog.after_cancel(poll_id[0])
+            self.draw = original_draw  # restore
             visible = _get_focus_visible()
             focus_indices = np.where(visible)[0]
             checked_groups = {gid for gid, v in mol_vars.items() if v.get()}
@@ -1650,8 +1657,7 @@ class MolecularModelingGUI(GUI):
                 focus_indices, checked_groups, mode, backup=backup)
 
         def on_cancel():
-            if poll_id[0] is not None:
-                dialog.after_cancel(poll_id[0])
+            self.draw = original_draw  # restore
             dialog.destroy()
 
         # OK / Cancel buttons
