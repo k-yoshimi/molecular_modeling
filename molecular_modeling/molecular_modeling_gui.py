@@ -455,17 +455,15 @@ class MolecularModelingGUI(GUI):
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
-        # --- Focus buttons ---
-        focus_frame = tk.Frame(panel)
-        focus_frame.pack(fill=tk.X, padx=4, pady=2)
-        focus_btn = tk.Button(focus_frame, text="Focus (Ctrl+F)",
-                              command=self.focus_selection)
-        focus_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
-        self._add_tooltip(focus_btn, "Show only selected atoms")
-        unfocus_btn = tk.Button(focus_frame, text="Unfocus",
-                                command=self.unfocus)
-        unfocus_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
-        self._add_tooltip(unfocus_btn, "Restore all atoms (Ctrl+Shift+F)")
+        # --- Focus buttons (stacked vertically for readability) ---
+        self._focus_btn = tk.Button(panel, text="Focus Selection (Ctrl+F)",
+                                    command=self.focus_selection)
+        self._focus_btn.pack(fill=tk.X, padx=8, pady=(2, 1))
+        self._add_tooltip(self._focus_btn, "Show only selected atoms")
+        self._unfocus_btn = tk.Button(panel, text="Restore All Atoms",
+                                      command=self.unfocus, state=tk.DISABLED)
+        self._unfocus_btn.pack(fill=tk.X, padx=8, pady=(1, 2))
+        self._add_tooltip(self._unfocus_btn, "Exit focus mode (Ctrl+Shift+F)")
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
@@ -1435,6 +1433,11 @@ class MolecularModelingGUI(GUI):
         }
         self._focus_active = True
 
+        # Update button states
+        if hasattr(self, '_focus_btn'):
+            self._focus_btn.configure(state=tk.DISABLED)
+            self._unfocus_btn.configure(state=tk.NORMAL, bg="#ffcccc")
+
         # Hide non-selected atoms
         visible = np.zeros(n, dtype=bool)
         visible[indices] = True
@@ -1480,6 +1483,12 @@ class MolecularModelingGUI(GUI):
 
         self._focus_active = False
         self._focus_backup = None
+
+        # Reset button states
+        if hasattr(self, '_unfocus_btn'):
+            self._unfocus_btn.configure(state=tk.DISABLED, bg="SystemButtonFace")
+            self._focus_btn.configure(state=tk.NORMAL)
+
         self.draw()
 
     # =========================================================================
