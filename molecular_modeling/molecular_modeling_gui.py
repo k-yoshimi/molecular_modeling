@@ -1636,9 +1636,13 @@ class MolecularModelingGUI(GUI):
         def on_click_detected():
             """Handle a click in the main view: auto-toggle.
 
-            A real user click changes exactly 1 atom in ASE-GUI's selection.
-            Bulk selection changes (e.g. window focus loss clearing selection)
-            are ignored and the main view is re-synced to match focus_set.
+            ASE-GUI click patterns vs. expected (focus_set as selected):
+            - Regular click on atom A: cur = {A} (clears others, selects A)
+            - Ctrl+click on atom A: toggles A in cur (keeps others)
+            - Shift+click on atom A: adds A to cur (keeps others)
+            - Spurious (window focus loss etc.): cur = {} (everything cleared)
+
+            We detect the clicked atom and toggle it in/out of focus_set.
             """
             cur = self.images.selected[:n]
             # Build expected selection from focus_set
@@ -1647,23 +1651,32 @@ class MolecularModelingGUI(GUI):
                 if 0 <= i < n:
                     expected[i] = True
 
-            # Find atoms that differ (user clicked to toggle ASE selection)
             newly_on = np.where(cur & ~expected)[0]
             newly_off = np.where(~cur & expected)[0]
-
-            # A genuine click changes exactly 1 atom.
-            # If many atoms changed at once, it's a spurious event
-            # (e.g. selection cleared by window focus change) — just re-sync.
             total_diff = len(newly_on) + len(newly_off)
-            if total_diff == 0 or total_diff > 1:
-                sync_main_view()
+
+            if total_diff == 0:
                 return
 
-            # Determine the single clicked atom
-            if len(newly_on) == 1:
+            clicked_atom = None
+
+            if total_diff == 1:
+                # Ctrl+click or Shift+click: exactly one atom toggled
+                if len(newly_on) == 1:
+                    clicked_atom = int(newly_on[0])
+                else:
+                    clicked_atom = int(newly_off[0])
+            elif len(newly_on) == 1:
+                # Regular click on unfocused atom: A added, focus atoms cleared
                 clicked_atom = int(newly_on[0])
-            else:
-                clicked_atom = int(newly_off[0])
+            elif len(newly_on) == 0 and int(cur.sum()) == 1:
+                # Regular click on focused atom: only that atom stays selected
+                clicked_atom = int(np.where(cur)[0][0])
+
+            if clicked_atom is None:
+                # Can't determine clicked atom (e.g. all cleared) → re-sync
+                sync_main_view()
+                return
 
             unit = unit_var.get()
 
