@@ -1419,10 +1419,11 @@ class MolecularModelingGUI(GUI):
     # =========================================================================
 
     def focus_selection(self, key=None):
-        """Focus on selected atoms/molecules: show preview window with Add/Delete.
+        """Focus on selected atoms/molecules with auto-toggle preview.
 
-        The preview window is non-modal.  The user can click atoms in the
-        main view while in Add or Delete mode to modify the focus set.
+        The preview window is non-modal.  Clicking atoms in the main view
+        automatically toggles them: focused atoms are removed, unfocused
+        atoms are added.  The main view highlights the current focus set.
         """
         if self.atoms is None or len(self.atoms) == 0:
             return
@@ -1451,9 +1452,10 @@ class MolecularModelingGUI(GUI):
             self._execute_focus(indices, set(), "atoms")
             return
 
-        # Save backup for unfocus
+        # Save backup for unfocus (including original selection)
         backup = {
             'visible': self.images.visible[:n].copy(),
+            'selected': self.images.selected[:n].copy(),
             'center': self.center.copy() if hasattr(self, 'center') else None,
             'scale': getattr(self, 'scale', None),
         }
@@ -1462,16 +1464,13 @@ class MolecularModelingGUI(GUI):
         # Initialize with selected atoms' whole molecules
         focus_set = set()
         for g_id in selected_groups:
-            focus_set.update(np.where(mol_ids == g_id)[0])
+            focus_set.update(int(i) for i in np.where(mol_ids == g_id)[0])
 
         # Atom colors for preview
         from ase.data.colors import jmol_colors
         from ase.data import covalent_radii as default_radii
         positions = self.atoms.positions
         numbers = self.atoms.numbers
-
-        # Track previous selection
-        prev_selected = [self.images.selected[:n].copy()]
 
         # --- Build preview window (non-modal) ---
         dialog = tk.Toplevel(self.window.win)
@@ -1497,28 +1496,15 @@ class MolecularModelingGUI(GUI):
         status_label = tk.Label(ctrl_frame, text="", anchor=tk.W, fg="gray")
         status_label.pack(fill=tk.X, padx=5, pady=(0, 4))
 
-        # Click-action mode (Add / Delete)
-        action_var = tk.StringVar(value="add")
-        action_frame = tk.LabelFrame(ctrl_frame, text="Click Action", padx=8, pady=4)
-        action_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        # Unit selector (Atom / Molecule)
+        unit_frame = tk.LabelFrame(ctrl_frame, text="Unit", padx=8, pady=4)
+        unit_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
-        # Unit (atom / molecule)
         unit_var = tk.StringVar(value="molecule")
-
-        row1 = tk.Frame(action_frame)
-        row1.pack(fill=tk.X)
-        tk.Radiobutton(row1, text="Add", variable=action_var,
-                        value="add", fg="green").pack(side=tk.LEFT)
-        tk.Radiobutton(row1, text="Delete", variable=action_var,
-                        value="delete", fg="red").pack(side=tk.LEFT, padx=(10, 0))
-
-        row2 = tk.Frame(action_frame)
-        row2.pack(fill=tk.X, pady=(2, 0))
-        tk.Label(row2, text="Unit:").pack(side=tk.LEFT)
-        tk.Radiobutton(row2, text="Atom", variable=unit_var,
+        tk.Radiobutton(unit_frame, text="Atom", variable=unit_var,
                         value="atom").pack(side=tk.LEFT)
-        tk.Radiobutton(row2, text="Molecule", variable=unit_var,
-                        value="molecule").pack(side=tk.LEFT)
+        tk.Radiobutton(unit_frame, text="Molecule", variable=unit_var,
+                        value="molecule").pack(side=tk.LEFT, padx=(10, 0))
 
         # Molecule checkboxes
         mol_frame = tk.LabelFrame(ctrl_frame, text="Molecules", padx=8, pady=4)
@@ -1543,62 +1529,82 @@ class MolecularModelingGUI(GUI):
 
         # Help text
         tk.Label(ctrl_frame,
-                 text="Click atoms in the main view to Add/Delete from focus",
-                 fg="blue", font=("TkDefaultFont", 9)).pack(padx=5, pady=(0, 4))
+                 text="Click atoms in main view to toggle focus\n"
+                      "(focused → remove, unfocused → add)",
+                 fg="blue", font=("TkDefaultFont", 9),
+                 justify=tk.LEFT).pack(padx=5, pady=(0, 4))
+
+        def sync_main_view():
+            """Highlight focus set as selected atoms in main view."""
+            sel = np.zeros(len(self.images.selected), dtype=bool)
+            for i in focus_set:
+                if 0 <= i < n:
+                    sel[i] = True
+            self.images.selected[:] = sel
 
         def on_mol_checkbox(g_id):
             """Handle molecule checkbox toggle."""
             var = mol_vars[g_id]
-            group_atoms = set(np.where(mol_ids == g_id)[0])
+            group_atoms = set(int(i) for i in np.where(mol_ids == g_id)[0])
             if var.get():
                 focus_set.update(group_atoms)
             else:
                 focus_set.difference_update(group_atoms)
+            sync_main_view()
+            self.draw()
             draw_preview()
 
         def sync_mol_checkboxes():
             """Update molecule checkboxes to reflect focus_set."""
             for g_id, var in mol_vars.items():
-                group_atoms = set(np.where(mol_ids == g_id)[0])
+                group_atoms = set(int(i) for i in np.where(mol_ids == g_id)[0])
                 var.set(group_atoms.issubset(focus_set) and len(group_atoms) > 0)
 
-        def on_selection_change():
-            """Handle selection change from main view click."""
+        def on_click_detected():
+            """Handle a click in the main view: auto-toggle."""
             cur = self.images.selected[:n]
-            prev = prev_selected[0]
-            # Find newly selected atoms (clicked)
-            newly_selected = np.where(cur & ~prev)[0]
-            newly_deselected = np.where(~cur & prev)[0]
+            # Build expected selection from focus_set
+            expected = np.zeros(n, dtype=bool)
+            for i in focus_set:
+                if 0 <= i < n:
+                    expected[i] = True
 
-            action = action_var.get()
-            unit = unit_var.get()
+            # Find atoms that differ (user clicked to toggle ASE selection)
+            newly_on = np.where(cur & ~expected)[0]
+            newly_off = np.where(~cur & expected)[0]
 
-            # Use newly clicked atoms (selected or deselected)
             clicked = set()
-            if len(newly_selected) > 0:
-                clicked.update(newly_selected)
-            elif len(newly_deselected) > 0:
-                clicked.update(newly_deselected)
+            if len(newly_on) > 0:
+                clicked.update(int(i) for i in newly_on)
+            elif len(newly_off) > 0:
+                clicked.update(int(i) for i in newly_off)
 
             if not clicked:
-                prev_selected[0] = cur.copy()
+                # Restore main view to show focus set
+                sync_main_view()
                 return
+
+            unit = unit_var.get()
+
+            # Get the first clicked atom to determine toggle direction
+            first_clicked = next(iter(clicked))
 
             if unit == "molecule" and mol_ids is not None:
                 # Expand to whole molecule groups
                 expanded = set()
                 for i in clicked:
                     g_id = int(mol_ids[i])
-                    expanded.update(np.where(mol_ids == g_id)[0])
+                    expanded.update(int(j) for j in np.where(mol_ids == g_id)[0])
                 clicked = expanded
 
-            if action == "add":
-                focus_set.update(clicked)
-            else:  # delete
+            # Auto-toggle: if clicked atom was in focus, remove; else add
+            if first_clicked in focus_set:
                 focus_set.difference_update(clicked)
+            else:
+                focus_set.update(clicked)
 
-            prev_selected[0] = cur.copy()
             sync_mol_checkboxes()
+            sync_main_view()
             draw_preview()
 
         def draw_preview():
@@ -1662,16 +1668,23 @@ class MolecularModelingGUI(GUI):
             except tk.TclError:
                 return
             cur = self.images.selected[:n].copy()
-            if not np.array_equal(cur, prev_selected[0]):
+            # Compare with expected focus set selection
+            expected = np.zeros(n, dtype=bool)
+            for i in focus_set:
+                if 0 <= i < n:
+                    expected[i] = True
+            if not np.array_equal(cur, expected):
                 drawing[0] = True
                 try:
-                    on_selection_change()
+                    on_click_detected()
                 finally:
                     drawing[0] = False
 
         self.draw = hooked_draw
 
-        # Draw initial preview
+        # Highlight focus set in main view and draw initial preview
+        sync_main_view()
+        original_draw()
         draw_preview()
 
         def on_ok():
@@ -1680,12 +1693,18 @@ class MolecularModelingGUI(GUI):
             dialog.destroy()
             focus_indices = np.array(sorted(focus_set))
             if len(focus_indices) == 0:
+                # Restore original selection
+                self.images.selected[:n] = backup['selected']
+                self.draw()
                 return
             self._execute_focus(
                 focus_indices, checked_groups, "molecules", backup=backup)
 
         def on_cancel():
             self.draw = original_draw
+            # Restore original selection
+            self.images.selected[:n] = backup['selected']
+            self.draw()
             dialog.destroy()
 
         # OK / Cancel buttons
@@ -1804,6 +1823,11 @@ class MolecularModelingGUI(GUI):
             self.images.visible[:vlen] = backup['visible'][:vlen]
             if n > vlen:
                 self.images.visible[vlen:n] = True
+
+        # Restore selection
+        if backup.get('selected') is not None:
+            slen = min(len(backup['selected']), n)
+            self.images.selected[:slen] = backup['selected'][:slen]
 
         # Restore view
         if backup.get('center') is not None:

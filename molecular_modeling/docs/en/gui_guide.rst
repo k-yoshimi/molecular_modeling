@@ -337,6 +337,10 @@ The window is **non-modal**, so clicking atoms in the main view is possible.
 
 - **Molecules**: Each molecule group is listed with a checkbox and color swatch. Toggling checkboxes adds/removes groups from the focus set
 
+**Auto-toggle behavior**: The main view highlights currently focused atoms as selected (highlighted).
+Clicking an atom that is already in the focus set removes it; clicking an atom not in the focus set adds it.
+This makes it intuitive to see and modify the focus set without switching between Add/Delete modes.
+
 **Example workflow**:
 
 1. Select atoms and click Focus → preview shows molecules of selected atoms
