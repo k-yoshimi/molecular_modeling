@@ -146,10 +146,12 @@ Selection Menu
      - Translate selected molecule/atoms by a specified vector (whole molecule or selected only)
    * - Rotate Molecule/Atoms...
      - Rotate selected molecule/atoms around their center of mass by Euler angles
-   * - Focus on Selection
+   * - Focus on Selection (Ctrl+F)
      - Show only selected atoms, center view, and auto-zoom. Focus mode for editing a subset
-   * - Exit Focus Mode
+   * - Exit Focus Mode (Ctrl+Shift+F)
      - Exit focus mode and restore all atom visibility and the original view
+   * - Toggle Drag Mode
+     - Toggle drag mode: when active, drag selected atoms to move them directly in the 3D viewport
 
 Pipeline Menu
 ~~~~~~~~~~~~~
@@ -225,6 +227,9 @@ Each button supports press-and-hold for continuous operation.
    * - Actions
      - ↩ ↪ ✖ ✥ ↻
      - Undo / Redo / Delete selected / Move / Rotate (each button has a tooltip)
+   * - Drag
+     - ✋
+     - Toggle drag mode: click to activate, then drag selected atoms to reposition them
 
 Tooltips
 ~~~~~~~~
@@ -237,6 +242,7 @@ Side Panel
 
 A side panel is displayed on the right side of the window for quick access to common view settings.
 
+- **Focus / Unfocus**: Buttons to enter/exit focus mode (show only selected atoms)
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
 - **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
 - **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly
@@ -288,6 +294,10 @@ Keyboard Shortcuts
      - Save project
    * - Ctrl+T
      - Load project
+   * - Ctrl+F
+     - Focus on selection (show only selected atoms)
+   * - Ctrl+Shift+F
+     - Exit focus mode (restore all atoms)
 
 Standard ASE-GUI keyboard shortcuts (Ctrl+O to open, Ctrl+S to save, etc.) are also available.
 

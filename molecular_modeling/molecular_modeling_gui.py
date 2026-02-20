@@ -159,6 +159,10 @@ class MolecularModelingGUI(GUI):
         self._repeat_id = None
         self._undo_stack = []
         self._redo_stack = []
+        self._drag_mode = False
+        self._dragging = False
+        self._drag_start_xy = None
+        self._drag_start_positions = None
         self._setup_toolbar()
         self._setup_side_panel()
         # Set a reasonable default window size (larger than ASE's 450x450)
@@ -236,6 +240,98 @@ class MolecularModelingGUI(GUI):
             btn = tk.Button(toolbar, text=symbol, width=3, command=callback)
             btn.pack(side=tk.LEFT, padx=1)
             self._add_tooltip(btn, tip)
+
+        # --- Drag mode toggle ---
+        sep2 = ttk.Separator(toolbar, orient=tk.VERTICAL)
+        sep2.pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        self._drag_btn = tk.Button(
+            toolbar, text="\u270B", width=3,
+            command=self._toggle_drag_mode, relief=tk.RAISED)
+        self._drag_btn.pack(side=tk.LEFT, padx=1)
+        self._add_tooltip(self._drag_btn, "Drag mode: move atoms by dragging")
+
+    def _toggle_drag_mode_menu(self, key=None):
+        """Menu callback for toggling drag mode."""
+        self._toggle_drag_mode()
+
+    def _toggle_drag_mode(self):
+        """Toggle drag mode for moving atoms with mouse drag."""
+        self._drag_mode = not self._drag_mode
+        if self._drag_mode:
+            self._drag_btn.configure(relief=tk.SUNKEN, bg="#cce5ff")
+            # Change cursor to indicate drag mode
+            try:
+                self.window.canvas.configure(cursor="fleur")
+            except Exception:
+                pass
+        else:
+            self._drag_btn.configure(relief=tk.RAISED, bg="SystemButtonFace")
+            self._dragging = False
+            try:
+                self.window.canvas.configure(cursor="")
+            except Exception:
+                pass
+
+    # =========================================================================
+    # Drag mode: move atoms by mouse dragging
+    # =========================================================================
+
+    def press(self, event):
+        """Override ASE press to handle drag mode."""
+        if self._drag_mode and event.button == 1:
+            n = len(self.atoms) if self.atoms is not None else 0
+            if n > 0 and hasattr(self, 'P') and self.P is not None:
+                selected = self.images.selected[:n]
+                if selected.any():
+                    # Check if click is on a selected atom
+                    click = np.array([event.x, event.y])
+                    d = self.P[:n] - click
+                    r = self.get_covalent_radii()[:n]
+                    hit = (d**2).sum(1) < (self.scale * r)**2
+                    if (hit & selected).any():
+                        # Start dragging selected atoms
+                        self._dragging = True
+                        self._drag_start_xy = (event.x, event.y)
+                        self._drag_start_positions = self.atoms.positions.copy()
+                        self._save_undo_state()
+                        return
+        # Fall through to default ASE behavior
+        super().press(event)
+
+    def move(self, event):
+        """Override ASE move to handle atom dragging."""
+        if self._drag_mode and self._dragging:
+            dx = event.x - self._drag_start_xy[0]
+            dy = event.y - self._drag_start_xy[1]
+            # Convert screen delta to world delta using view axes
+            delta = np.dot(self.axes, np.array([dx, -dy, 0.0])) / self.scale
+
+            n = len(self.atoms)
+            selected = self.images.selected[:n]
+            indices = np.where(selected)[0]
+
+            # Update positions from initial positions + delta
+            pos = self._drag_start_positions.copy()
+            pos[indices] += delta
+            self.atoms.set_positions(pos)
+            self.images[self.frame] = self.atoms
+            self.draw(status=False)
+            return
+        # Fall through to default ASE behavior
+        super().move(event)
+
+    def release(self, event):
+        """Override ASE release to finalize drag."""
+        if self._drag_mode and self._dragging:
+            self._dragging = False
+            self._drag_start_xy = None
+            self._drag_start_positions = None
+            self.controller.set_atoms(self.atoms)
+            self.draw()
+            return
+        # Fall through to default ASE behavior
+        super().release(event)
 
     def _translate_view(self, dx, dy):
         """Translate the view in screen coordinates. dx, dy are -1 or +1."""
@@ -356,6 +452,20 @@ class MolecularModelingGUI(GUI):
         # --- Title ---
         tk.Label(panel, text="View Controls", font=("TkDefaultFont", 10, "bold")
                  ).pack(fill=tk.X, padx=4, pady=(6, 4))
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
+
+        # --- Focus buttons ---
+        focus_frame = tk.Frame(panel)
+        focus_frame.pack(fill=tk.X, padx=4, pady=2)
+        focus_btn = tk.Button(focus_frame, text="Focus (Ctrl+F)",
+                              command=self.focus_selection)
+        focus_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+        self._add_tooltip(focus_btn, "Show only selected atoms")
+        unfocus_btn = tk.Button(focus_frame, text="Unfocus",
+                                command=self.unfocus)
+        unfocus_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=1)
+        self._add_tooltip(unfocus_btn, "Restore all atoms (Ctrl+Shift+F)")
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
@@ -3121,8 +3231,10 @@ class MolecularModelingGUI(GUI):
                 M(_('Move Molecule/Atoms...'), self.move_molecule_dialog),
                 M(_('Rotate Molecule/Atoms...'), self.rotate_molecule_dialog),
                 M('---'),
-                M(_('Focus on Selection'), self.focus_selection),
-                M(_('Exit Focus Mode'), self.unfocus),
+                M(_('Focus on Selection'), self.focus_selection, 'Ctrl+F'),
+                M(_('Exit Focus Mode'), self.unfocus, 'Ctrl+Shift+F'),
+                M('---'),
+                M(_('Toggle Drag Mode'), self._toggle_drag_mode_menu),
             ]
         ))
 

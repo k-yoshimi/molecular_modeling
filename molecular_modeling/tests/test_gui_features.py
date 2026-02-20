@@ -106,6 +106,10 @@ class FakeGUI:
         self._hidden_molecules = set()
         self._mol_colors = {}
         self._hydrogen_visible = True
+        self._drag_mode = False
+        self._dragging = False
+        self._drag_start_xy = None
+        self._drag_start_positions = None
         self._draw_count = 0
 
         # Mock controller
@@ -396,6 +400,42 @@ class FakeGUI:
         mol_ids = self.atoms.get_array("mol_id")
         n = len(self.atoms)
         self.images.selected[:n] = (mol_ids == group_id)
+        self.draw()
+
+    def start_drag(self, selected_indices):
+        """Simulate starting a drag on selected atoms (mirrors press in drag mode)."""
+        self._drag_mode = True
+        self._dragging = True
+        self._drag_start_xy = (100, 100)  # arbitrary start position
+        self._drag_start_positions = self.atoms.positions.copy()
+        n = len(self.atoms)
+        self.images.selected[:n] = False
+        for i in selected_indices:
+            self.images.selected[i] = True
+        self._save_undo_state()
+
+    def drag_to(self, delta_3d):
+        """Simulate dragging atoms by a 3D world delta.
+
+        In the real GUI, 2D mouse delta is converted to 3D via the axes matrix.
+        Here we apply the delta directly to simplify testing.
+        """
+        if not self._dragging:
+            return
+        n = len(self.atoms)
+        selected = self.images.selected[:n]
+        indices = np.where(selected)[0]
+        pos = self._drag_start_positions.copy()
+        pos[indices] += np.array(delta_3d)
+        self.atoms.set_positions(pos)
+        self.images[self.frame] = self.atoms
+        self.draw()
+
+    def end_drag(self):
+        """Simulate ending a drag (mirrors release in drag mode)."""
+        self._dragging = False
+        self._drag_start_xy = None
+        self._drag_start_positions = None
         self.draw()
 
     def apply_mol_group_colors(self):
@@ -1273,3 +1313,66 @@ class TestMoleculeVisibility:
         gui.apply_molecule_visibility()
         # Should be a no-op, all visible
         assert gui.images.visible[:len(gui.atoms)].all()
+
+
+# ===========================================================================
+# Drag Mode Tests
+# ===========================================================================
+
+
+class TestDragMode:
+    """Verify drag-to-move atom functionality."""
+
+    def test_drag_single_atom(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_pos = gui.atoms.positions[0].copy()
+        gui.start_drag([0])
+        gui.drag_to([1.0, 0.0, 0.0])
+        gui.end_drag()
+        np.testing.assert_allclose(gui.atoms.positions[0], orig_pos + [1.0, 0.0, 0.0])
+
+    def test_drag_multiple_atoms(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_0 = gui.atoms.positions[0].copy()
+        orig_1 = gui.atoms.positions[1].copy()
+        gui.start_drag([0, 1])
+        gui.drag_to([0.5, 0.5, 0.0])
+        gui.end_drag()
+        np.testing.assert_allclose(gui.atoms.positions[0], orig_0 + [0.5, 0.5, 0.0])
+        np.testing.assert_allclose(gui.atoms.positions[1], orig_1 + [0.5, 0.5, 0.0])
+
+    def test_drag_does_not_move_unselected(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_2 = gui.atoms.positions[2].copy()
+        gui.start_drag([0])
+        gui.drag_to([2.0, 0.0, 0.0])
+        gui.end_drag()
+        np.testing.assert_allclose(gui.atoms.positions[2], orig_2)
+
+    def test_drag_undo(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_pos = gui.atoms.positions.copy()
+        gui.start_drag([0, 1, 2])
+        gui.drag_to([1.0, 1.0, 1.0])
+        gui.end_drag()
+        # Positions should have changed
+        assert not np.allclose(gui.atoms.positions[:3], orig_pos[:3])
+        # Undo should restore
+        gui.undo()
+        np.testing.assert_allclose(gui.atoms.positions, orig_pos)
+
+    def test_drag_mode_toggle(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        assert not gui._drag_mode
+        gui._drag_mode = True
+        assert gui._drag_mode
+        gui._drag_mode = False
+        assert not gui._drag_mode
+
+    def test_drag_3d_displacement(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_pos = gui.atoms.positions[4].copy()
+        gui.start_drag([4])
+        gui.drag_to([0.0, 0.0, 2.5])
+        gui.end_drag()
+        np.testing.assert_allclose(gui.atoms.positions[4], orig_pos + [0.0, 0.0, 2.5])
