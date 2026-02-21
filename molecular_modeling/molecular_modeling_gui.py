@@ -543,6 +543,20 @@ class MolecularModelingGUI(GUI):
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
 
+        # --- Show bonds checkbox ---
+        show_bonds = False
+        try:
+            show_bonds = bool(self.window['toggle-show-bonds'])
+        except Exception:
+            pass
+        self._show_bonds_var = tk.BooleanVar(value=show_bonds)
+        tk.Checkbutton(panel, text="Show Bonds (Ctrl+B)",
+                        variable=self._show_bonds_var,
+                        command=self._on_toggle_bonds
+                        ).pack(anchor=tk.W, padx=8, pady=(2, 0))
+
+        ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
+
         # --- Element visibility & size ---
         tk.Label(panel, text="Element Controls:").pack(anchor=tk.W, padx=8, pady=(2, 0))
 
@@ -580,6 +594,27 @@ class MolecularModelingGUI(GUI):
         """Handle color mode change from side panel."""
         mode = self._color_mode_var.get()
         self._apply_color_mode(mode)
+
+    def _on_toggle_bonds(self):
+        """Toggle bond display from side panel checkbox."""
+        show = self._show_bonds_var.get()
+        try:
+            current = bool(self.window['toggle-show-bonds'])
+        except Exception:
+            current = False
+        if show != current:
+            self.toggle_show_bonds()
+
+    def toggle_show_bonds(self, key=None):
+        """Toggle bond display and sync side panel checkbox."""
+        super().toggle_show_bonds(key)
+        # Sync side panel checkbox to actual state
+        if hasattr(self, '_show_bonds_var'):
+            try:
+                state = bool(self.window['toggle-show-bonds'])
+            except Exception:
+                state = False
+            self._show_bonds_var.set(state)
 
     def _on_atom_size_change(self, value=None):
         """Handle atom size change from side panel."""
@@ -3629,6 +3664,7 @@ class MolecularModelingGUI(GUI):
             ("Ctrl+H", "Show optimization results"),
             ("Ctrl+K", "Save project"),
             ("Ctrl+T", "Load project"),
+            ("Ctrl+B", "Show/hide bonds"),
             ("Ctrl+F", "Focus on selection"),
             ("Ctrl+Shift+F", "Exit focus mode"),
             ("", ""),
@@ -3830,6 +3866,8 @@ class MolecularModelingGUI(GUI):
             M(_('Color by Molecule Group'), self._color_by_molecule_group),
             M(_('Reset Colors'), self._reset_element_colors),
             M('---'),
+            M(_('Show Bonds'), self.toggle_show_bonds, 'Ctrl+B',
+              value=self.config.get('show_bonds', False)),
             M(_('Toggle Hydrogen'), self.toggle_hydrogen),
             M(_('Element Visibility...'), self.toggle_element_visibility),
             M(_('Toggle Side Panel'), self.toggle_side_panel),

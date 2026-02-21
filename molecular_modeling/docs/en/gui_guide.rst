@@ -191,6 +191,8 @@ View Settings Menu
      - Color atoms by ``mol_id`` using distinct colors per molecule group
    * - Reset Colors
      - Reset colors to ASE default (jmol)
+   * - Show Bonds (Ctrl+B)
+     - Toggle display of bonds (lines between atoms). Bonds are auto-detected based on covalent radii
    * - Toggle Hydrogen
      - Toggle visibility of hydrogen atoms
    * - Element Visibility...
@@ -261,6 +263,7 @@ The panel is scrollable — use the **mouse wheel** to scroll up/down when conte
 
 - **Focus / Unfocus**: Buttons to enter/exit focus mode. While in focus mode, the Focus button is disabled and the Restore button is highlighted
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
+- **Show Bonds**: Checkbox to toggle bond display (lines between atoms). Also available via Ctrl+B
 - **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
 - **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly
 - **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color swatch][select button]. Click the color swatch to pick a custom molecule color. Colors are applied in By Molecule color mode. **In focus mode**, the checkboxes act as focus add/remove controls — checking adds the molecule to the focused view, unchecking removes it
