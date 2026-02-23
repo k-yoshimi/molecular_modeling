@@ -36,8 +36,8 @@ The main pipeline runs sequentially:
 1. **Build** (`build_system_from_toml.py`) — Parse `input/input.toml` + `data/*.toml`, construct ASE `Atoms` with supercell replication and substitutions. Metadata stored in `system.info` dict.
 2. **Group** (`build_molecule_groups.py`) — Index atoms by `mol_id` array into `List[List[int]]` for per-site operations.
 3. **Optimize** (`optimize_voronoi_overlap.py`) — Grid search over Euler angles (α,β,γ) to maximize Voronoi cell IoU between system and dictionary cells. Results stored in `system.info` (`optimized_angles_deg`, `optimized_scales`, `optimized_iou`).
-4. **Render** (`render_voronoi_overlays.py`) — 3D matplotlib visualization of Voronoi cell overlays → `source/voronoi_pngs/`.
-5. **Export** (`write_structure.py`) — Write `qe.in`, `POSCAR`, `INCAR`, `KPOINTS`, `structure.cif` → `source/structure_out/`.
+4. **Render** (`render_voronoi_overlays.py`) — 3D matplotlib visualization of Voronoi cell overlays → `voronoi_pngs/`.
+5. **Export** (`write_structure.py`) — Write `qe.in`, `POSCAR`, `INCAR`, `KPOINTS`, `structure.cif` → `structure_out/`.
 
 ### Core Geometry (`voronoi_geom.py`)
 
@@ -51,7 +51,7 @@ Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to 
 
 - **Input config**: `input/input.toml` — cell vectors, `supercell_repeat`, molecule list, `center_of_mass`, substitution rules, RNG seeds
 - **Molecule definitions**: `data/<name>.toml` — atomic positions, lattice vectors, center of mass, optional `voronoi_ref_id`
-- **Outputs**: `source/structure_out/` (structure files), `source/voronoi_pngs/` (visualization)
+- **Outputs**: `structure_out/` (structure files), `voronoi_pngs/` (visualization)
 
 ## Key Conventions
 

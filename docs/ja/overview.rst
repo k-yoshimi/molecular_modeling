@@ -82,10 +82,10 @@ Voronoi 最適化
 
 **出力ファイル:**
 
-- ``source/structure_out/qe.in`` -- Quantum ESPRESSO 入力ファイル
-- ``source/structure_out/POSCAR``, ``INCAR``, ``KPOINTS`` -- VASP 入力ファイル一式
-- ``source/structure_out/structure.cif`` -- CIF 形式の結晶構造ファイル
-- ``source/voronoi_pngs/*.png`` -- 分子サイトごとの Voronoi セルオーバーレイ可視化画像
+- ``structure_out/qe.in`` -- Quantum ESPRESSO 入力ファイル
+- ``structure_out/POSCAR``, ``INCAR``, ``KPOINTS`` -- VASP 入力ファイル一式
+- ``structure_out/structure.cif`` -- CIF 形式の結晶構造ファイル
+- ``voronoi_pngs/*.png`` -- 分子サイトごとの Voronoi セルオーバーレイ可視化画像
 
 GUI
 ---

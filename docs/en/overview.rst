@@ -82,10 +82,10 @@ Input and Output
 
 **Output files:**
 
-- ``source/structure_out/qe.in`` -- Quantum ESPRESSO input file
-- ``source/structure_out/POSCAR``, ``INCAR``, ``KPOINTS`` -- VASP input file set
-- ``source/structure_out/structure.cif`` -- CIF crystal structure file
-- ``source/voronoi_pngs/*.png`` -- Per-site Voronoi cell overlay visualizations
+- ``structure_out/qe.in`` -- Quantum ESPRESSO input file
+- ``structure_out/POSCAR``, ``INCAR``, ``KPOINTS`` -- VASP input file set
+- ``structure_out/structure.cif`` -- CIF crystal structure file
+- ``voronoi_pngs/*.png`` -- Per-site Voronoi cell overlay visualizations
 
 GUI
 ---

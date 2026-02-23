@@ -19,9 +19,6 @@ Launching
    # Launch as CIF viewer
    python vis_cif.py structure.cif
 
-   # Launch GUI from pipeline (edit_and_run.py)
-   python edit_and_run.py
-
 Window Layout
 -------------
 

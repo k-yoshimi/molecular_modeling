@@ -112,7 +112,7 @@ Step 4: Checking Output Files
 Structure Files
 ~~~~~~~~~~~~~~~
 
-The following files are generated in ``source/structure_out/``:
+The following files are generated in ``structure_out/``:
 
 **qe.in** (Quantum ESPRESSO):
 
@@ -136,7 +136,7 @@ The following files are generated in ``source/structure_out/``:
 Step 5: Reading Voronoi Visualizations
 --------------------------------------
 
-PNG images in ``source/voronoi_pngs/`` show the Voronoi cell overlay for each site:
+PNG images in ``voronoi_pngs/`` show the Voronoi cell overlay for each site:
 
 - **Blue translucent polyhedron**: System Voronoi cell (actual cell partition)
 - **Red translucent polyhedron**: Dictionary Voronoi cell (optimization target)
@@ -152,7 +152,7 @@ Loading a CIF file
 
 .. code-block:: bash
 
-   python vis_cif.py source/structure_out/structure.cif
+   python vis_cif.py structure_out/structure.cif
 
 Or from the GUI menu:
 

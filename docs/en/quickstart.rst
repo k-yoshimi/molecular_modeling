@@ -39,7 +39,7 @@ The pipeline reads the following files:
 Output Files
 ------------
 
-The following files are generated in ``source/structure_out/``:
+The following files are generated in ``structure_out/``:
 
 .. list-table::
    :header-rows: 1
@@ -58,7 +58,7 @@ The following files are generated in ``source/structure_out/``:
    * - ``structure.cif``
      - CIF structure file
 
-Voronoi cell visualizations are generated in ``source/voronoi_pngs/``.
+Voronoi cell visualizations are generated in ``voronoi_pngs/``.
 
 Launching the GUI
 -----------------

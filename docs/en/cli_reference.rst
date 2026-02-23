@@ -16,8 +16,8 @@ Runs the main pipeline.
 2. Index atoms into molecule groups
 3. Optimize molecular orientations via Voronoi IoU maximization
 4. Check Voronoi volume tiling consistency
-5. Render Voronoi cell overlay visualizations → ``source/voronoi_pngs/``
-6. Write structure files → ``source/structure_out/``
+5. Render Voronoi cell overlay visualizations → ``voronoi_pngs/``
+6. Write structure files → ``structure_out/``
 
 **Input files** (see :doc:`toml_reference` for details):
 
@@ -26,12 +26,12 @@ Runs the main pipeline.
 
 **Output files**:
 
-- ``source/structure_out/qe.in`` — Quantum ESPRESSO input
-- ``source/structure_out/POSCAR`` — VASP structure file
-- ``source/structure_out/INCAR`` — VASP settings
-- ``source/structure_out/KPOINTS`` — VASP k-point settings
-- ``source/structure_out/structure.cif`` — CIF file
-- ``source/voronoi_pngs/*.png`` — Voronoi visualizations
+- ``structure_out/qe.in`` — Quantum ESPRESSO input
+- ``structure_out/POSCAR`` — VASP structure file
+- ``structure_out/INCAR`` — VASP settings
+- ``structure_out/KPOINTS`` — VASP k-point settings
+- ``structure_out/structure.cif`` — CIF file
+- ``voronoi_pngs/*.png`` — Voronoi visualizations
 
 molecular_modeling_gui.py — GUI Launch
 --------------------------------------
@@ -86,24 +86,6 @@ Displays a CIF file in the GUI.
 
 **Note**: If ASE's CIF parser fails, the tool retries after stripping
 ``_citation*`` tags as a fallback.
-
-edit_and_run.py — GUI Edit + Optimization
-------------------------------------------
-
-Pipeline that allows manual GUI editing before Voronoi optimization.
-
-.. code-block:: bash
-
-   python edit_and_run.py
-
-**Processing flow**:
-
-1. Build system from TOML
-2. **Launch GUI** (user edits the structure)
-3. After closing the GUI, continue processing with the edited system
-4. Build molecule groups
-5. Voronoi IoU optimization
-6. Visualization and export
 
 Running Tests
 -------------

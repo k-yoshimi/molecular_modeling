@@ -111,7 +111,7 @@
 構造ファイル
 ~~~~~~~~~~~~
 
-``source/structure_out/`` に以下のファイルが生成されます:
+``structure_out/`` に以下のファイルが生成されます:
 
 **qe.in** (Quantum ESPRESSO):
 
@@ -135,7 +135,7 @@
 ステップ 5: Voronoi 可視化の見方
 --------------------------------
 
-``source/voronoi_pngs/`` に生成される PNG 画像は、各サイトの Voronoi セル
+``voronoi_pngs/`` に生成される PNG 画像は、各サイトの Voronoi セル
 オーバーレイを示しています:
 
 - **青い半透明ポリヘドロン**: システムの Voronoi セル（実際のセル分割）
@@ -152,7 +152,7 @@ CIF ファイルの読み込み
 
 .. code-block:: bash
 
-   python vis_cif.py source/structure_out/structure.cif
+   python vis_cif.py structure_out/structure.cif
 
 または GUI 内のメニューから:
 

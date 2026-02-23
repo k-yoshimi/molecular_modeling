@@ -16,8 +16,8 @@ run.py — パイプライン実行
 2. 原子を分子グループにインデックス化
 3. Voronoi IoU 最大化による分子配向の最適化
 4. Voronoi 体積のタイリング整合性チェック
-5. Voronoi セルオーバーレイの可視化 → ``source/voronoi_pngs/``
-6. 構造ファイルの出力 → ``source/structure_out/``
+5. Voronoi セルオーバーレイの可視化 → ``voronoi_pngs/``
+6. 構造ファイルの出力 → ``structure_out/``
 
 **入力ファイル** （詳細は :doc:`toml_reference` を参照）:
 
@@ -26,12 +26,12 @@ run.py — パイプライン実行
 
 **出力ファイル**:
 
-- ``source/structure_out/qe.in`` — Quantum ESPRESSO 入力
-- ``source/structure_out/POSCAR`` — VASP 構造ファイル
-- ``source/structure_out/INCAR`` — VASP 設定ファイル
-- ``source/structure_out/KPOINTS`` — VASP k点設定
-- ``source/structure_out/structure.cif`` — CIF ファイル
-- ``source/voronoi_pngs/*.png`` — Voronoi 可視化画像
+- ``structure_out/qe.in`` — Quantum ESPRESSO 入力
+- ``structure_out/POSCAR`` — VASP 構造ファイル
+- ``structure_out/INCAR`` — VASP 設定ファイル
+- ``structure_out/KPOINTS`` — VASP k点設定
+- ``structure_out/structure.cif`` — CIF ファイル
+- ``voronoi_pngs/*.png`` — Voronoi 可視化画像
 
 molecular_modeling_gui.py — GUI 起動
 ------------------------------------
@@ -86,24 +86,6 @@ CIF ファイルを GUI で表示します。
 
 **備考**: ASE の CIF パーサーで読み込みに失敗した場合、
 ``_citation*`` タグを除去して再試行するフォールバック機能があります。
-
-edit_and_run.py — GUI 編集＋最適化
------------------------------------
-
-GUI での手動編集後に Voronoi 最適化を実行するパイプラインです。
-
-.. code-block:: bash
-
-   python edit_and_run.py
-
-**処理フロー**:
-
-1. TOML からシステムを構築
-2. **GUI を起動** （ユーザーが構造を編集）
-3. GUI を閉じると、編集後のシステムで処理を続行
-4. 分子グループの構築
-5. Voronoi IoU 最適化
-6. 可視化とエクスポート
 
 テストの実行
 ------------

@@ -18,9 +18,6 @@ Molecular Modeling GUI は ASE-GUI を拡張したグラフィカルインター
    # CIF ビューアとして起動
    python vis_cif.py structure.cif
 
-   # パイプラインから GUI を起動（edit_and_run.py）
-   python edit_and_run.py
-
 ウィンドウ構成
 --------------
 

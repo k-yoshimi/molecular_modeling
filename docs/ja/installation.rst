@@ -66,14 +66,3 @@ uv を使用する場合:
 
 全テストがパスすれば、インストールは完了です。
 
-Conda 環境の場合
-~~~~~~~~~~~~~~~~
-
-``environment.yml`` を使用して Conda 環境を構築できます:
-
-.. code-block:: bash
-
-   conda env create -f environment.yml
-   conda activate molecular_modeling
-
-詳細は ``CONDA_SETUP.md`` を参照してください。

@@ -66,14 +66,3 @@ Run the test suite to confirm everything is installed correctly:
 
 All tests should pass.
 
-Conda environment
-~~~~~~~~~~~~~~~~~
-
-You can also set up a Conda environment using ``environment.yml``:
-
-.. code-block:: bash
-
-   conda env create -f environment.yml
-   conda activate molecular_modeling
-
-See ``CONDA_SETUP.md`` for details.

@@ -39,7 +39,7 @@
 出力ファイル
 ------------
 
-``source/structure_out/`` ディレクトリに以下のファイルが生成されます:
+``structure_out/`` ディレクトリに以下のファイルが生成されます:
 
 .. list-table::
    :header-rows: 1
@@ -58,7 +58,7 @@
    * - ``structure.cif``
      - CIF 構造ファイル
 
-``source/voronoi_pngs/`` ディレクトリに Voronoi セルの可視化画像が生成されます。
+``voronoi_pngs/`` ディレクトリに Voronoi セルの可視化画像が生成されます。
 
 GUI の起動
 ----------
