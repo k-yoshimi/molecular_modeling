@@ -4809,26 +4809,34 @@ class MolecularModelingGUI(GUI):
                 messagebox.showerror("Error", f"Failed to save project:\n{e}")
 
     def load_project(self, key=None):
-        """Load a project from a directory containing input/input.toml + data/*.toml."""
+        """Load a project from an input.toml file (with data/*.toml alongside)."""
         if tk is None:
             return
         from tkinter import filedialog
 
-        proj_dir = filedialog.askdirectory(
-            title="Select Project Directory...",
+        input_file = filedialog.askopenfilename(
+            title="Select input.toml...",
             parent=self.window.win,
+            filetypes=[("TOML files", "*.toml"), ("All files", "*.*")],
         )
-        if not proj_dir:
+        if not input_file:
             return
 
-        input_file = os.path.join(proj_dir, "input", "input.toml")
         if not os.path.isfile(input_file):
             if messagebox:
                 messagebox.showerror(
                     "Error",
-                    f"No input/input.toml found in:\n{proj_dir}",
+                    f"File not found:\n{input_file}",
                 )
             return
+
+        # Derive project directory: input.toml may be at proj/input/input.toml
+        # or directly at proj/input.toml
+        input_dir = os.path.dirname(os.path.abspath(input_file))
+        if os.path.basename(input_dir) == "input":
+            proj_dir = os.path.dirname(input_dir)
+        else:
+            proj_dir = input_dir
 
         try:
             # Temporarily change to project directory and build
