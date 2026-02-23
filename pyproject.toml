@@ -25,7 +25,7 @@ dependencies = [
     "trimesh==4.7.1",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "ipykernel>=7.1.0",
     "pytest>=9.0.2",
