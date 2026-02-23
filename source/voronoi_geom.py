@@ -48,8 +48,9 @@ def _build_unit_cell_box_mesh(cell: np.ndarray) -> trimesh.Trimesh:
     trimesh.Trimesh
         Convex hull mesh of the unit cell.
     """
-    corners_frac = np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)], dtype=float)
-    corners_cart = corners_frac @ cell  # (8,3)
+    gi, gj, gk = np.meshgrid([0.0, 1.0], [0.0, 1.0], [0.0, 1.0], indexing='ij')
+    corners_frac = np.column_stack([gi.ravel(), gj.ravel(), gk.ravel()])  # (8,3)
+    corners_cart = corners_frac @ cell
     hull = trimesh.convex.convex_hull(corners_cart)
     return hull
 
@@ -353,11 +354,10 @@ def _lattice_translations_cart(A: np.ndarray, rng: int = 1) -> np.ndarray:
         Translation vectors with shape ``((2*rng+1)^3, 3)``.
     """
     A = np.asarray(A, float)
-    a, b, c = A
-    shifts = [i*a + j*b + k*c for i in range(-rng, rng+1)
-                               for j in range(-rng, rng+1)
-                               for k in range(-rng, rng+1)]
-    return np.asarray(shifts, float)
+    r = np.arange(-rng, rng + 1, dtype=float)
+    gi, gj, gk = np.meshgrid(r, r, r, indexing='ij')
+    frac = np.column_stack([gi.ravel(), gj.ravel(), gk.ravel()])  # (M, 3)
+    return frac @ A
 
 
 def _unique_rows(x: np.ndarray, atol: float = 1e-8) -> np.ndarray:
@@ -401,20 +401,16 @@ def _voronoi_cell_vertices_halfspaces_cart(p_ref: np.ndarray, others: np.ndarray
     p = np.asarray(p_ref, float)
     Q = np.asarray(others, float)
 
-    halfspaces = []
-    for q in Q:
-        n = q - p
-        if float(n @ n) < 1e-20:
-            continue  # skip duplicates
-        c = 0.5 * float(n @ (p + q))  # plane offset
-        a = n
-        b = -c
-        halfspaces.append(np.r_[a, b])
-
-    if len(halfspaces) == 0:
+    # Vectorised halfspace construction
+    N = Q - p                                       # (K, 3)
+    d2 = np.einsum('ij,ij->i', N, N)               # squared norms
+    mask = d2 > 1e-20                               # drop duplicates
+    N = N[mask]
+    if N.shape[0] == 0:
         return np.empty((0, 3), float)
-
-    halfspaces = np.asarray(halfspaces, float)
+    mid = 0.5 * (p + Q[mask])                       # midpoints (K', 3)
+    offsets = -np.einsum('ij,ij->i', N, mid)        # -n·m  (K',)
+    halfspaces = np.column_stack([N, offsets])       # (K', 4)
     interior = p + 1e-10 * np.array([0.1234, -0.5678, 0.91011], float)  # strict interior point
     hs = HalfspaceIntersection(halfspaces, interior)
     return hs.intersections  # (M,3)
@@ -495,6 +491,34 @@ def _build_dict_seeds_cart(
     return seeds_dict
 
 
+def _compute_voronoi_volume_from_seeds(
+    seeds: np.ndarray,
+    p_ref_cart: np.ndarray,
+) -> float:
+    """
+    Compute Voronoi cell volume at *p_ref_cart* from pre-built seed points.
+
+    Parameters
+    ----------
+    seeds : ndarray
+        Seed points (M,3) already de-duplicated.
+    p_ref_cart : ndarray
+        Reference point (3,).
+
+    Returns
+    -------
+    float
+        Volume in Å^3 (0.0 if degenerate).
+    """
+    d2 = np.sum((seeds - p_ref_cart) ** 2, axis=1)
+    others = seeds[d2 > 1e-18]
+    verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
+    if len(verts) < 4:
+        return 0.0
+    hull = ConvexHull(verts)
+    return float(hull.volume)
+
+
 def overlap_volume_union_cart(
     A_sys: np.ndarray,
     coms_sys_cart: np.ndarray,
@@ -505,6 +529,8 @@ def overlap_volume_union_cart(
     rng: int = 1,
     scale: float = 1.0,
     ref_idx: int = 0,
+    *,
+    _seeds_sys: Optional[np.ndarray] = None,
 ) -> float:
     """
     Compute overlap volume between system and dictionary Voronoi cells.
@@ -529,24 +555,23 @@ def overlap_volume_union_cart(
         Uniform scaling of dictionary lattice/COMs.
     ref_idx : int, optional
         Reference COM index in the dictionary.
+    _seeds_sys : ndarray, optional
+        Pre-computed system seeds (angle-independent). If None, built internally.
 
     Returns
     -------
     float
         Overlap volume in Å^3.
     """
-    seeds_sys  = _build_system_seeds_cart(A_sys,  np.asarray(coms_sys_cart, float),  rng=rng)
+    if _seeds_sys is None:
+        seeds_sys = _build_system_seeds_cart(A_sys, np.asarray(coms_sys_cart, float), rng=rng)
+    else:
+        seeds_sys = _seeds_sys
     seeds_dict = _build_dict_seeds_cart(A_dict, np.asarray(coms_dict_cart, float),
                                         angles_deg, np.asarray(p_ref_cart, float),
                                         rng=rng, scale=scale, ref_idx=ref_idx)
     seeds_all = _unique_rows(np.vstack([seeds_sys, seeds_dict]), atol=1e-8)
-    d2 = np.sum((seeds_all - p_ref_cart)**2, axis=1)
-    others = seeds_all[d2 > 1e-18]
-    verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
-    if len(verts) < 4:
-        return 0.0
-    hull = ConvexHull(verts)
-    return float(hull.volume)
+    return _compute_voronoi_volume_from_seeds(seeds_all, np.asarray(p_ref_cart, float))
 
 
 def single_set_cell_volume_cart(
@@ -602,13 +627,41 @@ def single_set_cell_volume_cart(
         raise ValueError("which must be 'system' or 'dict'.")
 
     seeds = _unique_rows(seeds, atol=1e-8)
-    d2 = np.sum((seeds - p_ref_cart)**2, axis=1)
-    others = seeds[d2 > 1e-18]
-    verts = _voronoi_cell_vertices_halfspaces_cart(p_ref_cart, others)
-    if len(verts) < 4:
-        return 0.0
-    hull = ConvexHull(verts)
-    return float(hull.volume)
+    return _compute_voronoi_volume_from_seeds(seeds, np.asarray(p_ref_cart, float))
+
+
+def precompute_system_cache(
+    A_sys: np.ndarray,
+    coms_sys_cart: np.ndarray,
+    p_ref_cart: np.ndarray,
+    rng: int = 1,
+) -> dict:
+    """
+    Pre-compute angle-independent system seeds and volume for a reference site.
+
+    Use the returned dict as ``_cached_sys`` in `iou_via_union_cart` to avoid
+    redundant recomputation during angle optimization.
+
+    Parameters
+    ----------
+    A_sys : ndarray
+        System lattice (3,3).
+    coms_sys_cart : ndarray
+        System COMs (N,3).
+    p_ref_cart : ndarray
+        Reference system point (3,).
+    rng : int, optional
+        Replication radius.
+
+    Returns
+    -------
+    dict
+        ``{"seeds_sys": ndarray, "vol_sys": float}``.
+    """
+    seeds = _build_system_seeds_cart(A_sys, np.asarray(coms_sys_cart, float), rng=rng)
+    seeds = _unique_rows(seeds, atol=1e-8)
+    vol = _compute_voronoi_volume_from_seeds(seeds, np.asarray(p_ref_cart, float))
+    return {"seeds_sys": seeds, "vol_sys": vol}
 
 
 def iou_via_union_cart(
@@ -621,6 +674,8 @@ def iou_via_union_cart(
     rng: int = 1,
     scale: float = 1.0,
     ref_idx: int = 0,
+    *,
+    _cached_sys: Optional[dict] = None,
 ) -> float:
     """
     Compute IoU between system and dictionary Voronoi cells at a reference site.
@@ -645,17 +700,28 @@ def iou_via_union_cart(
         Uniform scaling for dictionary.
     ref_idx : int, optional
         Reference COM index in the dictionary.
+    _cached_sys : dict, optional
+        Pre-computed cache from `precompute_system_cache`.  When provided,
+        ``seeds_sys`` and ``vol_sys`` are reused instead of recomputed.
 
     Returns
     -------
     float
         Intersection-over-union in [0,1].
     """
+    if _cached_sys is not None:
+        seeds_sys = _cached_sys["seeds_sys"]
+        vol_sys = _cached_sys["vol_sys"]
+    else:
+        seeds_sys = _build_system_seeds_cart(A_sys, np.asarray(coms_sys_cart, float), rng=rng)
+        seeds_sys = _unique_rows(seeds_sys, atol=1e-8)
+        vol_sys = _compute_voronoi_volume_from_seeds(seeds_sys, np.asarray(p_ref_cart, float))
+
     overlap = overlap_volume_union_cart(
         A_sys, coms_sys_cart, A_dict, coms_dict_cart,
-        angles_deg, p_ref_cart, rng=rng, scale=scale, ref_idx=ref_idx
+        angles_deg, p_ref_cart, rng=rng, scale=scale, ref_idx=ref_idx,
+        _seeds_sys=seeds_sys,
     )
-    vol_sys  = single_set_cell_volume_cart(A_sys,  coms_sys_cart,  p_ref_cart, 'system', rng=rng)
     vol_dict = single_set_cell_volume_cart(A_dict, coms_dict_cart, p_ref_cart, 'dict',
                                            angles_deg=angles_deg, rng=rng, scale=scale, ref_idx=ref_idx)
     denom = vol_sys + vol_dict - overlap

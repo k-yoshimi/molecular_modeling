@@ -8,6 +8,7 @@ from ase import Atoms
 
 from .voronoi_geom import (
     iou_via_union_cart,
+    precompute_system_cache,
     single_set_cell_volume_cart,
     wrap_angles_deg,
 )
@@ -119,7 +120,8 @@ def optimize_voronoi_overlap(
         ref_idx   = int(meta.get("voronoi_ref_id", 0)) 
 
         # ---- Step 1-3: scale s by matching volumes ----
-        V_sys = single_set_cell_volume_cart(A_sys, coms_sys_cart_all, p_ref, which='system', rng=rng)
+        sys_cache = precompute_system_cache(A_sys, coms_sys_cart_all, p_ref, rng=rng)
+        V_sys = sys_cache["vol_sys"]
         zeros = np.zeros(3, float)
         V_dict = single_set_cell_volume_cart(A_dict, coms_dict, p_ref, which='dict',
                                              angles_deg=zeros, rng=rng, scale=1.0, ref_idx=ref_idx)
@@ -127,7 +129,7 @@ def optimize_voronoi_overlap(
         scales_by_site[site_id] = s
 
         # ---- Step 4: optimize rotation with scaled dictionary seeds ----
-        def objective(angles_deg: Sequence[float]) -> float:
+        def objective(angles_deg: Sequence[float], _cache=sys_cache) -> float:
             """
             Objective to minimize: ``1 - IoU`` between system and dictionary Voronoi cells.
 
@@ -152,6 +154,7 @@ def optimize_voronoi_overlap(
                 rng=rng,
                 scale=s,
                 ref_idx=ref_idx,
+                _cached_sys=_cache,
             )
             return 1.0 - float(iou)
 

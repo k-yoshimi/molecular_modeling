@@ -16,6 +16,7 @@ from molecular_modeling.voronoi_geom import (
     compute_system_voronoi_cells,
     _voronoi_cell_vertices_halfspaces_cart,
     overlap_volume_union_cart,
+    precompute_system_cache,
     single_set_cell_volume_cart,
     iou_via_union_cart,
     optimize_angles_each_system_site,
@@ -416,6 +417,33 @@ class TestSingleSetCellVolumeCart:
         ):
             vol = single_set_cell_volume_cart(A, coms, coms[0], 'system', rng=1)
             assert vol == 0.0
+
+
+class TestPrecomputeSystemCache:
+    """Test precompute_system_cache."""
+
+    def test_basic_cache(self):
+        A = np.eye(3) * 10.0
+        coms = np.array([[5.0, 5.0, 5.0]])
+        cache = precompute_system_cache(A, coms, coms[0], rng=1)
+        assert "seeds_sys" in cache
+        assert "vol_sys" in cache
+        assert cache["vol_sys"] > 0
+        assert cache["seeds_sys"].ndim == 2
+
+    def test_cached_iou_matches_uncached(self):
+        A = np.eye(3) * 10.0
+        coms = np.array([[5.0, 5.0, 5.0]])
+        angles = [10.0, 20.0, 30.0]
+        iou_uncached = iou_via_union_cart(
+            A, coms, A, coms, coms[0], angles, rng=1,
+        )
+        cache = precompute_system_cache(A, coms, coms[0], rng=1)
+        iou_cached = iou_via_union_cart(
+            A, coms, A, coms, coms[0], angles, rng=1,
+            _cached_sys=cache,
+        )
+        assert abs(iou_cached - iou_uncached) < 1e-12
 
 
 class TestIoUViaUnionCart:
