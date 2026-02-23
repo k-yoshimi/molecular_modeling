@@ -111,12 +111,9 @@ if _is_macos:
 \DeclareFontShape{TU}{TimesNewRoman(0)}{m}{sc}{<->ssub*TimesNewRoman(0)/m/n}{}
 '''
 else:
-    # Linux (CI): use Noto CJK fonts (include Latin glyphs)
+    # Linux (CI with texlive/texlive Docker): Noto CJK for Japanese, TeX Live defaults for Latin
     _fontpkg = r'''
 \usepackage{luatexja-fontspec}
-\setmainfont{Noto Serif CJK JP}
-\setsansfont{Noto Sans CJK JP}
-\setmonofont{Noto Sans Mono CJK JP}
 \setmainjfont{Noto Serif CJK JP}
 \setsansjfont{Noto Sans CJK JP}
 \ltjdefcharrange{9}{"21A9, "21AA, "21BB, "2192, "2190,
