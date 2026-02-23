@@ -26,10 +26,11 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     Notes
     -----
     - Input (`input/input.toml`)
+        - `data_dir` specifies the directory for molecule TOML files (default: `./data`).
         - `use_fractional=true` interprets `center_of_mass` as fractional and converts to
           Cartesian via `cell` (rows a,b,c).
         - Downstream code always uses Cartesian site COMs.
-    - Dictionary (`data/<name>.toml`)
+    - Dictionary (`{data_dir}/<name>.toml`)
         - `voronoi_ref_id` selects which molecule COM is the reference (0-based).
         - If `use_fractional=true`, both `positions` and `center_of_mass` are converted to
           Cartesian with that dictionary's `lattice_vectors`.
@@ -47,10 +48,13 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     rng_optimize = int(input_data.get("optimize_rng",  rng_global))
     rng_render   = int(input_data.get("render_rng",    rng_global))
 
+    # Data directory for molecule TOML files (default: ./data)
+    data_dir = input_data.get("data_dir", "./data")
+
     # Load dictionary molecule configs
     config_map: Dict[str, dict] = {}
     for molecule in input_data.get("molecules"):
-        with open(f"./data/{molecule}.toml", "rb") as f:
+        with open(f"{data_dir}/{molecule}.toml", "rb") as f:
             config_map[molecule] = tomllib.load(f)
 
     # ----------- Input fields -----------

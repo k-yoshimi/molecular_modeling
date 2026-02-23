@@ -89,6 +89,9 @@ All Keys
    * - ``render_rng``
      - int (optional)
      - Random seed for the visualization stage. Defaults to ``rng`` if omitted.
+   * - ``data_dir``
+     - str (optional)
+     - Directory path for molecule definition TOML files. Defaults to ``"./data"`` if omitted.
    * - ``cell``
      - array[3][3]
      - Lattice vectors (rows: a, b, c, unit: Angstrom)

@@ -14,6 +14,9 @@ cell = [
 # Supercell repetition counts along a, b, c
 supercell_repeat = [1, 1, 2]
 
+# Directory containing molecule TOML files (default: ./data)
+# data_dir = "./data"
+
 # Molecule dictionary names (see data/<name>.toml)
 molecules = [
   "benzene",
