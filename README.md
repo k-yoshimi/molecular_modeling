@@ -94,4 +94,8 @@ molecular_modeling/              ← リポジトリルート
 
 ## ライセンス / License
 
-See [LICENSE](LICENSE) for details.
+This project is licensed under the **GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)**.
+
+本プロジェクトは **GNU Lesser General Public License v2.1 以降 (LGPL-2.1-or-later)** の下で公開されています。
+
+詳細は [LICENSE](LICENSE) をご覧ください。See [LICENSE](LICENSE) for details.

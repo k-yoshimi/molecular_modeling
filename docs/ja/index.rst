@@ -30,6 +30,7 @@ Molecular Modeling Toolkit ドキュメント
    appendix_voronoi
    architecture
    api/index
+   license
 
 .. only:: html
 
