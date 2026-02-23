@@ -2,7 +2,7 @@
 """
 Molecule registry for dynamic loading of molecule definitions from TOML files.
 
-Scans the data/*.toml directory and provides access to molecule configurations.
+Scans the ``data/*.toml`` directory and provides access to molecule configurations.
 """
 
 import re

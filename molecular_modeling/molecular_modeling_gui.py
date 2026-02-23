@@ -51,6 +51,7 @@ from source.gui.export_dialog import show_export_dialog
 from source.gui.save_molecule_dialog import show_save_molecule_dialog
 from source.gui.supercell_dialog import show_supercell_dialog
 from source.gui.controller import get_controller, reset_controller
+from source.gui.theme import COLORS, FONTS, SPACING, configure_theme
 
 
 def read_cif(filepath: str) -> Atoms:
@@ -275,6 +276,7 @@ class MolecularModelingGUI(GUI):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        configure_theme(self.window.win)
         self.controller = get_controller()
         if self.atoms is not None:
             self.controller.set_atoms(self.atoms)
@@ -565,11 +567,11 @@ class MolecularModelingGUI(GUI):
         if tk is None:
             return
 
-        file_bar = tk.Frame(self.window.win, relief=tk.GROOVE, borderwidth=1)
+        file_bar = tk.Frame(self.window.win, relief=tk.FLAT, borderwidth=0)
         file_bar.pack(side=tk.TOP, fill=tk.X)
 
         # --- Input ---
-        input_frame = tk.LabelFrame(file_bar, text="Input", padx=4, pady=2)
+        input_frame = ttk.LabelFrame(file_bar, text="Input", padding=(4, 2))
         input_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _input_icons = [
@@ -578,12 +580,12 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _input_icons:
             btn = tk.Button(input_frame, text=icon, command=cmd,
-                            font=("", 14), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_large"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=2)
             self._add_tooltip(btn, tip)
 
         # --- Output ---
-        output_frame = tk.LabelFrame(file_bar, text="Output", padx=4, pady=2)
+        output_frame = ttk.LabelFrame(file_bar, text="Output", padding=(4, 2))
         output_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _output_icons = [
@@ -594,12 +596,12 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _output_icons:
             btn = tk.Button(output_frame, text=icon, command=cmd,
-                            font=("", 14), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_large"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=2)
             self._add_tooltip(btn, tip)
 
         # --- Undo / Redo ---
-        edit_frame = tk.LabelFrame(file_bar, text="Edit", padx=4, pady=2)
+        edit_frame = ttk.LabelFrame(file_bar, text="Edit", padding=(4, 2))
         edit_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _edit_icons = [
@@ -608,12 +610,12 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _edit_icons:
             btn = tk.Button(edit_frame, text=icon, command=cmd,
-                            font=("", 14), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_large"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=2)
             self._add_tooltip(btn, tip)
 
         # --- Pipeline ---
-        pipe_frame = tk.LabelFrame(file_bar, text="Pipeline", padx=4, pady=2)
+        pipe_frame = ttk.LabelFrame(file_bar, text="Pipeline", padding=(4, 2))
         pipe_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _pipe_icons = [
@@ -624,7 +626,7 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _pipe_icons:
             btn = tk.Button(pipe_frame, text=icon, command=cmd,
-                            font=("", 14), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_large"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=2)
             self._add_tooltip(btn, tip)
 
@@ -637,13 +639,13 @@ class MolecularModelingGUI(GUI):
         if tk is None:
             return
 
-        bottom_bar = tk.Frame(self.window.win, relief=tk.GROOVE, borderwidth=1)
+        bottom_bar = tk.Frame(self.window.win, relief=tk.FLAT, borderwidth=0)
         bottom_bar.pack(side=tk.BOTTOM, fill=tk.X,
                         before=self.window.status)
 
         # --- Molecule Tools ---
-        mol_frame = tk.LabelFrame(bottom_bar, text="Molecule Tools",
-                                  padx=4, pady=2)
+        mol_frame = ttk.LabelFrame(bottom_bar, text="Molecule Tools",
+                                   padding=(4, 2))
         mol_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _mol_icons = [
@@ -657,7 +659,7 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _mol_icons:
             btn = tk.Button(mol_frame, text=icon, command=cmd,
-                            font=("", 13), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_medium"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=1)
             self._add_tooltip(btn, tip)
 
@@ -666,14 +668,14 @@ class MolecularModelingGUI(GUI):
 
         # Drag mode toggle
         self._drag_btn = tk.Button(
-            mol_frame, text="\u270B", font=("", 13), width=2,
+            mol_frame, text="\u270B", font=FONTS["icon_medium"], width=2,
             command=self._toggle_drag_mode, relief=tk.RAISED)
         self._drag_btn.pack(side=tk.LEFT, padx=1)
         self._add_tooltip(self._drag_btn, "Drag mode: move atoms by dragging")
 
         # --- Structure Tools ---
-        struct_frame = tk.LabelFrame(bottom_bar, text="Structure Tools",
-                                     padx=4, pady=2)
+        struct_frame = ttk.LabelFrame(bottom_bar, text="Structure Tools",
+                                      padding=(4, 2))
         struct_frame.pack(side=tk.LEFT, padx=2, pady=2)
 
         _struct_icons = [
@@ -687,7 +689,7 @@ class MolecularModelingGUI(GUI):
         ]
         for icon, tip, cmd in _struct_icons:
             btn = tk.Button(struct_frame, text=icon, command=cmd,
-                            font=("", 13), width=2, relief=tk.FLAT)
+                            font=FONTS["icon_medium"], width=2, relief=tk.FLAT)
             btn.pack(side=tk.LEFT, padx=1)
             self._add_tooltip(btn, tip)
 
@@ -707,8 +709,8 @@ class MolecularModelingGUI(GUI):
         toolbar.pack(side=tk.BOTTOM, fill=tk.X, before=self.window.status)
 
         # ── View Operations ─────────────────────────────────
-        view_frame = tk.LabelFrame(toolbar, text="View Operations",
-                                   padx=4, pady=2)
+        view_frame = ttk.LabelFrame(toolbar, text="View Operations",
+                                    padding=(4, 2))
         view_frame.pack(fill=tk.X, padx=2, pady=2)
 
         # --- Pan (directional pad layout) ---
@@ -859,7 +861,7 @@ class MolecularModelingGUI(GUI):
         """Toggle drag mode for moving atoms with mouse drag."""
         self._drag_mode = not self._drag_mode
         if self._drag_mode:
-            self._drag_btn.configure(relief=tk.SUNKEN, bg="#cce5ff")
+            self._drag_btn.configure(relief=tk.SUNKEN, bg=COLORS["bg_active"])
             try:
                 self.window.canvas.configure(cursor="fleur")
             except Exception:
@@ -1004,8 +1006,9 @@ class MolecularModelingGUI(GUI):
         self._tb_center = size // 2
 
         tb_canvas = tk.Canvas(parent, width=size, height=size,
-                              bg="#f0f0f0", highlightthickness=1,
-                              highlightbackground="#999", cursor="fleur")
+                              bg=COLORS["tb_bg"], highlightthickness=1,
+                              highlightbackground=COLORS["tb_border"],
+                              cursor="fleur")
         tb_canvas.pack(side=tk.LEFT, padx=2)
         self._tb_canvas = tb_canvas
 
@@ -1029,17 +1032,20 @@ class MolecularModelingGUI(GUI):
 
         # Outer circle (the "ball")
         c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                      outline="#888", width=1, fill="#e8e8e8")
+                      outline=COLORS["tb_ball_outline"], width=1,
+                      fill=COLORS["tb_ball_fill"])
         # Inner shading circle for 3D look
         sr = int(r * 0.85)
         c.create_oval(cx - sr - 2, cy - sr - 2, cx + sr - 2, cy + sr - 2,
-                      outline="", fill="#f4f4f4")
+                      outline="", fill=COLORS["tb_inner_fill"])
         # Crosshair
-        c.create_line(cx - r + 4, cy, cx + r - 4, cy, fill="#bbb", dash=(2, 2))
-        c.create_line(cx, cy - r + 4, cx, cy + r - 4, fill="#bbb", dash=(2, 2))
+        c.create_line(cx - r + 4, cy, cx + r - 4, cy,
+                      fill=COLORS["tb_crosshair"], dash=(2, 2))
+        c.create_line(cx, cy - r + 4, cx, cy + r - 4,
+                      fill=COLORS["tb_crosshair"], dash=(2, 2))
         # Center dot
         c.create_oval(cx - 2, cy - 2, cx + 2, cy + 2,
-                      fill="#999", outline="")
+                      fill=COLORS["tb_center_dot"], outline="")
 
     def _tb_press(self, event):
         """Start trackball rotation."""
@@ -1106,17 +1112,19 @@ class MolecularModelingGUI(GUI):
         outside = dist > r
 
         # Outer circle
-        ring_color = "#e8a040" if outside else "#4090e8"
+        ring_color = COLORS["tb_active_z"] if outside else COLORS["tb_active_xy"]
         c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                      outline=ring_color, width=2, fill="#e8e8e8")
+                      outline=ring_color, width=2, fill=COLORS["tb_ball_fill"])
 
         # Inner shading
         sr = int(r * 0.85)
         c.create_oval(cx - sr - 2, cy - sr - 2, cx + sr - 2, cy + sr - 2,
-                      outline="", fill="#f4f4f4")
+                      outline="", fill=COLORS["tb_inner_fill"])
         # Crosshair
-        c.create_line(cx - r + 4, cy, cx + r - 4, cy, fill="#bbb", dash=(2, 2))
-        c.create_line(cx, cy - r + 4, cx, cy + r - 4, fill="#bbb", dash=(2, 2))
+        c.create_line(cx - r + 4, cy, cx + r - 4, cy,
+                      fill=COLORS["tb_crosshair"], dash=(2, 2))
+        c.create_line(cx, cy - r + 4, cx, cy + r - 4,
+                      fill=COLORS["tb_crosshair"], dash=(2, 2))
 
         # Draw line from center to mouse position (clamped to canvas)
         tx = max(0, min(mx, self._tb_size))
@@ -1128,7 +1136,7 @@ class MolecularModelingGUI(GUI):
                       fill=ring_color, outline="")
         # Center dot
         c.create_oval(cx - 2, cy - 2, cx + 2, cy + 2,
-                      fill="#999", outline="")
+                      fill=COLORS["tb_center_dot"], outline="")
 
     @staticmethod
     def _add_tooltip(widget, text):
@@ -1146,8 +1154,13 @@ class MolecularModelingGUI(GUI):
             tip.wm_overrideredirect(True)
             tip.wm_geometry(f"+{x}+{y}")
             label = tk.Label(
-                tip, text=text_ref[0], background="#ffffe0", relief=tk.SOLID,
-                borderwidth=1, font=("TkDefaultFont", 9),
+                tip, text=text_ref[0],
+                background=COLORS["tooltip_bg"],
+                foreground=COLORS["tooltip_fg"],
+                relief=tk.SOLID, borderwidth=1,
+                font=FONTS["tooltip"],
+                padx=SPACING["tooltip_padx"],
+                pady=SPACING["tooltip_pady"],
             )
             label.pack()
 
@@ -1200,9 +1213,16 @@ class MolecularModelingGUI(GUI):
         canvas = self.window.canvas
         canvas.pack_forget()
 
-        self._side_panel = tk.Frame(self.window.win, width=250, relief=tk.GROOVE,
-                                    borderwidth=1)
-        self._side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        # Side panel with separator border
+        self._side_panel_border = tk.Frame(
+            self.window.win, width=252)
+        self._side_panel_border.pack(side=tk.RIGHT, fill=tk.Y)
+        self._side_panel_border.pack_propagate(False)
+        ttk.Separator(self._side_panel_border, orient=tk.VERTICAL).pack(
+            side=tk.LEFT, fill=tk.Y)
+        self._side_panel = tk.Frame(self._side_panel_border, width=250,
+                                    relief=tk.FLAT, borderwidth=0)
+        self._side_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self._side_panel.pack_propagate(False)
         self._side_panel_visible = True
 
@@ -1275,34 +1295,35 @@ class MolecularModelingGUI(GUI):
         self._sp_bind_wheel_recursive = _bind_wheel_recursive
 
         # --- Title ---
-        tk.Label(panel, text="View Controls", font=("TkDefaultFont", 10, "bold")
-                 ).pack(fill=tk.X, padx=4, pady=(6, 4))
+        ttk.Label(panel, text="View Controls",
+                  style="SectionHeading.TLabel"
+                  ).pack(fill=tk.X, padx=4, pady=(6, 4))
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
         # --- Focus buttons (stacked vertically, fixed width for scrolling) ---
         _btn_width = 28  # fixed character width for buttons
-        self._focus_btn = tk.Button(panel, text="Focus Selection (Ctrl+F)",
-                                    width=_btn_width,
-                                    command=self.focus_selection)
+        self._focus_btn = ttk.Button(panel, text="Focus Selection (Ctrl+F)",
+                                     width=_btn_width,
+                                     command=self.focus_selection)
         self._focus_btn.pack(anchor=tk.W, padx=8, pady=(2, 1))
         self._add_tooltip(self._focus_btn, "Show only selected atoms")
-        self._unfocus_btn = tk.Button(panel, text="Restore All Atoms",
-                                      width=_btn_width,
-                                      command=self.unfocus, state=tk.DISABLED)
+        self._unfocus_btn = ttk.Button(panel, text="Restore All Atoms",
+                                       width=_btn_width,
+                                       command=self.unfocus, state=tk.DISABLED)
         self._unfocus_btn.pack(anchor=tk.W, padx=8, pady=(1, 2))
         self._add_tooltip(self._unfocus_btn, "Exit focus mode (Ctrl+Shift+F)")
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=2)
 
         # --- Color mode ---
-        tk.Label(panel, text="Color Mode:").pack(anchor=tk.W, padx=8, pady=(2, 0))
+        ttk.Label(panel, text="Color Mode:").pack(anchor=tk.W, padx=8, pady=(2, 0))
         self._color_mode_var = tk.StringVar(value="element")
         modes = [("By Element", "element"), ("By Molecule", "mol_id"), ("By Tag", "tag")]
         for label, val in modes:
-            tk.Radiobutton(panel, text=label, variable=self._color_mode_var,
-                           value=val, command=self._on_color_mode_change
-                           ).pack(anchor=tk.W, padx=16)
+            ttk.Radiobutton(panel, text=label, variable=self._color_mode_var,
+                            value=val, command=self._on_color_mode_change
+                            ).pack(anchor=tk.W, padx=16)
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
 
@@ -1313,17 +1334,17 @@ class MolecularModelingGUI(GUI):
         except Exception:
             pass
         self._show_bonds_var = tk.BooleanVar(value=show_bonds)
-        tk.Checkbutton(panel, text="Show Bonds (Ctrl+B)",
-                        variable=self._show_bonds_var,
-                        command=self._on_toggle_bonds
-                        ).pack(anchor=tk.W, padx=8, pady=(2, 0))
+        ttk.Checkbutton(panel, text="Show Bonds (Ctrl+B)",
+                         variable=self._show_bonds_var,
+                         command=self._on_toggle_bonds
+                         ).pack(anchor=tk.W, padx=8, pady=(2, 0))
 
         # --- 3D Spheres checkbox ---
         self._3d_mode_var = tk.BooleanVar(value=self._3d_mode)
-        tk.Checkbutton(panel, text="3D Spheres",
-                        variable=self._3d_mode_var,
-                        command=self._toggle_3d_mode
-                        ).pack(anchor=tk.W, padx=8, pady=(2, 0))
+        ttk.Checkbutton(panel, text="3D Spheres",
+                         variable=self._3d_mode_var,
+                         command=self._toggle_3d_mode
+                         ).pack(anchor=tk.W, padx=8, pady=(2, 0))
 
         ttk.Separator(panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=4, pady=4)
 
@@ -1333,7 +1354,7 @@ class MolecularModelingGUI(GUI):
         elem_header.pack(fill=tk.X, padx=4, pady=(2, 0))
         self._elem_toggle_label = tk.Label(
             elem_header, text="\u25BC Element Controls:",
-            cursor="hand2", fg="#333")
+            cursor="hand2", font=FONTS["section_heading"])
         self._elem_toggle_label.pack(side=tk.LEFT, padx=4)
         self._elem_toggle_label.bind("<Button-1>", lambda e: self._toggle_section("elem"))
 
@@ -1365,7 +1386,7 @@ class MolecularModelingGUI(GUI):
         mol_header.pack(fill=tk.X, padx=4, pady=(2, 0))
         self._mol_toggle_label = tk.Label(
             mol_header, text="\u25BC Molecule Controls:",
-            cursor="hand2", fg="#333")
+            cursor="hand2", font=FONTS["section_heading"])
         self._mol_toggle_label.pack(side=tk.LEFT, padx=4)
         self._mol_toggle_label.bind("<Button-1>", lambda e: self._toggle_section("mol"))
 
@@ -1388,7 +1409,7 @@ class MolecularModelingGUI(GUI):
         atomlist_header.pack(fill=tk.X, padx=4, pady=(2, 0))
         self._atomlist_toggle_label = tk.Label(
             atomlist_header, text="\u25B6 Atom List:",
-            cursor="hand2", fg="#333")
+            cursor="hand2", font=FONTS["section_heading"])
         self._atomlist_toggle_label.pack(side=tk.LEFT, padx=4)
         self._atomlist_toggle_label.bind(
             "<Button-1>", lambda e: self._toggle_section("atomlist"))
@@ -1428,7 +1449,8 @@ class MolecularModelingGUI(GUI):
 
         # --- Status info label (selected atoms / measurement) ---
         self._status_info_label = tk.Label(
-            panel, text="", fg="#555", font=("TkDefaultFont", 9),
+            panel, text="",
+            font=FONTS["body"],
             wraplength=230, justify=tk.LEFT, anchor=tk.W)
         self._status_info_label.pack(fill=tk.X, padx=8, pady=(2, 4))
 
@@ -1568,8 +1590,8 @@ class MolecularModelingGUI(GUI):
             if hasattr(self, '_hidden_elements') and sym in self._hidden_elements:
                 vis_var.set(False)
             self._elem_vis_vars[sym] = vis_var
-            cb = tk.Checkbutton(row, text=f"{sym:>2s}", variable=vis_var,
-                                command=lambda s=sym: self._on_element_vis_change(s))
+            cb = ttk.Checkbutton(row, text=f"{sym:>2s}", variable=vis_var,
+                                 command=lambda s=sym: self._on_element_vis_change(s))
             cb.pack(side=tk.LEFT, padx=(0, 2))
 
             # Color swatch (Label for reliable bg color on all platforms)
@@ -1706,8 +1728,8 @@ class MolecularModelingGUI(GUI):
             # Visibility checkbox
             vis_var = tk.BooleanVar(value=(g_id not in self._hidden_molecules))
             self._mol_vis_vars[g_id] = vis_var
-            cb = tk.Checkbutton(row, text=f"{name}({n_atoms})", variable=vis_var,
-                                command=lambda gid=g_id: self._on_mol_vis_change(gid))
+            cb = ttk.Checkbutton(row, text=f"{name}({n_atoms})", variable=vis_var,
+                                 command=lambda gid=g_id: self._on_mol_vis_change(gid))
             cb.pack(side=tk.LEFT)
 
             # Color swatch (Label for reliable bg color on all platforms)
@@ -1724,8 +1746,8 @@ class MolecularModelingGUI(GUI):
             self._mol_tip_setters[g_id] = tip_setter
 
             # Select button
-            sel_btn = tk.Button(row, text="Select", width=5,
-                                command=lambda gid=g_id: self._on_mol_select(gid))
+            sel_btn = ttk.Button(row, text="Select", width=5,
+                                 command=lambda gid=g_id: self._on_mol_select(gid))
             sel_btn.pack(side=tk.LEFT, padx=1)
             self._add_tooltip(sel_btn, f"Select {name}")
 
@@ -1855,16 +1877,16 @@ class MolecularModelingGUI(GUI):
 
     def toggle_side_panel(self, key=None):
         """Toggle the side panel visibility."""
-        if not hasattr(self, '_side_panel'):
+        if not hasattr(self, '_side_panel_border'):
             return
         if self._side_panel_visible:
-            self._side_panel.pack_forget()
+            self._side_panel_border.pack_forget()
             self._side_panel_visible = False
         else:
-            # Repack: unpack canvas, pack side panel, repack canvas
+            # Repack: unpack canvas, pack side panel border, repack canvas
             canvas = self.window.canvas
             canvas.pack_forget()
-            self._side_panel.pack(side=tk.RIGHT, fill=tk.Y)
+            self._side_panel_border.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             self._side_panel_visible = True
             self._update_element_visibility_panel()
@@ -2036,8 +2058,8 @@ class MolecularModelingGUI(GUI):
             text_widget.insert(tk.END, "Log cleared.\n")
             text_widget.configure(state=tk.DISABLED)
 
-        tk.Button(btn_frame, text="Clear", command=clear_log).pack(side=tk.LEFT, padx=10)
-        tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=10)
+        ttk.Button(btn_frame, text="Clear", command=clear_log).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.RIGHT, padx=10)
 
     # =========================================================================
     # Selection helpers
@@ -2081,25 +2103,25 @@ class MolecularModelingGUI(GUI):
             v = tk.BooleanVar(value=False)
             vars_[sym] = v
             cnt = elem_counts.get(sym, 0)
-            tk.Checkbutton(frame, text=f"{sym}  ({cnt} atoms)",
-                           variable=v,
-                           command=lambda: _preview()
-                           ).pack(anchor=tk.W)
+            ttk.Checkbutton(frame, text=f"{sym}  ({cnt} atoms)",
+                            variable=v,
+                            command=lambda: _preview()
+                            ).pack(anchor=tk.W)
 
         # --- Info label ---
         info_var = tk.StringVar(value="0 atoms selected")
         tk.Label(dialog, textvariable=info_var, padx=10,
-                 font=("TkFixedFont", 10)).pack(anchor=tk.W, pady=(4, 0))
+                 font=FONTS["fixed"]).pack(anchor=tk.W, pady=(4, 0))
 
         mode_var = tk.StringVar(value="replace")
-        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame = ttk.LabelFrame(dialog, text="Mode", padding=(10, 5))
         mode_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Radiobutton(mode_frame, text="Replace selection",
-                       variable=mode_var, value="replace",
-                       command=lambda: _preview()).pack(anchor=tk.W)
-        tk.Radiobutton(mode_frame, text="Add to selection",
-                       variable=mode_var, value="add",
-                       command=lambda: _preview()).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Replace selection",
+                        variable=mode_var, value="replace",
+                        command=lambda: _preview()).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Add to selection",
+                        variable=mode_var, value="add",
+                        command=lambda: _preview()).pack(anchor=tk.W)
 
         def _preview():
             chosen = {s for s, v in vars_.items() if v.get()}
@@ -2123,10 +2145,10 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Apply", command=apply
-                  ).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", command=cancel
-                  ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Apply", command=apply
+                   ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=cancel
+                   ).pack(side=tk.LEFT, padx=5)
 
     def select_by_molecule(self, key=None):
         """Open dialog to select atoms by molecule group.
@@ -2205,25 +2227,25 @@ class MolecularModelingGUI(GUI):
             self._add_tooltip(clbl, f"{name}: click to change color")
 
             # Checkbox
-            tk.Checkbutton(row, text=f"#{i} {name} ({n_atoms} atoms)",
-                           variable=v,
-                           command=lambda: _preview()
-                           ).pack(side=tk.LEFT)
+            ttk.Checkbutton(row, text=f"#{i} {name} ({n_atoms} atoms)",
+                            variable=v,
+                            command=lambda: _preview()
+                            ).pack(side=tk.LEFT)
 
         # --- Info label ---
         info_var = tk.StringVar(value="0 atoms selected")
         tk.Label(dialog, textvariable=info_var, padx=10,
-                 font=("TkFixedFont", 10)).pack(anchor=tk.W, pady=(4, 0))
+                 font=FONTS["fixed"]).pack(anchor=tk.W, pady=(4, 0))
 
         mode_var = tk.StringVar(value="replace")
-        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame = ttk.LabelFrame(dialog, text="Mode", padding=(10, 5))
         mode_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Radiobutton(mode_frame, text="Replace selection",
-                       variable=mode_var, value="replace",
-                       command=lambda: _preview()).pack(anchor=tk.W)
-        tk.Radiobutton(mode_frame, text="Add to selection",
-                       variable=mode_var, value="add",
-                       command=lambda: _preview()).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Replace selection",
+                        variable=mode_var, value="replace",
+                        command=lambda: _preview()).pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Add to selection",
+                        variable=mode_var, value="add",
+                        command=lambda: _preview()).pack(anchor=tk.W)
 
         def _preview():
             chosen = {g for g, v in vars_.items() if v.get()}
@@ -2250,10 +2272,10 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Apply", command=apply
-                  ).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", command=cancel
-                  ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Apply", command=apply
+                   ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=cancel
+                   ).pack(side=tk.LEFT, padx=5)
 
     def select_by_sphere(self, key=None):
         """Open dialog to select atoms within a radius of a selected atom.
@@ -2307,17 +2329,17 @@ class MolecularModelingGUI(GUI):
         # --- Info label ---
         info_var = tk.StringVar(value="")
         info_label = tk.Label(dialog, textvariable=info_var, justify=tk.LEFT,
-                              padx=10, font=("TkFixedFont", 10))
+                              padx=10, font=FONTS["fixed"])
         info_label.pack(anchor=tk.W, padx=10, pady=(4, 0))
 
         # --- Mode ---
         mode_var = tk.StringVar(value="replace")
-        mode_frame = tk.LabelFrame(dialog, text="Mode", padx=10, pady=5)
+        mode_frame = ttk.LabelFrame(dialog, text="Mode", padding=(10, 5))
         mode_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Radiobutton(mode_frame, text="Replace selection",
-                       variable=mode_var, value="replace").pack(anchor=tk.W)
-        tk.Radiobutton(mode_frame, text="Add to selection",
-                       variable=mode_var, value="add").pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Replace selection",
+                        variable=mode_var, value="replace").pack(anchor=tk.W)
+        ttk.Radiobutton(mode_frame, text="Add to selection",
+                        variable=mode_var, value="add").pack(anchor=tk.W)
 
         def _preview():
             radius = r_var.get()
@@ -2358,10 +2380,10 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Select", command=apply
-                  ).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", command=cancel
-                  ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Select", command=apply
+                   ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=cancel
+                   ).pack(side=tk.LEFT, padx=5)
 
         # Initial preview
         _preview()
@@ -2525,19 +2547,19 @@ class MolecularModelingGUI(GUI):
 
         scope_var.trace_add("write", _on_scope_change)
 
-        scope_frame = tk.LabelFrame(dialog, text="Scope", padx=10, pady=4)
+        scope_frame = ttk.LabelFrame(dialog, text="Scope", padding=(10, 4))
         scope_frame.pack(fill=tk.X, padx=10, pady=(8, 4))
         if mol_idx is not None:
-            tk.Radiobutton(scope_frame, text="Whole molecule group",
-                           variable=scope_var, value="molecule"
-                           ).pack(anchor=tk.W)
-        tk.Radiobutton(scope_frame, text="Selected atoms only",
-                       variable=scope_var, value="selected"
-                       ).pack(anchor=tk.W)
+            ttk.Radiobutton(scope_frame, text="Whole molecule group",
+                            variable=scope_var, value="molecule"
+                            ).pack(anchor=tk.W)
+        ttk.Radiobutton(scope_frame, text="Selected atoms only",
+                        variable=scope_var, value="selected"
+                        ).pack(anchor=tk.W)
 
         # --- Translation controls ---
-        ctrl_frame = tk.LabelFrame(dialog, text="Translation (Å)",
-                                   padx=10, pady=4)
+        ctrl_frame = ttk.LabelFrame(dialog, text="Translation (Å)",
+                                    padding=(10, 4))
         ctrl_frame.pack(fill=tk.X, padx=10, pady=4)
 
         vars_ = []
@@ -2572,11 +2594,11 @@ class MolecularModelingGUI(GUI):
         # Step size
         step_frame = tk.Frame(ctrl_frame)
         step_frame.pack(fill=tk.X, pady=(4, 0))
-        tk.Label(step_frame, text="Step:").pack(side=tk.LEFT)
+        ttk.Label(step_frame, text="Step:").pack(side=tk.LEFT)
         for val in (0.01, 0.1, 0.5, 1.0):
-            tk.Radiobutton(step_frame, text=str(val), variable=step_var,
-                           value=val).pack(side=tk.LEFT)
-        tk.Label(step_frame, text="Å").pack(side=tk.LEFT)
+            ttk.Radiobutton(step_frame, text=str(val), variable=step_var,
+                            value=val).pack(side=tk.LEFT)
+        ttk.Label(step_frame, text="Å").pack(side=tk.LEFT)
 
         # --- Preview logic ---
         def preview():
@@ -2618,12 +2640,12 @@ class MolecularModelingGUI(GUI):
         # --- Buttons ---
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=8)
-        tk.Button(btn_frame, text="Apply", width=8,
-                  command=apply).pack(side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Reset", width=8,
-                  command=reset).pack(side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Cancel", width=8,
-                  command=cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Apply", width=8,
+                   command=apply).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Reset", width=8,
+                   command=reset).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancel", width=8,
+                   command=cancel).pack(side=tk.LEFT, padx=4)
 
     def rotate_molecule_dialog(self, key=None):
         """Open interactive dialog to rotate selected molecule/atoms.
@@ -2667,19 +2689,19 @@ class MolecularModelingGUI(GUI):
 
         scope_var.trace_add("write", _on_scope_change)
 
-        scope_frame = tk.LabelFrame(dialog, text="Scope", padx=10, pady=4)
+        scope_frame = ttk.LabelFrame(dialog, text="Scope", padding=(10, 4))
         scope_frame.pack(fill=tk.X, padx=10, pady=(8, 4))
         if mol_idx is not None:
-            tk.Radiobutton(scope_frame, text="Whole molecule group",
-                           variable=scope_var, value="molecule"
-                           ).pack(anchor=tk.W)
-        tk.Radiobutton(scope_frame, text="Selected atoms only",
-                       variable=scope_var, value="selected"
-                       ).pack(anchor=tk.W)
+            ttk.Radiobutton(scope_frame, text="Whole molecule group",
+                            variable=scope_var, value="molecule"
+                            ).pack(anchor=tk.W)
+        ttk.Radiobutton(scope_frame, text="Selected atoms only",
+                        variable=scope_var, value="selected"
+                        ).pack(anchor=tk.W)
 
         # --- Rotation controls ---
-        ctrl_frame = tk.LabelFrame(dialog, text="Euler Angles (deg, XYZ)",
-                                   padx=10, pady=4)
+        ctrl_frame = ttk.LabelFrame(dialog, text="Euler Angles (deg, XYZ)",
+                                    padding=(10, 4))
         ctrl_frame.pack(fill=tk.X, padx=10, pady=4)
 
         # Trackball + numeric controls side by side
@@ -2696,28 +2718,30 @@ class MolecularModelingGUI(GUI):
         rot_tb_last = [None]  # mutable for closure
 
         tb_canvas = tk.Canvas(tb_frame, width=tb_size, height=tb_size,
-                              bg="#f0f0f0", highlightthickness=1,
-                              highlightbackground="#999", cursor="fleur")
+                              bg=COLORS["tb_bg"], highlightthickness=1,
+                              highlightbackground=COLORS["tb_border"],
+                              cursor="fleur")
         tb_canvas.pack()
         tk.Label(tb_frame, text="Drag to rotate",
-                 font=("", 8), fg="#888").pack()
+                 font=FONTS["icon_small"]).pack()
 
         def _rot_tb_draw_idle():
             tb_canvas.delete("all")
             cx = cy = tb_center
             r = tb_radius
             tb_canvas.create_oval(cx - r, cy - r, cx + r, cy + r,
-                                  outline="#888", width=1, fill="#e8e8e8")
+                                  outline=COLORS["tb_ball_outline"], width=1,
+                                  fill=COLORS["tb_ball_fill"])
             sr = int(r * 0.85)
             tb_canvas.create_oval(cx - sr - 2, cy - sr - 2,
                                   cx + sr - 2, cy + sr - 2,
-                                  outline="", fill="#f4f4f4")
+                                  outline="", fill=COLORS["tb_inner_fill"])
             tb_canvas.create_line(cx - r + 4, cy, cx + r - 4, cy,
-                                  fill="#bbb", dash=(2, 2))
+                                  fill=COLORS["tb_crosshair"], dash=(2, 2))
             tb_canvas.create_line(cx, cy - r + 4, cx, cy + r - 4,
-                                  fill="#bbb", dash=(2, 2))
+                                  fill=COLORS["tb_crosshair"], dash=(2, 2))
             tb_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2,
-                                  fill="#999", outline="")
+                                  fill=COLORS["tb_center_dot"], outline="")
 
         def _rot_tb_draw_active(mx, my):
             tb_canvas.delete("all")
@@ -2726,24 +2750,26 @@ class MolecularModelingGUI(GUI):
             dx, dy = mx - cx, my - cy
             dist = np.sqrt(dx * dx + dy * dy)
             outside = dist > r
-            ring_color = "#e8a040" if outside else "#4090e8"
+            ring_color = (COLORS["tb_active_z"] if outside
+                          else COLORS["tb_active_xy"])
             tb_canvas.create_oval(cx - r, cy - r, cx + r, cy + r,
-                                  outline=ring_color, width=2, fill="#e8e8e8")
+                                  outline=ring_color, width=2,
+                                  fill=COLORS["tb_ball_fill"])
             sr = int(r * 0.85)
             tb_canvas.create_oval(cx - sr - 2, cy - sr - 2,
                                   cx + sr - 2, cy + sr - 2,
-                                  outline="", fill="#f4f4f4")
+                                  outline="", fill=COLORS["tb_inner_fill"])
             tb_canvas.create_line(cx - r + 4, cy, cx + r - 4, cy,
-                                  fill="#bbb", dash=(2, 2))
+                                  fill=COLORS["tb_crosshair"], dash=(2, 2))
             tb_canvas.create_line(cx, cy - r + 4, cx, cy + r - 4,
-                                  fill="#bbb", dash=(2, 2))
+                                  fill=COLORS["tb_crosshair"], dash=(2, 2))
             tx = max(0, min(mx, tb_size))
             ty = max(0, min(my, tb_size))
             tb_canvas.create_line(cx, cy, tx, ty, fill=ring_color, width=1)
             tb_canvas.create_oval(tx - 3, ty - 3, tx + 3, ty + 3,
                                   fill=ring_color, outline="")
             tb_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2,
-                                  fill="#999", outline="")
+                                  fill=COLORS["tb_center_dot"], outline="")
 
         def _rot_tb_press(event):
             rot_tb_last[0] = (event.x, event.y)
@@ -2818,10 +2844,10 @@ class MolecularModelingGUI(GUI):
         # Step size
         step_frame = tk.Frame(numeric_frame)
         step_frame.pack(fill=tk.X, pady=(4, 0))
-        tk.Label(step_frame, text="Step:").pack(side=tk.LEFT)
+        ttk.Label(step_frame, text="Step:").pack(side=tk.LEFT)
         for val in (1, 5, 15, 45, 90):
-            tk.Radiobutton(step_frame, text=f"{val}\u00b0", variable=step_var,
-                           value=float(val)).pack(side=tk.LEFT)
+            ttk.Radiobutton(step_frame, text=f"{val}\u00b0", variable=step_var,
+                            value=float(val)).pack(side=tk.LEFT)
 
         # --- Preview logic ---
         def preview():
@@ -2871,12 +2897,12 @@ class MolecularModelingGUI(GUI):
         # --- Buttons ---
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=8)
-        tk.Button(btn_frame, text="Apply", width=8,
-                  command=apply).pack(side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Reset", width=8,
-                  command=reset).pack(side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Cancel", width=8,
-                  command=cancel).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Apply", width=8,
+                   command=apply).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Reset", width=8,
+                   command=reset).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancel", width=8,
+                   command=cancel).pack(side=tk.LEFT, padx=4)
 
     # =========================================================================
     # Focus mode
@@ -2955,21 +2981,21 @@ class MolecularModelingGUI(GUI):
         ctrl_frame.pack(fill=tk.X, padx=5, pady=5)
 
         # Status label
-        status_label = tk.Label(ctrl_frame, text="", anchor=tk.W, fg="gray")
+        status_label = tk.Label(ctrl_frame, text="", anchor=tk.W)
         status_label.pack(fill=tk.X, padx=5, pady=(0, 4))
 
         # Unit selector (Atom / Molecule)
-        unit_frame = tk.LabelFrame(ctrl_frame, text="Unit", padx=8, pady=4)
+        unit_frame = ttk.LabelFrame(ctrl_frame, text="Unit", padding=(8, 4))
         unit_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
         unit_var = tk.StringVar(value="atom")
-        tk.Radiobutton(unit_frame, text="Atom", variable=unit_var,
-                        value="atom").pack(side=tk.LEFT)
-        tk.Radiobutton(unit_frame, text="Molecule", variable=unit_var,
-                        value="molecule").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Radiobutton(unit_frame, text="Atom", variable=unit_var,
+                         value="atom").pack(side=tk.LEFT)
+        ttk.Radiobutton(unit_frame, text="Molecule", variable=unit_var,
+                         value="molecule").pack(side=tk.LEFT, padx=(10, 0))
 
         # Molecule checkboxes
-        mol_frame = tk.LabelFrame(ctrl_frame, text="Molecules", padx=8, pady=4)
+        mol_frame = ttk.LabelFrame(ctrl_frame, text="Molecules", padding=(8, 4))
         mol_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
 
         n_colors = len(self._GROUP_COLORS)
@@ -2986,16 +3012,16 @@ class MolecularModelingGUI(GUI):
             color = self._mol_colors.get(g_id, self._GROUP_COLORS[g_id % n_colors])
             tk.Label(row, text="  ", bg=color, width=2,
                      relief=tk.RAISED, borderwidth=1).pack(side=tk.LEFT, padx=(0, 4))
-            tk.Checkbutton(row, text=f"{name} ({n_atoms} atoms)",
-                           variable=var,
-                           command=lambda gid=g_id: on_mol_checkbox(gid)
-                           ).pack(side=tk.LEFT)
+            ttk.Checkbutton(row, text=f"{name} ({n_atoms} atoms)",
+                            variable=var,
+                            command=lambda gid=g_id: on_mol_checkbox(gid)
+                            ).pack(side=tk.LEFT)
 
         # Help text
         tk.Label(ctrl_frame,
                  text="Click atoms in main view to toggle focus\n"
-                      "(focused → remove, unfocused → add)",
-                 fg="blue", font=("TkDefaultFont", 9),
+                      "(focused \u2192 remove, unfocused \u2192 add)",
+                 font=FONTS["body"],
                  justify=tk.LEFT).pack(padx=5, pady=(0, 4))
 
         def sync_main_view():
@@ -3195,10 +3221,10 @@ class MolecularModelingGUI(GUI):
         # OK / Cancel buttons
         btn_frame = tk.Frame(ctrl_frame)
         btn_frame.pack(pady=(5, 0))
-        tk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
+        ttk.Button(btn_frame, text="OK", width=8, command=on_ok).pack(
             side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", width=8,
-                  command=on_cancel).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", width=8,
+                   command=on_cancel).pack(side=tk.LEFT, padx=5)
 
         dialog.protocol("WM_DELETE_WINDOW", on_cancel)
         dialog.geometry("500x700+%d+%d" % (
@@ -3231,7 +3257,8 @@ class MolecularModelingGUI(GUI):
         # Update button states
         if hasattr(self, '_focus_btn'):
             self._focus_btn.configure(state=tk.DISABLED)
-            self._unfocus_btn.configure(state=tk.NORMAL, bg="#ffcccc")
+            # ttk buttons don't support bg; use state only
+            self._unfocus_btn.configure(state=tk.NORMAL)
 
         # Set visibility
         visible = np.zeros(n, dtype=bool)
@@ -3327,7 +3354,7 @@ class MolecularModelingGUI(GUI):
 
         # Reset button states
         if hasattr(self, '_unfocus_btn'):
-            self._unfocus_btn.configure(state=tk.DISABLED, bg="SystemButtonFace")
+            self._unfocus_btn.configure(state=tk.DISABLED)
             self._focus_btn.configure(state=tk.NORMAL)
 
         # Restore side panel molecule checkboxes to normal visibility state
@@ -3391,7 +3418,7 @@ class MolecularModelingGUI(GUI):
             is_visible = visible[elem_mask].any()
             v = tk.BooleanVar(value=is_visible)
             vars_[sym] = v
-            tk.Checkbutton(frame, text=sym, variable=v).pack(anchor=tk.W)
+            ttk.Checkbutton(frame, text=sym, variable=v).pack(anchor=tk.W)
 
         def apply():
             for sym, v in vars_.items():
@@ -3402,8 +3429,8 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Apply", command=apply).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Apply", command=apply).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     # =========================================================================
     # Atom appearance panel
@@ -3442,7 +3469,7 @@ class MolecularModelingGUI(GUI):
             ("By tag", "tag"),
         ]
         for label, mode in modes:
-            tk.Radiobutton(
+            ttk.Radiobutton(
                 color_frame, text=label, variable=color_mode_var,
                 value=mode, command=lambda: self._apply_color_mode(color_mode_var.get()),
             ).pack(anchor=tk.W, pady=2)
@@ -3453,7 +3480,7 @@ class MolecularModelingGUI(GUI):
                     'initial_charges', 'initial_magmoms', 'tags'}
             for key_name in self.atoms.arrays:
                 if key_name not in skip and key_name != 'mol_id':
-                    tk.Radiobutton(
+                    ttk.Radiobutton(
                         color_frame, text=f"By '{key_name}'",
                         variable=color_mode_var, value=key_name,
                         command=lambda: self._apply_color_mode(color_mode_var.get()),
@@ -3487,14 +3514,14 @@ class MolecularModelingGUI(GUI):
             lbl = tk.Label(row, text="  ", bg=color_hex, width=4, relief=tk.SUNKEN)
             lbl.pack(side=tk.LEFT, padx=5)
             self._elem_color_labels[z] = lbl
-            btn = tk.Button(
+            btn = ttk.Button(
                 row, text="Change...",
                 command=lambda z=z, lbl=lbl: self._pick_element_color(z, lbl),
             )
             btn.pack(side=tk.LEFT)
 
         # Reset button
-        tk.Button(
+        ttk.Button(
             elem_frame, text="Reset to Default",
             command=lambda: self._reset_element_colors(),
         ).pack(pady=5)
@@ -3526,7 +3553,7 @@ class MolecularModelingGUI(GUI):
 
         # Per-element size multipliers
         tk.Label(size_frame, text="\nPer-Element Radius Override:",
-                 font=("", 10, "bold")).pack(anchor=tk.W, pady=(10, 5))
+                 font=FONTS["section_heading"]).pack(anchor=tk.W, pady=(10, 5))
 
         size_inner = tk.Frame(size_frame)
         size_inner.pack(fill=tk.X)
@@ -3549,7 +3576,7 @@ class MolecularModelingGUI(GUI):
             spin.pack(side=tk.LEFT, padx=5)
 
         # Close button
-        tk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
+        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=5)
 
     def _apply_color_mode(self, mode):
         """Apply a color mode to the current view."""
@@ -3855,10 +3882,10 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(frame)
         btn_frame.grid(row=2, column=0, columnspan=3, pady=(8, 0))
-        tk.Button(btn_frame, text="OK", width=8, command=apply_size).pack(
+        ttk.Button(btn_frame, text="OK", width=8, command=apply_size).pack(
             side=tk.LEFT, padx=4)
-        tk.Button(btn_frame, text="Cancel", width=8,
-                  command=dialog.destroy).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancel", width=8,
+                   command=dialog.destroy).pack(side=tk.LEFT, padx=4)
 
         width_entry.focus_set()
         width_entry.select_range(0, tk.END)
@@ -4208,7 +4235,7 @@ class MolecularModelingGUI(GUI):
         dialog.transient(self.window.win)
 
         tk.Label(dialog, text="Define element substitution rules:",
-                 font=("TkDefaultFont", 10, "bold"), padx=10, pady=8).pack(anchor=tk.W)
+                 font=FONTS["section_heading"], padx=10, pady=8).pack(anchor=tk.W)
 
         # Scrollable frame for rules
         rules_frame = tk.Frame(dialog)
@@ -4234,7 +4261,7 @@ class MolecularModelingGUI(GUI):
                 row.destroy()
                 rule_widgets.remove((old_var, new_var, row))
 
-            tk.Button(row, text="×", command=remove, width=2).pack(side=tk.LEFT, padx=4)
+            ttk.Button(row, text="\u00d7", command=remove, width=2).pack(side=tk.LEFT, padx=4)
             rule_widgets.append((old_var, new_var, row))
 
         # Add initial empty rule
@@ -4242,7 +4269,7 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="+ Add Rule", command=add_rule).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="+ Add Rule", command=add_rule).pack(side=tk.LEFT, padx=5)
 
         ttk.Separator(dialog, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=5)
 
@@ -4279,10 +4306,10 @@ class MolecularModelingGUI(GUI):
 
         action_frame = tk.Frame(dialog)
         action_frame.pack(pady=8)
-        tk.Button(action_frame, text="Apply All", command=apply_batch, width=10
-                  ).pack(side=tk.LEFT, padx=5)
-        tk.Button(action_frame, text="Cancel", command=dialog.destroy, width=10
-                  ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(action_frame, text="Apply All", command=apply_batch, width=10
+                   ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(action_frame, text="Cancel", command=dialog.destroy, width=10
+                   ).pack(side=tk.LEFT, padx=5)
 
     def supercell_dialog(self, key=None):
         """Show supercell builder dialog and apply."""
@@ -4345,7 +4372,7 @@ class MolecularModelingGUI(GUI):
         dialog.focus_force()
 
         # --- Lattice lengths ---
-        tk.Label(dialog, text="Lattice lengths (Å):", font=("TkDefaultFont", 10, "bold")
+        tk.Label(dialog, text="Lattice lengths (\u00c5):", font=FONTS["section_heading"]
                  ).grid(row=0, column=0, columnspan=4, sticky=tk.W, padx=10, pady=(10, 2))
 
         len_vars = []
@@ -4357,7 +4384,7 @@ class MolecularModelingGUI(GUI):
             e.grid(row=1, column=col * 2 + 1, padx=2, pady=2)
 
         # --- Lattice angles ---
-        tk.Label(dialog, text="Lattice angles (°):", font=("TkDefaultFont", 10, "bold")
+        tk.Label(dialog, text="Lattice angles (\u00b0):", font=FONTS["section_heading"]
                  ).grid(row=2, column=0, columnspan=4, sticky=tk.W, padx=10, pady=(10, 2))
 
         ang_vars = []
@@ -4369,10 +4396,10 @@ class MolecularModelingGUI(GUI):
             e.grid(row=3, column=col * 2 + 1, padx=2, pady=2)
 
         # --- Lattice vectors (read-only) ---
-        tk.Label(dialog, text="Lattice vectors:", font=("TkDefaultFont", 10, "bold")
+        tk.Label(dialog, text="Lattice vectors:", font=FONTS["section_heading"]
                  ).grid(row=4, column=0, columnspan=4, sticky=tk.W, padx=10, pady=(10, 2))
 
-        vec_text = tk.Text(dialog, height=3, width=50, state=tk.NORMAL, font=("Courier", 10))
+        vec_text = tk.Text(dialog, height=3, width=50, state=tk.NORMAL, font=FONTS["fixed_small"])
         vec_text.grid(row=5, column=0, columnspan=6, padx=10, pady=2)
         for i in range(3):
             vec_text.insert(tk.END,
@@ -4436,10 +4463,10 @@ class MolecularModelingGUI(GUI):
                                     f"Cell updated.\nVolume: {c.volume:.4f} Å³",
                                     parent=dialog)
 
-        tk.Button(btn_frame, text="Apply", command=apply_changes, width=10
-                  ).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=dialog.destroy, width=10
-                  ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Apply", command=apply_changes, width=10
+                   ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Close", command=dialog.destroy, width=10
+                   ).pack(side=tk.LEFT, padx=5)
 
     # =========================================================================
     # Export methods
@@ -4625,10 +4652,10 @@ class MolecularModelingGUI(GUI):
 
         btn_frame = tk.Frame(dialog)
         btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text="Export CSV", command=export_csv).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="View PNGs", command=self._view_voronoi_pngs).pack(
+        ttk.Button(btn_frame, text="Export CSV", command=export_csv).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="View PNGs", command=self._view_voronoi_pngs).pack(
             side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def _view_voronoi_pngs(self):
         """Open a viewer for Voronoi overlay PNGs."""
@@ -4669,7 +4696,7 @@ class MolecularModelingGUI(GUI):
         idx_var = tk.IntVar(value=0)
         label_var = tk.StringVar(value=f"1 / {len(pngs)}: {pngs[0]}")
 
-        tk.Label(dialog, textvariable=label_var, font=("TkDefaultFont", 10, "bold")
+        tk.Label(dialog, textvariable=label_var, font=FONTS["section_heading"]
                  ).pack(pady=4)
 
         # Image display
@@ -4715,9 +4742,9 @@ class MolecularModelingGUI(GUI):
 
         nav_frame = tk.Frame(dialog)
         nav_frame.pack(pady=5)
-        tk.Button(nav_frame, text="< Prev", command=prev_img, width=8).pack(side=tk.LEFT, padx=5)
-        tk.Button(nav_frame, text="Next >", command=next_img, width=8).pack(side=tk.LEFT, padx=5)
-        tk.Button(nav_frame, text="Close", command=dialog.destroy, width=8).pack(
+        ttk.Button(nav_frame, text="< Prev", command=prev_img, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="Next >", command=next_img, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Button(nav_frame, text="Close", command=dialog.destroy, width=8).pack(
             side=tk.LEFT, padx=5)
 
         show_image(0)
@@ -5177,7 +5204,8 @@ class MolecularModelingGUI(GUI):
         frame.pack(fill=tk.BOTH, expand=True)
 
         tk.Label(frame, text="Keyboard Shortcuts",
-                 font=("TkDefaultFont", 12, "bold")).pack(anchor=tk.W, pady=(0, 8))
+                 font=("TkDefaultFont", 12, "bold")
+                 ).pack(anchor=tk.W, pady=(0, 8))
 
         for key_str, desc in shortcuts:
             if not key_str:
@@ -5186,8 +5214,8 @@ class MolecularModelingGUI(GUI):
                 continue
             row = tk.Frame(frame)
             row.pack(fill=tk.X, pady=1)
-            tk.Label(row, text=key_str, font=("TkFixedFont", 10, "bold"),
-                     width=16, anchor=tk.W, fg="#333366").pack(side=tk.LEFT)
+            tk.Label(row, text=key_str, font=FONTS["fixed"],
+                     width=16, anchor=tk.W).pack(side=tk.LEFT)
             tk.Label(row, text=desc, anchor=tk.W).pack(side=tk.LEFT, padx=(8, 0))
 
         tk.Label(frame, text="\nStandard ASE-GUI shortcuts (Ctrl+O, Ctrl+S, etc.) "
@@ -5195,8 +5223,8 @@ class MolecularModelingGUI(GUI):
                  fg="gray", wraplength=350, justify=tk.LEFT).pack(
                      anchor=tk.W, pady=(8, 0))
 
-        tk.Button(frame, text="Close", width=10,
-                  command=dialog.destroy).pack(pady=(12, 0))
+        ttk.Button(frame, text="Close", width=10,
+                   command=dialog.destroy).pack(pady=(12, 0))
         dialog.geometry("+%d+%d" % (
             self.window.win.winfo_x() + 80, self.window.win.winfo_y() + 40))
 
