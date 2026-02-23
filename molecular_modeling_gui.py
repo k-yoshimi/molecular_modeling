@@ -4853,6 +4853,11 @@ class MolecularModelingGUI(GUI):
             self.set_frame(self.frame)
             self.draw()
 
+            # Refresh side panel controls for new atoms
+            self._update_element_visibility_panel()
+            if not getattr(self, '_atomlist_collapsed', True):
+                self._update_atom_list()
+
             if messagebox:
                 messagebox.showinfo(
                     "Load Project",
