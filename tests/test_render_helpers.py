@@ -4,8 +4,8 @@ Unit tests for render_voronoi_overlays helper functions.
 import numpy as np
 import pytest
 
-from molecular_modeling.source.voronoi_geom import Polyhedron
-from molecular_modeling.source.render_voronoi_overlays import (
+from molecular_modeling.voronoi_geom import Polyhedron
+from molecular_modeling.render_voronoi_overlays import (
     _poly_faces_to_verts,
     _convex_hull_to_polyhedron,
 )

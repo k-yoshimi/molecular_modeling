@@ -60,7 +60,7 @@ def simple_polyhedron():
     Polyhedron
         Cube polyhedron.
     """
-    from molecular_modeling.source.voronoi_geom import Polyhedron
+    from molecular_modeling.voronoi_geom import Polyhedron
     # Unit cube vertices
     verts = np.array([
         [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],

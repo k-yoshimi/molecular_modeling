@@ -8,11 +8,10 @@ Molecular modeling toolkit built on ASE (Atomic Simulation Environment) with Vor
 
 ## Commands
 
-All commands run from `molecular_modeling/` directory with the venv activated:
+All commands run from the repository root with the venv activated:
 
 ```bash
 # Setup
-cd molecular_modeling
 source .venv/bin/activate
 
 # Run the full pipeline
@@ -59,6 +58,6 @@ Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to 
 - Python 3.11+ required (configured for 3.13)
 - Pinned dependencies in `pyproject.toml` (setuptools backend)
 - Package mapping: `molecular_modeling` package maps to `source/` directory via `[tool.setuptools] package-dir`
-- pytest configured with `pythonpath = ..` so imports resolve from the `molecular_modeling/` parent
+- pytest configured with `pythonpath = .` so imports resolve from the repository root
 - Shared test fixtures in `tests/conftest.py`: `simple_cell`, `simple_atoms`, `simple_polyhedron`
 - `system.info` dict on ASE `Atoms` objects carries metadata between pipeline stages

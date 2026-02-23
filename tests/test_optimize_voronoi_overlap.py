@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 from ase import Atoms
 
-from molecular_modeling.source.optimize_voronoi_overlap import optimize_voronoi_overlap
-from molecular_modeling.source.build_molecule_groups import build_molecule_groups
+from molecular_modeling.optimize_voronoi_overlap import optimize_voronoi_overlap
+from molecular_modeling.build_molecule_groups import build_molecule_groups
 
 
 class TestOptimizeVoronoiOverlap:

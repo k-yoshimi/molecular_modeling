@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from ase import Atoms
 
-from molecular_modeling.source.write_structure import write_structure
+from molecular_modeling.write_structure import write_structure
 
 
 class TestWriteStructure:

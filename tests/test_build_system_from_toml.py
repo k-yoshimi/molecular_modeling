@@ -5,13 +5,13 @@ import numpy as np
 import pytest
 from unittest.mock import patch, mock_open
 
-from molecular_modeling.source.build_system_from_toml import build_system_from_toml
+from molecular_modeling.build_system_from_toml import build_system_from_toml
 
 
 class TestBuildSystemFromToml:
     """Test cases for build_system_from_toml function."""
 
-    @patch('molecular_modeling.source.build_system_from_toml.tomllib.load')
+    @patch('molecular_modeling.build_system_from_toml.tomllib.load')
     @patch('builtins.open')
     def test_build_system_basic(self, mock_open_func, mock_toml_load):
         """
@@ -81,7 +81,7 @@ class TestBuildSystemFromToml:
         """
         Test the expand_symbols helper function.
         """
-        from molecular_modeling.source.build_system_from_toml import build_system_from_toml
+        from molecular_modeling.build_system_from_toml import build_system_from_toml
         import re
 
         # Test expand_symbols logic (internal function)

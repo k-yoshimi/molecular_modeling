@@ -4,7 +4,7 @@ Unit tests for voronoi_geom module.
 import numpy as np
 import pytest
 
-from molecular_modeling.source.voronoi_geom import (
+from molecular_modeling.voronoi_geom import (
     Polyhedron,
     wrap_angles_deg,
     polyhedron_volume,

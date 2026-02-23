@@ -217,5 +217,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-structure_out
-voronoi_pngs
+structure_out/
+voronoi_pngs/
+source/structure_out/
+source/voronoi_pngs/
