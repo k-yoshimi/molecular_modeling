@@ -10,11 +10,11 @@ and other display-only calls with no-ops.
 
 import os
 import sys
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 from ase import Atoms
-from unittest.mock import MagicMock, patch
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1923,8 +1923,9 @@ class TestSphereRenderer:
     def test_selected_sphere_has_outline(self):
         """Selected sphere should differ from unselected."""
         sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-        from molecular_modeling_gui import _SphereRenderer
         import numpy as np
+
+        from molecular_modeling_gui import _SphereRenderer
 
         renderer = _SphereRenderer()
         img_normal = renderer._render_sphere('#ff7f0e', 40, False)
@@ -1936,8 +1937,9 @@ class TestSphereRenderer:
     def test_different_colors_produce_different_images(self):
         """Different atom colours should produce different sphere images."""
         sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-        from molecular_modeling_gui import _SphereRenderer
         import numpy as np
+
+        from molecular_modeling_gui import _SphereRenderer
 
         renderer = _SphereRenderer()
         img_r = np.array(renderer._render_sphere('#ff0000', 30, False))

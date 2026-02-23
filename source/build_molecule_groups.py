@@ -1,6 +1,8 @@
 from typing import List
+
 import numpy as np
 from ase.atoms import Atoms
+
 
 def build_molecule_groups(system: Atoms) -> List[List[int]]:
     """

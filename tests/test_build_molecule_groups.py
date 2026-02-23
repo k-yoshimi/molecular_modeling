@@ -4,7 +4,6 @@ Unit tests for build_molecule_groups module.
 import numpy as np
 import pytest
 from ase import Atoms
-
 from molecular_modeling.build_molecule_groups import build_molecule_groups
 
 

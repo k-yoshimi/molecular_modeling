@@ -3,12 +3,12 @@ Unit tests for render_voronoi_overlays module.
 """
 import tempfile
 from pathlib import Path
+
 import numpy as np
 import pytest
 from ase import Atoms
-
-from molecular_modeling.render_voronoi_overlays import render_voronoi_overlays
 from molecular_modeling.build_molecule_groups import build_molecule_groups
+from molecular_modeling.render_voronoi_overlays import render_voronoi_overlays
 
 
 class TestRenderVoronoiOverlays:

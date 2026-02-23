@@ -1,7 +1,7 @@
 [project]
 name = "molecular_modeling"
 version = "0.1.0"
-description = "Add your description here"
+description = "Molecular modeling toolkit with Voronoi cell optimization on ASE"
 readme = "README.md"
 license = "LGPL-2.1-or-later"
 license-files = ["LICENSE"]
@@ -18,7 +18,6 @@ dependencies = [
     "packaging==25.0",
     "pillow==11.3.0",
     "pyparsing==3.2.3",
-    "pytest>=7.0.0",
     "python-dateutil==2.9.0.post0",
     "scipy==1.16.0",
     "six==1.17.0",
@@ -30,8 +29,13 @@ dev = [
     "ipykernel>=7.1.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "mypy>=1.0",
+    "ruff>=0.8.0",
     "sphinx>=7.0",
 ]
+
+[project.scripts]
+molecular-modeling = "molecular_modeling.main:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -39,3 +43,24 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"molecular_modeling" = "source"}
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["source/gui/"]
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F841"]  # allow unused variables in tests
+"source/gui/*" = ["F401", "F841"]  # GUI modules have conditional imports

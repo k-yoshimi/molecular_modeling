@@ -3,24 +3,23 @@ Unit tests for voronoi_geom module.
 """
 import numpy as np
 import pytest
-
 from molecular_modeling.voronoi_geom import (
     Polyhedron,
-    wrap_angles_deg,
-    polyhedron_volume,
-    rotate_polyhedron,
-    _triangulate_faces,
     _build_unit_cell_box_mesh,
-    polyhedron_to_trimesh,
-    compute_voronoi_cells_from_coms,
-    compute_system_voronoi_cells,
+    _triangulate_faces,
     _voronoi_cell_vertices_halfspaces_cart,
-    overlap_volume_union_cart,
-    precompute_system_cache,
-    single_set_cell_volume_cart,
+    check_system_voronoi_volume_tiling,
+    compute_system_voronoi_cells,
+    compute_voronoi_cells_from_coms,
     iou_via_union_cart,
     optimize_angles_each_system_site,
-    check_system_voronoi_volume_tiling,
+    overlap_volume_union_cart,
+    polyhedron_to_trimesh,
+    polyhedron_volume,
+    precompute_system_cache,
+    rotate_polyhedron,
+    single_set_cell_volume_cart,
+    wrap_angles_deg,
 )
 
 

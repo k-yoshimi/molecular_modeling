@@ -8,11 +8,11 @@ Includes a 3D preview of the selected molecule.
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 
-from .base_dialog import BaseDialog, LabeledCombobox, CoordinateEntry
+from .base_dialog import BaseDialog, CoordinateEntry, LabeledCombobox
 from .molecule_registry import get_registry
 
 # Element colors (CPK coloring scheme)

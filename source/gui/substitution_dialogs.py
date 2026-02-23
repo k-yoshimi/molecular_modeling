@@ -11,13 +11,12 @@ Provides four types of substitution:
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
 from ase import Atoms
 
-from .base_dialog import BaseDialog, LabeledEntry, LabeledCombobox
+from .base_dialog import BaseDialog, LabeledCombobox, LabeledEntry
 from .molecule_registry import get_registry
-
 
 # Common element symbols for quick selection (periodic table order)
 COMMON_ELEMENTS = [

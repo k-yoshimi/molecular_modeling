@@ -1,6 +1,8 @@
 from pathlib import Path
+
 from ase.atoms import Atoms
 from ase.io import write
+
 
 def write_structure(system: Atoms, *, outdir: str | Path = ".", verbose: bool = True):
     """

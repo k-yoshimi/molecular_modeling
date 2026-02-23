@@ -2,12 +2,9 @@
 Unit tests for write_structure module.
 """
 import tempfile
-import shutil
 from pathlib import Path
-import numpy as np
-import pytest
-from ase import Atoms
 
+from ase import Atoms
 from molecular_modeling.write_structure import write_structure
 
 

@@ -5,23 +5,23 @@ GUI module for molecular_modeling.
 Provides tkinter-based dialogs for ASE-GUI integration.
 """
 
-from .base_dialog import BaseDialog, LabeledEntry, LabeledCombobox, CoordinateEntry
-from .molecule_registry import MoleculeRegistry, get_registry
 from .add_molecule_dialog import AddMoleculeDialog, show_add_molecule_dialog
+from .base_dialog import BaseDialog, CoordinateEntry, LabeledCombobox, LabeledEntry
+from .controller import MolecularController, get_controller, reset_controller
+from .export_dialog import ExportDialog, show_export_dialog
 from .molecule_list_dialog import MoleculeListDialog, show_molecule_list_dialog
+from .molecule_registry import MoleculeRegistry, get_registry
 from .substitution_dialogs import (
-    GlobalAtomSubstitutionDialog,
-    MoleculeSubstitutionDialog,
-    MoleculeAtomSubstitutionDialog,
     AtomSubstitutionDialog,
-    show_global_substitution_dialog,
-    show_molecule_substitution_dialog,
-    show_molecule_atom_substitution_dialog,
+    GlobalAtomSubstitutionDialog,
+    MoleculeAtomSubstitutionDialog,
+    MoleculeSubstitutionDialog,
     show_atom_substitution_dialog,
+    show_global_substitution_dialog,
+    show_molecule_atom_substitution_dialog,
+    show_molecule_substitution_dialog,
 )
 from .supercell_dialog import SupercellDialog, show_supercell_dialog
-from .export_dialog import ExportDialog, show_export_dialog
-from .controller import MolecularController, get_controller, reset_controller
 
 __all__ = [
     # Base

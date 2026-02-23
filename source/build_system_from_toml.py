@@ -1,12 +1,14 @@
 # build_system_from_toml.py
 import re
-import numpy as np
 import tomllib
-from typing import Dict, List, Tuple
-from scipy.spatial.transform import Rotation as R
-from ase import Atoms
-from itertools import product
 from collections import Counter
+from itertools import product
+from typing import Dict, List
+
+import numpy as np
+from ase import Atoms
+from scipy.spatial.transform import Rotation as R
+
 
 def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     """
@@ -53,7 +55,7 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
     # Load dictionary molecule configs
     config_map: Dict[str, dict] = {}
-    for molecule in input_data.get("molecules"):
+    for molecule in input_data.get("molecules", []):
         with open(f"{data_dir}/{molecule}.toml", "rb") as f:
             config_map[molecule] = tomllib.load(f)
 
@@ -179,7 +181,7 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
 
             # Euler angles & site COM (ALWAYS Cartesian)
             # No input rotation: place unrotated; optimizer will rotate later.
-            angles = (0.0, 0.0, 0.0)
+            angles = [0.0, 0.0, 0.0]
             site_com = center_of_mass_cart[mol_idx]
 
             # Build positions in Cartesian (already for voronoi_ref_id)

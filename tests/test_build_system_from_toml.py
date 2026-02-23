@@ -1,10 +1,9 @@
 """
 Unit tests for build_system_from_toml module.
 """
-import numpy as np
-import pytest
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
 
+import numpy as np
 from molecular_modeling.build_system_from_toml import build_system_from_toml
 
 
@@ -81,7 +80,6 @@ class TestBuildSystemFromToml:
         """
         Test the expand_symbols helper function.
         """
-        from molecular_modeling.build_system_from_toml import build_system_from_toml
         import re
 
         # Test expand_symbols logic (internal function)
@@ -99,8 +97,8 @@ class TestBuildSystemFromToml:
         """
         Test the compute_positions helper function logic.
         """
-        from scipy.spatial.transform import Rotation as R
         import numpy as np
+        from scipy.spatial.transform import Rotation as R
 
         # Simulate compute_positions logic
         cfg = {

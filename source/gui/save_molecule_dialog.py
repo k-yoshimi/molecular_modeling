@@ -7,9 +7,9 @@ and write a molecule definition to data/<name>.toml.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
-from typing import Optional, List, Callable
 from pathlib import Path
+from tkinter import messagebox, ttk
+from typing import Callable, List, Optional
 
 import numpy as np
 from ase import Atoms

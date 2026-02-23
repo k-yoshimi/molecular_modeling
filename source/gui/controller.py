@@ -6,12 +6,13 @@ Provides high-level operations that bridge GUI dialogs with the molecular modeli
 """
 
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 from ase import Atoms
 from scipy.spatial.transform import Rotation as R
 
-from .molecule_registry import get_registry, MoleculeRegistry
+from .molecule_registry import MoleculeRegistry, get_registry
 
 
 class MolecularController:

@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import List, Sequence, Optional
+
+from typing import List, Optional, Sequence
+
 import numpy as np
-from scipy.spatial import Voronoi, HalfspaceIntersection, ConvexHull
 import trimesh
 from ase.atoms import Atoms
+from scipy.spatial import ConvexHull, HalfspaceIntersection, Voronoi
 from scipy.spatial.transform import Rotation as R
-
 
 # =========================
 # Basic shapes & converters
@@ -442,7 +443,7 @@ def _build_system_seeds_cart(A_sys: np.ndarray, coms_sys_cart: np.ndarray, rng: 
 def _build_dict_seeds_cart(
     A_dict: np.ndarray,
     coms_dict_cart: np.ndarray,
-    angles_deg: Sequence[float],
+    angles_deg: np.ndarray | Sequence[float],
     p_ref_cart: np.ndarray,
     rng: int = 1,
     scale: float = 1.0,
@@ -524,7 +525,7 @@ def overlap_volume_union_cart(
     coms_sys_cart: np.ndarray,
     A_dict: np.ndarray,
     coms_dict_cart: np.ndarray,
-    angles_deg: Sequence[float],
+    angles_deg: np.ndarray | Sequence[float],
     p_ref_cart: np.ndarray,
     rng: int = 1,
     scale: float = 1.0,
@@ -579,7 +580,7 @@ def single_set_cell_volume_cart(
     coms_cart: np.ndarray,
     p_ref_cart: np.ndarray,
     which: str,
-    angles_deg: Optional[Sequence[float]] = None,
+    angles_deg: np.ndarray | Sequence[float] | None = None,
     rng: int = 1,
     scale: float = 1.0,
     ref_idx: int = 0,
@@ -670,7 +671,7 @@ def iou_via_union_cart(
     A_dict: np.ndarray,
     coms_dict_cart: np.ndarray,
     p_ref_cart: np.ndarray,
-    angles_deg: Sequence[float],
+    angles_deg: np.ndarray | Sequence[float],
     rng: int = 1,
     scale: float = 1.0,
     ref_idx: int = 0,

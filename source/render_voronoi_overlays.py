@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+import matplotlib
 import numpy as np
 from ase.atoms import Atoms
 
-import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -15,16 +15,17 @@ from scipy.spatial import ConvexHull
 from .build_molecule_groups import build_molecule_groups
 from .voronoi_geom import (
     Polyhedron,
-    compute_system_voronoi_cells,
-    compute_voronoi_cells_from_coms,
-    rotate_and_place_polyhedron,
-    iou_via_union_cart,
-    single_set_cell_volume_cart,
-    _build_system_seeds_cart,
     _build_dict_seeds_cart,
+    _build_system_seeds_cart,
     _unique_rows,
     _voronoi_cell_vertices_halfspaces_cart,
+    compute_system_voronoi_cells,
+    compute_voronoi_cells_from_coms,
+    iou_via_union_cart,
+    rotate_and_place_polyhedron,
+    single_set_cell_volume_cart,
 )
+
 
 def _poly_faces_to_verts(poly: Polyhedron) -> List[np.ndarray]:
     """
@@ -217,8 +218,8 @@ def render_voronoi_overlays(
         meta = dict_meta[name]
         B_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
         coms_dict = np.asarray(meta["center_of_mass"], float)
-        ref_idx   = int(meta.get("voronoi_ref_id", 0)) 
-        dict_seed_cart = coms_dict[ref_idx] 
+        ref_idx   = int(meta.get("voronoi_ref_id", 0))
+        dict_seed_cart = coms_dict[ref_idx]
         dict_cell_cache[name] = (B_dict, dict_seed_cart, coms_dict, ref_idx)
 
     A_sys = system.get_cell().array
@@ -255,7 +256,7 @@ def render_voronoi_overlays(
             angles_deg=angles_deg[sid],
             rng=rng,
             scale=s,
-            ref_idx=ref_idx, 
+            ref_idx=ref_idx,
         )
 
         V_sys = single_set_cell_volume_cart(
@@ -263,7 +264,7 @@ def render_voronoi_overlays(
         )
         V_dict = single_set_cell_volume_cart(
             A_cell=A_dict, coms_cart=coms_dict, p_ref_cart=center, which='dict',
-            angles_deg=angles_deg[sid], rng=rng, scale=s, ref_idx=ref_idx 
+            angles_deg=angles_deg[sid], rng=rng, scale=s, ref_idx=ref_idx
         )
 
         if show_overlap:
@@ -284,7 +285,7 @@ def render_voronoi_overlays(
 
         fig = plt.figure(figsize=figsize, dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
-        ax.view_init(elev=elev, azim=azim)
+        ax.view_init(elev=elev, azim=azim)  # type: ignore[attr-defined]
 
         _plot_polyhedron(ax, sys_cell, facecolor="C0", edgecolor="k", alpha=0.25, lw=0.4,
                          label="system Voronoi")
@@ -297,7 +298,7 @@ def render_voronoi_overlays(
         _set_axes_equal_from_points(ax, all_pts)
         ax.set_xlabel("x (Å)")
         ax.set_ylabel("y (Å)")
-        ax.set_zlabel("z (Å)")
+        ax.set_zlabel("z (Å)")  # type: ignore[attr-defined]
         ax.set_title(
             f"Site {sid} | Mol: {mol_name} | IoU={iou_val:.3f} | rng={rng}"
         )

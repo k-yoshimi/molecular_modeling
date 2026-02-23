@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Sequence, Tuple, Optional
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from ase import Atoms
 
+from .build_molecule_groups import build_molecule_groups
 from .voronoi_geom import (
     iou_via_union_cart,
     precompute_system_cache,
     single_set_cell_volume_cart,
     wrap_angles_deg,
 )
-from .build_molecule_groups import build_molecule_groups
+
 
 def optimize_voronoi_overlap(
     system: Atoms,
@@ -117,7 +118,7 @@ def optimize_voronoi_overlap(
         meta = dict_meta[mol_name]
         A_dict = np.asarray(meta["lattice_vectors"], float).reshape(3, 3)
         coms_dict = np.asarray(meta["center_of_mass"], float)
-        ref_idx   = int(meta.get("voronoi_ref_id", 0)) 
+        ref_idx   = int(meta.get("voronoi_ref_id", 0))
 
         # ---- Step 1-3: scale s by matching volumes ----
         sys_cache = precompute_system_cache(A_sys, coms_sys_cart_all, p_ref, rng=rng)
@@ -129,7 +130,7 @@ def optimize_voronoi_overlap(
         scales_by_site[site_id] = s
 
         # ---- Step 4: optimize rotation with scaled dictionary seeds ----
-        def objective(angles_deg: Sequence[float], _cache=sys_cache) -> float:
+        def objective(angles_deg: np.ndarray | Sequence[float], _cache=sys_cache) -> float:
             """
             Objective to minimize: ``1 - IoU`` between system and dictionary Voronoi cells.
 

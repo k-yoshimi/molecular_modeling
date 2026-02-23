@@ -6,9 +6,9 @@ Allows exporting to Quantum ESPRESSO, VASP, and CIF formats.
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog
-from typing import Optional, List
 from pathlib import Path
+from tkinter import filedialog, ttk
+from typing import List, Optional
 
 from ase import Atoms
 from ase.io import write

@@ -7,7 +7,7 @@ Shows a list of all molecules in the current system with their properties.
 
 import tkinter as tk
 from tkinter import ttk
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from ase import Atoms

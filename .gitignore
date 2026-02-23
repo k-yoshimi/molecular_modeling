@@ -217,7 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Project outputs
 structure_out/
 voronoi_pngs/
 source/structure_out/
 source/voronoi_pngs/
+
+# uv lock file (library, not pinned)
+uv.lock

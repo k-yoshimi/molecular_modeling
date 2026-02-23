@@ -6,8 +6,8 @@ Provides common functionality for tkinter dialogs used in ASE-GUI extensions.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
-from typing import Optional, Callable, Any
+from tkinter import messagebox, ttk
+from typing import Any, Callable, Optional
 
 
 class BaseDialog(tk.Toplevel):
