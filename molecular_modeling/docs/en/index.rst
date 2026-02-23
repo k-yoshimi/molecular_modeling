@@ -1,49 +1,45 @@
 Molecular Modeling Toolkit Documentation
 =========================================
 
-Molecular Modeling Toolkit is a molecular modeling toolkit built on
-ASE (Atomic Simulation Environment). It builds supercells from TOML-based
-molecular definitions, optimizes molecular orientations via Voronoi cell
-IoU maximization, and exports to Quantum ESPRESSO / VASP / CIF formats.
+.. toctree::
+   :maxdepth: 2
+   :caption: Getting Started
 
-Key Features
-------------
-
-- **TOML-based molecular definitions**: Define molecular structures with intuitive configuration files
-- **Supercell construction**: Generate supercells with arbitrary repetition counts
-- **Voronoi optimization**: Grid search over Euler angles and Nelder-Mead refinement for molecular orientation optimization
-- **4 types of substitutions**: Global element, molecule, molecule-atom, and individual atom substitutions
-- **Multi-format export**: Batch export to QE, VASP, CIF formats
-- **GUI**: Interactive environment extending ASE-GUI
-
-Contents
---------
+   overview
+   installation
+   howto
 
 .. toctree::
    :maxdepth: 2
-   :caption: User Guide
+   :caption: Usage
 
-   installation
    quickstart
    tutorial
    gui_guide
+   cli_reference
+   toml_reference
+
+.. raw:: latex
+
+   \appendix
 
 .. toctree::
    :maxdepth: 2
-   :caption: Reference
+   :caption: Appendices
 
-   cli_reference
-   toml_reference
+   appendix_voronoi
    architecture
    api/index
 
-Other Languages
----------------
+.. only:: html
 
-- `日本語 <../ja/index.html>`_
+   Other Languages
+   ---------------
 
-Indices
--------
+   - `日本語 <../ja/index.html>`_
 
-* :ref:`genindex`
-* :ref:`modindex`
+   Indices
+   -------
+
+   * :ref:`genindex`
+   * :ref:`modindex`

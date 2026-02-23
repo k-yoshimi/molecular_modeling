@@ -28,6 +28,12 @@
    └──────────┬──────────────┘
               │  optimized_angles_deg, scales, iou
               ▼
+   ┌──────────────────────────────────┐
+   │ check_system_voronoi_volume     │  Voronoi 体積の
+   │ _tiling (voronoi_geom.py)       │  タイリング整合性検証
+   └──────────┬───────────────────────┘
+              │
+              ▼
    ┌─────────────────────────┐
    │ render_voronoi_overlays │  3D matplotlib 可視化
    └──────────┬──────────────┘
@@ -174,45 +180,59 @@ GUI は MVC (Model-View-Controller) パターンに近い設計です。
 
 .. code-block:: text
 
-   ┌──────────────────────────────────────────┐
-   │         MolecularModelingGUI (View)      │
-   │  ┌─────────────────┐  ┌──────────────┐  │
-   │  │  3D Viewport    │  │  Menu Bar    │  │
-   │  │  (ASE Canvas)   │  │  - MolTools  │  │
-   │  │                 │  │  - Export    │  │
-   │  └─────────────────┘  │  - WinSize   │  │
-   │  ┌─────────────────┐  └──────┬───────┘  │
-   │  │  Toolbar        │         │           │
-   │  └─────────────────┘         │           │
-   └──────────────────────────────┼───────────┘
-                                  │ ダイアログ呼び出し
-                                  ▼
-   ┌──────────────────────────────────────────┐
-   │          Dialogs (View)                  │
-   │  AddMolecule / Substitution / Export     │
-   │  SaveMolecule / MoleculeList / Supercell │
-   └──────────────────┬───────────────────────┘
-                      │ 結果を返す
-                      ▼
-   ┌──────────────────────────────────────────┐
-   │      MolecularController (Controller)    │
-   │  add_molecule / substitute_* / get_atoms │
-   └──────────────────┬───────────────────────┘
-                      │ Atoms を操作
-                      ▼
-   ┌──────────────────────────────────────────┐
-   │          ASE Atoms (Model)               │
-   │  positions / symbols / cell / info       │
-   └──────────────────────────────────────────┘
+   ┌────────────────────────────────────────────────────────────┐
+   │              MolecularModelingGUI (View)                  │
+   │                                                            │
+   │  メニューバー: MoleculeTools / Recent Files / Export /     │
+   │              Selection / Pipeline / View Settings / Help   │
+   │                                                            │
+   │  ┌─────────────────┐  ┌──────────────────────────────┐   │
+   │  │  ファイルパネル  │  │  サイドパネル (右)            │   │
+   │  │  (Input/Output/ │  │  - カラーモード               │   │
+   │  │   Edit/Pipeline)│  │  - ボンド表示 / 3D 球体      │   │
+   │  └─────────────────┘  │  - 元素コントロール           │   │
+   │  ┌─────────────────┐  │  - 分子コントロール           │   │
+   │  │  3D Viewport    │  │  - 原子リスト                 │   │
+   │  │  (ASE Canvas)   │  └──────────────────────────────┘   │
+   │  └─────────────────┘                                      │
+   │  ┌─────────────────┐  ┌──────────────────────────────┐   │
+   │  │  ツールバー      │  │  ボトムパネル                 │   │
+   │  │  (移動/回転/     │  │  (Molecule Tools /            │   │
+   │  │   ズーム/BG色)   │  │   Structure Tools)            │   │
+   │  └─────────────────┘  └──────────────────────────────┘   │
+   │  ステータスバー (選択情報・距離・角度・二面角)              │
+   └────────────────────────────────────┬───────────────────────┘
+                                        │ ダイアログ呼び出し
+                                        ▼
+   ┌────────────────────────────────────────────────────────────┐
+   │                     Dialogs (View)                        │
+   │  AddMolecule / Substitution (4種) / BatchSubstitution     │
+   │  Export / SaveMolecule / MoleculeList / Supercell         │
+   │  CellParameters / Focus / Move / Rotate / SelectBy...     │
+   └────────────────────────────┬───────────────────────────────┘
+                                │ 結果を返す
+                                ▼
+   ┌────────────────────────────────────────────────────────────┐
+   │           MolecularController (Controller)                │
+   │  add_molecule / substitute_* / build_supercell /          │
+   │  run_optimize / run_render / run_export / get_atoms       │
+   └────────────────────────────┬───────────────────────────────┘
+                                │ Atoms を操作
+                                ▼
+   ┌────────────────────────────────────────────────────────────┐
+   │               ASE Atoms (Model)                           │
+   │  positions / symbols / cell / pbc / info / arrays         │
+   └────────────────────────────────────────────────────────────┘
 
 GUI モジュール構成:
 
-- ``molecular_modeling_gui.py``: メインの GUI クラス（ASE-GUI を拡張）
+- ``molecular_modeling_gui.py``: メインの GUI クラス（ASE-GUI を拡張）。ウィンドウレイアウト、メニュー、ツールバー、サイドパネル、ステータスバーを管理
 - ``source/gui/controller.py``: GUI 操作をバックエンドに橋渡し
-- ``source/gui/base_dialog.py``: モーダルダイアログの基底クラス
+- ``source/gui/theme.py``: テーマ設定（配色・フォント・余白の定数、ttk テーマ構成）
+- ``source/gui/base_dialog.py``: モーダルダイアログの基底クラス（OK/Cancel, バリデーション, 座標入力）
 - ``source/gui/molecule_registry.py``: ``data/*.toml`` から分子定義を動的に読み込み
 - ``source/gui/add_molecule_dialog.py``: 分子追加ダイアログ
-- ``source/gui/substitution_dialogs.py``: 4 種類の置換ダイアログ
+- ``source/gui/substitution_dialogs.py``: 4 種類の置換ダイアログ + 一括元素置換ダイアログ
 - ``source/gui/export_dialog.py``: エクスポートダイアログ
 - ``source/gui/save_molecule_dialog.py``: 選択原子の分子保存ダイアログ
 - ``source/gui/molecule_list_dialog.py``: 分子一覧ダイアログ

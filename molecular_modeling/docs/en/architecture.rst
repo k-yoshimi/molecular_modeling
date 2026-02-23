@@ -28,6 +28,12 @@ The main pipeline (``run.py`` → ``source/main.py``) processes in the following
    +----------+--------------+
               |  optimized_angles_deg, scales, iou
               v
+   +-------------------------------+
+   | check_system_voronoi_volume   |  Voronoi volume
+   | _tiling (voronoi_geom.py)     |  tiling verification
+   +----------+--------------------+
+              |
+              v
    +-------------------------+
    | render_voronoi_overlays |  3D matplotlib visualization
    +----------+--------------+
@@ -174,45 +180,59 @@ The GUI follows an MVC (Model-View-Controller) pattern.
 
 .. code-block:: text
 
-   +------------------------------------------+
-   |         MolecularModelingGUI (View)      |
-   |  +-----------------+  +--------------+   |
-   |  |  3D Viewport    |  |  Menu Bar    |   |
-   |  |  (ASE Canvas)   |  |  - MolTools  |   |
-   |  |                 |  |  - Export     |   |
-   |  +-----------------+  |  - WinSize   |   |
-   |  +-----------------+  +------+-------+   |
-   |  |  Toolbar        |         |           |
-   |  +-----------------+         |           |
-   +------------------------------+-----------+
-                                  | Dialog calls
-                                  v
-   +------------------------------------------+
-   |          Dialogs (View)                  |
-   |  AddMolecule / Substitution / Export     |
-   |  SaveMolecule / MoleculeList / Supercell |
-   +------------------+-----------------------+
-                      | Return results
-                      v
-   +------------------------------------------+
-   |      MolecularController (Controller)    |
-   |  add_molecule / substitute_* / get_atoms |
-   +------------------+-----------------------+
-                      | Modify Atoms
-                      v
-   +------------------------------------------+
-   |          ASE Atoms (Model)               |
-   |  positions / symbols / cell / info       |
-   +------------------------------------------+
+   +------------------------------------------------------------+
+   |              MolecularModelingGUI (View)                   |
+   |                                                            |
+   |  Menus: MoleculeTools / Recent Files / Export /            |
+   |         Selection / Pipeline / View Settings / Help        |
+   |                                                            |
+   |  +-----------------+  +------------------------------+    |
+   |  |  File Panel     |  |  Side Panel (right)          |    |
+   |  |  (Input/Output/ |  |  - Color mode                |    |
+   |  |   Edit/Pipeline)|  |  - Show Bonds / 3D Spheres   |    |
+   |  +-----------------+  |  - Element Controls           |    |
+   |  +-----------------+  |  - Molecule Controls          |    |
+   |  |  3D Viewport    |  |  - Atom List                  |    |
+   |  |  (ASE Canvas)   |  +------------------------------+    |
+   |  +-----------------+                                       |
+   |  +-----------------+  +------------------------------+    |
+   |  |  Toolbar        |  |  Bottom Panel                |    |
+   |  |  (Pan/Rotate/   |  |  (Molecule Tools /           |    |
+   |  |   Zoom/BG color)|  |   Structure Tools)           |    |
+   |  +-----------------+  +------------------------------+    |
+   |  Status Bar (selection info / distance / angle / dihedral)|
+   +------------------------------------+-----------------------+
+                                        | Dialog calls
+                                        v
+   +------------------------------------------------------------+
+   |                     Dialogs (View)                         |
+   |  AddMolecule / Substitution (4 types) / BatchSubstitution |
+   |  Export / SaveMolecule / MoleculeList / Supercell          |
+   |  CellParameters / Focus / Move / Rotate / SelectBy...     |
+   +----------------------------+-------------------------------+
+                                | Return results
+                                v
+   +------------------------------------------------------------+
+   |           MolecularController (Controller)                 |
+   |  add_molecule / substitute_* / build_supercell /           |
+   |  run_optimize / run_render / run_export / get_atoms        |
+   +----------------------------+-------------------------------+
+                                | Modify Atoms
+                                v
+   +------------------------------------------------------------+
+   |               ASE Atoms (Model)                            |
+   |  positions / symbols / cell / pbc / info / arrays          |
+   +------------------------------------------------------------+
 
 GUI module structure:
 
-- ``molecular_modeling_gui.py``: Main GUI class (extends ASE-GUI)
+- ``molecular_modeling_gui.py``: Main GUI class (extends ASE-GUI). Manages window layout, menus, toolbar, side panel, and status bar
 - ``source/gui/controller.py``: Bridge between GUI dialogs and backend operations
-- ``source/gui/base_dialog.py``: Base class for modal dialogs
+- ``source/gui/theme.py``: Theme configuration (colors, fonts, spacing, ttk theme setup)
+- ``source/gui/base_dialog.py``: Base class for modal dialogs (OK/Cancel, validation, coordinate input)
 - ``source/gui/molecule_registry.py``: Dynamic molecule definition loader from ``data/*.toml``
 - ``source/gui/add_molecule_dialog.py``: Add molecule dialog
-- ``source/gui/substitution_dialogs.py``: Four substitution dialog types
+- ``source/gui/substitution_dialogs.py``: Four substitution dialog types + batch element substitution
 - ``source/gui/export_dialog.py``: Export dialog
 - ``source/gui/save_molecule_dialog.py``: Save selected atoms as molecule dialog
 - ``source/gui/molecule_list_dialog.py``: Molecule list dialog

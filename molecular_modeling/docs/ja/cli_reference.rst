@@ -1,5 +1,5 @@
-CLI リファレンス
-================
+コマンドラインツール
+====================
 
 run.py — パイプライン実行
 -------------------------
@@ -19,7 +19,7 @@ run.py — パイプライン実行
 5. Voronoi セルオーバーレイの可視化 → ``source/voronoi_pngs/``
 6. 構造ファイルの出力 → ``source/structure_out/``
 
-**入力ファイル**:
+**入力ファイル** （詳細は :doc:`toml_reference` を参照）:
 
 - ``input/input.toml`` — 主設定
 - ``data/<name>.toml`` — 分子定義
@@ -37,6 +37,7 @@ molecular_modeling_gui.py — GUI 起動
 ------------------------------------
 
 ASE-GUI を拡張した分子モデリング GUI を起動します。
+詳細は :doc:`gui_guide` を参照してください。
 
 .. code-block:: bash
 

@@ -25,15 +25,9 @@ Launching
 Window Layout
 -------------
 
-.. image:: /_static/placeholder.png
-   :width: 600
-   :alt: GUI window layout
-
-*Replace this with an actual screenshot*
-
 The GUI window consists of:
 
-1. **File panel (top)**: Input/Output/Edit/Pipeline icon button groups
+1. **File panel (top)**: Icon button groups (described below)
 2. **3D viewport**: Molecular structure display (rotatable, translatable, zoomable) with XYZ axis indicator in bottom-left
 3. **Toolbar**: Translate / Rotate / Zoom buttons
 4. **Bottom panel**: Molecule Tools / Structure Tools icon button groups
@@ -43,7 +37,7 @@ The GUI window consists of:
 Changing Window Size
 ~~~~~~~~~~~~~~~~~~~~
 
-Use the **Window Size** menu to change the window size:
+Use the **View Settings** menu to change the window size:
 
 - **Small (450x450)**: Compact display
 - **Medium (700x700)**: Standard size (default)
@@ -52,6 +46,34 @@ Use the **Window Size** menu to change the window size:
 - **Custom Size...**: Specify any size
 
 You can also resize the window by dragging its borders.
+
+File Panel (top)
+~~~~~~~~~~~~~~~~
+
+Icon buttons at the top of the window provide quick access to common operations.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Group
+     - Buttons
+   * - Input
+     - Load Structure / Load Project (TOML project)
+   * - Output
+     - Save Project / Export Structure / Save Selection as Molecule / Screenshot
+   * - Edit
+     - Undo / Redo
+   * - Pipeline
+     - Run Optimize / Run All / Show Results / View PNGs
+
+Bottom Panel
+~~~~~~~~~~~~
+
+Icon button groups below the 3D viewport.
+
+- **Molecule Tools**: Select / Move / Rotate / Delete / Drag (drag mode)
+- **Structure Tools**: Add Molecule / Substitution / Supercell / Cell Parameters
 
 Menu Reference
 --------------
@@ -205,6 +227,8 @@ View Settings Menu
      - Open dialog to show/hide atoms by element
    * - Toggle Side Panel
      - Show or hide the side panel (quick-access view controls)
+   * - Save Screenshot... (Ctrl+Shift+S)
+     - Save the current 3D view as a PNG image
    * - Small / Medium / Large / Wide
      - Window size presets
    * - Custom Size...
@@ -248,11 +272,14 @@ Each button supports press-and-hold for continuous operation.
    * - Zoom
      - \- +
      - Zoom in/out
+   * - BG Color
+     - White / Black / Dark / Light / Custom
+     - Change background color preset or pick a custom color
    * - Actions
-     - ↩ ↪ ✖ ✥ ↻
+     - ↩ ↪ ✖ |move| ↻
      - Undo / Redo / Delete selected / Move / Rotate (each button has a tooltip)
    * - Drag
-     - ✋
+     - |hand|
      - Toggle drag mode: click to activate, then drag selected atoms to reposition them
 
 Tooltips
@@ -423,11 +450,6 @@ While in focus mode, the Molecule Controls checkboxes in the side panel act as f
 Add Molecule Dialog
 ~~~~~~~~~~~~~~~~~~~
 
-.. image:: /_static/placeholder.png
-   :width: 400
-   :alt: Add Molecule dialog
-
-*Replace this with an actual screenshot*
 
 - **Molecule**: Select from molecules defined in ``data/*.toml``
 - **Position (X, Y, Z)**: Enter placement position in Cartesian coordinates
@@ -459,6 +481,91 @@ Molecule Substitution Dialog
 - **Molecule Index**: Index of the molecule to replace
   (auto-filled if atoms are selected)
 - **New Molecule**: Select replacement molecule from dropdown
+
+Molecule Atom Substitution Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Replace all atoms of a specific molecule with a new element list.
+
+- **Molecule Index**: Target molecule index (auto-filled when atoms are selected)
+- **New Symbols**: New element symbol list. Compact notation (e.g., ``Si6O6``) supported
+- The atom count stays the same; only element symbols are changed
+
+Individual Atom Substitution Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Replace a single atom within a molecule with a different element.
+
+- **Molecule Index**: Target molecule index (auto-filled when atoms are selected)
+- **Atom Index**: Atom index within the molecule (0-based)
+- **New Symbol**: Replacement element symbol
+
+Batch Element Substitution Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Define and apply multiple element substitution rules at once.
+
+- Each row specifies "old element → new element"
+- **+** button to add rules, **x** button to remove
+- Example: C→Si and H→F can be applied simultaneously
+- **OK** applies all rules at once
+
+Build Supercell Dialog
+~~~~~~~~~~~~~~~~~~~~~~
+
+Build a supercell by repeating the current structure.
+
+- **a, b, c**: Repetition count along each axis (integer)
+- Lattice vectors and atomic positions are expanded accordingly
+
+Move Molecule/Atoms Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Translate selected atoms or molecules.
+
+- **Scope**: "Whole molecule group" or "Selected atoms only"
+- **Translation (X, Y, Z)**: Distance in Angstrom for each axis
+- **+/- buttons**: Fine adjustment (press-and-hold for continuous operation)
+- **Step**: Step size presets (0.01 / 0.1 / 0.5 / 1.0 Angstrom)
+- **Apply**: Apply current translation, **Reset**: Return to initial position
+
+Rotate Molecule/Atoms Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Rotate selected atoms or molecules around their center of mass.
+
+- **Scope**: "Whole molecule group" or "Selected atoms only"
+- **Trackball**: Drag to rotate interactively
+- **alpha(X), beta(Y), gamma(Z)**: Euler angles in degrees
+- **+/- buttons**: Fine adjustment (press-and-hold for continuous operation)
+- **Step**: Rotation step presets (1 / 5 / 15 / 45 / 90 degrees)
+- **Apply**: Apply current rotation, **Reset**: Return to initial orientation
+
+Select by Element Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Select atoms by element using checkboxes.
+
+- Each element shown with a checkbox and atom count
+- Selection updates **in real-time** as checkboxes change
+- **Mode**: Replace (replace current selection) / Add (add to current selection)
+
+Select by Molecule Dialog
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Select atoms by molecule group (mol_id).
+
+- Each group shown with a checkbox, color swatch, and atom count
+- **Real-time preview** reflects selection changes immediately
+- **Mode**: Replace / Add
+
+Select by Sphere Dialog
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Select all atoms within a radius from the currently selected atom.
+
+- **Radius slider**: Drag to adjust radius (real-time preview)
+- Shows atom count and element breakdown within the selection
 
 Atom Appearance Panel
 ~~~~~~~~~~~~~~~~~~~~~
@@ -500,3 +607,7 @@ Export Dialog
 - Select output directory
 - Select output format(s) (QE / VASP / CIF / All)
 - Click **OK** to export
+
+.. |move| unicode:: U+2726 .. FOUR DIAMOND ASTERISK
+   :trim:
+.. |hand| replace:: [Drag]

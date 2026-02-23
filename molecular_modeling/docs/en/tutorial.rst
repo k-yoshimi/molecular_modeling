@@ -43,10 +43,13 @@ Field descriptions:
 
 - ``molecule_name``: Molecule identifier (referenced by ``molecules`` in ``input.toml``)
 - ``symbols``: List of element symbols. Compact notation like ``"C6H6"`` is also supported
-- ``positions``: Atomic Cartesian coordinates (Angstrom)
+- ``use_fractional``: If ``true``, coordinates are interpreted as fractional
+- ``positions``: Atomic Cartesian coordinates (Angstrom). Fractional if ``use_fractional = true``
 - ``lattice_vectors``: Lattice vectors (rows define a, b, c)
 - ``num_molecules``: Number of molecules per unit cell
 - ``center_of_mass``: Center of mass position for each molecule
+
+See :doc:`toml_reference` for full key descriptions.
 
 Naphthalene (``data/naphthalene.toml``) follows the same structure,
 using compact notation ``"C10H8"`` for element symbols.
@@ -142,6 +145,8 @@ PNG images in ``source/voronoi_pngs/`` show the Voronoi cell overlay for each si
 Step 6: Interactive GUI Operations
 -----------------------------------
 
+See :doc:`gui_guide` for the full GUI reference.
+
 Loading a CIF file
 ~~~~~~~~~~~~~~~~~~
 
@@ -152,12 +157,6 @@ Loading a CIF file
 Or from the GUI menu:
 
 **MoleculeTools** → **Load CIF...**
-
-.. image:: /_static/placeholder.png
-   :width: 400
-   :alt: GUI main window
-
-*Replace this with an actual screenshot*
 
 Adding Molecules
 ~~~~~~~~~~~~~~~~

@@ -64,7 +64,7 @@ Run the test suite to confirm everything is installed correctly:
 
    pytest
 
-All 48 tests should pass.
+All tests should pass.
 
 Conda environment
 ~~~~~~~~~~~~~~~~~

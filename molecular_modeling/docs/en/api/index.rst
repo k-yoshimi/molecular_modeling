@@ -3,6 +3,24 @@ API Reference
 
 This section provides auto-generated API documentation for the main modules.
 
+Module Organization
+-------------------
+
+The toolkit consists of the following module groups:
+
+- **Pipeline**: ``main`` is the entry point. Processing flows through ``build_system_from_toml`` → ``build_molecule_groups`` → ``optimize_voronoi_overlap`` → ``render_voronoi_overlays`` → ``write_structure``
+- **Geometry**: ``voronoi_geom`` handles Voronoi cell construction, volume calculation, and IoU evaluation. The ``Polyhedron`` class is the core abstraction
+- **GUI**: ``gui.controller`` bridges views (dialogs) and the model (ASE Atoms). ``gui.molecule_registry`` manages dynamic loading of ``data/*.toml``
+
+Basic programmatic usage:
+
+.. code-block:: python
+
+   from molecular_modeling.main import main
+
+   # Read input/input.toml and run the full pipeline
+   main()
+
 Main Pipeline
 -------------
 

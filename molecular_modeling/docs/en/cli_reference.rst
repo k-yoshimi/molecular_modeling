@@ -1,5 +1,5 @@
-CLI Reference
-=============
+Command-Line Tools
+==================
 
 run.py — Pipeline Execution
 ----------------------------
@@ -19,7 +19,7 @@ Runs the main pipeline.
 5. Render Voronoi cell overlay visualizations → ``source/voronoi_pngs/``
 6. Write structure files → ``source/structure_out/``
 
-**Input files**:
+**Input files** (see :doc:`toml_reference` for details):
 
 - ``input/input.toml`` — Main configuration
 - ``data/<name>.toml`` — Molecule definitions
@@ -37,6 +37,7 @@ molecular_modeling_gui.py — GUI Launch
 --------------------------------------
 
 Launches the ASE-GUI extension for molecular modeling.
+See :doc:`gui_guide` for details.
 
 .. code-block:: bash
 

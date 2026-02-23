@@ -31,8 +31,8 @@ intersphinx_mapping = {
     'ase': ('https://wiki.fysik.dtu.dk/ase/', None),
 }
 
-# Default language
-language = 'ja'
+# Language — override with SPHINX_LANG env var (e.g. SPHINX_LANG=en)
+language = os.environ.get('SPHINX_LANG', 'ja')
 
 # Theme
 html_theme = 'alabaster'
@@ -44,10 +44,71 @@ html_theme_options = {
 html_static_path = ['_static']
 templates_path = ['_templates']
 
-# Master doc (each language has its own index)
-master_doc = 'ja/index'
+# Master doc — follows language setting
+master_doc = f'{language}/index'
 
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+# --- LaTeX / PDF output settings ---
+latex_engine = 'lualatex'
+if language == 'ja':
+    latex_documents = [
+        ('ja/index', 'MolecularModelingToolkit_ja.tex',
+         'Molecular Modeling Toolkit ドキュメント',
+         author, 'manual'),
+    ]
+    latex_docclass = {
+        'manual': 'ltjsbook',
+        'howto': 'ltjsreport',
+    }
+else:
+    latex_documents = [
+        ('en/index', 'MolecularModelingToolkit_en.tex',
+         'Molecular Modeling Toolkit Documentation',
+         author, 'manual'),
+    ]
+    latex_docclass = {}
+latex_use_xindy = False
+latex_domain_indices = False
+latex_elements = {
+    'polyglossia': '',
+    'fontpkg': r'''
+\usepackage{luatexja-fontspec}
+\setmainfont[BoldFont={Times New Roman Bold}]{Times New Roman}
+\setsansfont{Helvetica}
+\setmonofont{Menlo}
+\setmainjfont[ItalicFont={Hiragino Mincho ProN}]{Hiragino Mincho ProN}
+\setsansjfont[ItalicFont={Hiragino Sans}]{Hiragino Sans}
+% Tell luatexja these symbols are NOT CJK — use the western font instead
+\ltjdefcharrange{9}{"21A9, "21AA, "21BB, "2192, "2190,
+  "2716, "2726, "25B6, "25C0, "25B2, "25BC}
+\ltjsetparameter{jacharrange={-9}}
+% Set western fonts that have these symbols
+\newfontfamily\symbolfont{Apple Symbols}
+\newfontfamily\menlosymbol{Menlo}
+\usepackage{newunicodechar}
+\newunicodechar{↩}{{\symbolfont ↩}}
+\newunicodechar{↪}{{\symbolfont ↪}}
+\newunicodechar{↻}{{\symbolfont ↻}}
+\newunicodechar{✖}{{\symbolfont ✖}}
+\newunicodechar{▶}{{\symbolfont ▶}}
+\newunicodechar{◀}{{\symbolfont ◀}}
+\newunicodechar{▲}{{\symbolfont ▲}}
+\newunicodechar{▼}{{\symbolfont ▼}}
+\newunicodechar{→}{{\symbolfont →}}
+\newunicodechar{←}{{\symbolfont ←}}
+\newunicodechar{✦}{{\menlosymbol ✦}}
+''',
+    'preamble': r'''
+\usepackage{pict2e}
+\usepackage{ellipse}
+% Suppress small-caps italic warning (Times New Roman has no scit shape)
+\DeclareFontShape{TU}{TimesNewRoman(0)}{m}{scit}{<->ssub*TimesNewRoman(0)/m/it}{}
+\DeclareFontShape{TU}{TimesNewRoman(0)}{m}{sc}{<->ssub*TimesNewRoman(0)/m/n}{}
+''',
+    'geometry': r'\usepackage[margin=25mm,footskip=15mm]{geometry}',
+    'printindex': '',
+}
 
 # Autodoc settings
 autodoc_member_order = 'bysource'

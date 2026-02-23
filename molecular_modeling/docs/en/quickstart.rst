@@ -89,5 +89,7 @@ Next Steps
 ----------
 
 - :doc:`tutorial` — Detailed tutorial with benzene + naphthalene example
+- :doc:`gui_guide` — Full GUI operations guide
+- :doc:`cli_reference` — Command-line tools usage
 - :doc:`toml_reference` — Complete TOML configuration reference
 - :doc:`architecture` — Internal architecture explanation

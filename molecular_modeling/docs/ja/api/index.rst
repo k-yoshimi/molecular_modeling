@@ -3,6 +3,24 @@ API リファレンス
 
 このセクションでは、主要なモジュールと関数の API ドキュメントを自動生成しています。
 
+モジュール構成
+--------------
+
+本ツールキットは以下のモジュール群で構成されています:
+
+- **パイプライン**: ``main`` がエントリポイント。``build_system_from_toml`` → ``build_molecule_groups`` → ``optimize_voronoi_overlap`` → ``render_voronoi_overlays`` → ``write_structure`` の順で処理
+- **幾何演算**: ``voronoi_geom`` が Voronoi セルの構築・体積計算・IoU 評価を担当。``Polyhedron`` クラスが中核
+- **GUI**: ``gui.controller`` がビュー（ダイアログ）とモデル（ASE Atoms）を橋渡し。``gui.molecule_registry`` が ``data/*.toml`` の動的読み込みを管理
+
+プログラムから利用する場合の基本的な流れ:
+
+.. code-block:: python
+
+   from molecular_modeling.main import main
+
+   # input/input.toml を読み込んでパイプライン全体を実行
+   main()
+
 メインパイプライン
 ------------------
 

@@ -89,5 +89,7 @@ GUI では以下の操作が可能です:
 ------------
 
 - :doc:`tutorial` — ベンゼン＋ナフタレンを使った詳細なチュートリアル
+- :doc:`gui_guide` — GUI の全操作ガイド
+- :doc:`cli_reference` — コマンドラインツールの使い方
 - :doc:`toml_reference` — TOML 設定ファイルの全キー解説
 - :doc:`architecture` — 内部アーキテクチャの説明

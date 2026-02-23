@@ -43,10 +43,13 @@
 
 - ``molecule_name``: 分子名（ ``input.toml`` の ``molecules`` で参照）
 - ``symbols``: 元素記号のリスト。 ``"C6H6"`` のようなコンパクト表記も可
-- ``positions``: 原子のデカルト座標 (Å)
+- ``use_fractional``: ``true`` の場合、座標を分率座標として解釈
+- ``positions``: 原子のデカルト座標 (Å)。 ``use_fractional = true`` なら分率座標
 - ``lattice_vectors``: 格子ベクトル（行で a, b, c を定義）
 - ``num_molecules``: 単位胞中の分子数
 - ``center_of_mass``: 各分子の重心位置
+
+各キーの詳細は :doc:`toml_reference` を参照してください。
 
 ナフタレン（ ``data/naphthalene.toml`` ）も同様の構造です。
 元素記号はコンパクト表記 ``"C10H8"`` を使用しています。
@@ -142,6 +145,8 @@
 ステップ 6: GUI でのインタラクティブ操作
 ----------------------------------------
 
+GUI の全機能については :doc:`gui_guide` を参照してください。
+
 CIF ファイルの読み込み
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -152,12 +157,6 @@ CIF ファイルの読み込み
 または GUI 内のメニューから:
 
 **MoleculeTools** → **Load CIF...**
-
-.. image:: /_static/placeholder.png
-   :width: 400
-   :alt: GUI メインウィンドウ
-
-*スクリーンショットをここに差し替えてください*
 
 分子の追加
 ~~~~~~~~~~
