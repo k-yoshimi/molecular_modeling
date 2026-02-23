@@ -33,10 +33,12 @@ Window Layout
 
 The GUI window consists of:
 
-1. **Menu bar**: Various operation menus
-2. **3D viewport**: Molecular structure display (rotatable, translatable, zoomable)
+1. **File panel (top)**: Input/Output/Edit/Pipeline icon button groups
+2. **3D viewport**: Molecular structure display (rotatable, translatable, zoomable) with XYZ axis indicator in bottom-left
 3. **Toolbar**: Translate / Rotate / Zoom buttons
-4. **Status bar**: Information about selected atoms
+4. **Bottom panel**: Molecule Tools / Structure Tools icon button groups
+5. **Side panel (right)**: View settings, Element Controls, Molecule Controls (collapsible)
+6. **Status bar**: Information about selected atoms
 
 Changing Window Size
 ~~~~~~~~~~~~~~~~~~~~
@@ -132,26 +134,30 @@ Selection Menu
 
    * - Menu Item
      - Description
+   * - Select All (Ctrl+A)
+     - Select all visible atoms
+   * - Deselect All (Escape)
+     - Clear all selections
    * - Select by Element...
-     - Select atoms by element symbol. Multiple elements can be chosen. Supports replace/add selection modes
+     - Select atoms by element with real-time preview
    * - Select by Molecule...
-     - Select atoms by molecule group (mol_id). Shows group name and atom count
+     - Select atoms by molecule group with color swatches and preview
    * - Select by Sphere...
-     - Select atoms within a given radius of the currently selected atom
-   * - Delete Selected Atoms
-     - Delete selected atoms (with undo support and molecule metadata update)
+     - Select atoms within a radius with slider-based real-time preview
+   * - Delete Selected Atoms (Delete)
+     - Delete selected atoms (with undo support)
    * - Delete Molecule...
      - Delete the entire molecule group of the selected atoms
    * - Move Molecule/Atoms...
-     - Translate selected molecule/atoms by a specified vector (whole molecule or selected only)
+     - Translate selected molecule/atoms by a specified vector
    * - Rotate Molecule/Atoms...
-     - Rotate selected molecule/atoms around their center of mass by Euler angles
+     - Rotate selected molecule/atoms with trackball widget
    * - Focus on Selection (Ctrl+F)
-     - Open the Focus dialog with 3D preview. The main view highlights focused atoms; clicking toggles automatically (focused → remove, unfocused → add). Unit selector switches between Atom/Molecule granularity. After confirming with OK, side panel Molecule Controls checkboxes add/remove molecules from the focused view
+     - Open the Focus dialog with 3D preview
    * - Exit Focus Mode (Ctrl+Shift+F)
-     - Exit focus mode and restore all atom visibility and the original view
+     - Exit focus mode and restore all atom visibility
    * - Toggle Drag Mode
-     - Toggle drag mode: when active, drag selected atoms to move them directly in the 3D viewport
+     - Toggle drag mode for direct atom dragging
 
 Pipeline Menu
 ~~~~~~~~~~~~~
@@ -261,12 +267,14 @@ Side Panel
 A side panel is displayed on the right side of the window for quick access to common view settings.
 The panel is scrollable — use the **mouse wheel** to scroll up/down when content overflows.
 
-- **Focus / Unfocus**: Buttons to enter/exit focus mode. While in focus mode, the Focus button is disabled and the Restore button is highlighted
+- **Focus / Unfocus**: Buttons to enter/exit focus mode
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
-- **Show Bonds**: Checkbox to toggle bond display (lines between atoms). Also available via Ctrl+B
-- **Element Controls**: Per-element row with [visibility checkbox][color swatch][size slider]. Click the color swatch to pick a custom element color. Tooltip shows current hex color
-- **Size: All Atoms**: Global atom size scale slider (0.3–3.0), affects all atoms uniformly
-- **Molecule Controls**: Per-molecule-group row with [visibility checkbox][color swatch][select button]. Click the color swatch to pick a custom molecule color. Colors are applied in By Molecule color mode. **In focus mode**, the checkboxes act as focus add/remove controls — checking adds the molecule to the focused view, unchecking removes it
+- **Show Bonds**: Checkbox to toggle bond display (Ctrl+B)
+- **3D Spheres**: Enable/disable 3D shaded sphere rendering
+- **Element Controls** *(collapsible)*: Click the header to expand/collapse. Per-element row with [visibility checkbox][color swatch][size slider]. Global atom size scale slider (0.3–3.0) included
+- **Molecule Controls** *(collapsible)*: Click the header to expand/collapse. Per-molecule-group row with [visibility checkbox][color swatch][select button]. **In focus mode**, checkboxes act as focus add/remove controls
+- **Atom List** *(collapsible, collapsed by default)*: Click the header to expand. Shows a table of all atoms with index (#), element, X/Y/Z coordinates, and molecule group ID. Click a row to select that atom in the 3D view
+- **Status info**: Real-time display of atom count, selection count, element breakdown, group count
 
 The side panel can be shown/hidden via **View Settings** → **Toggle Side Panel**.
 
@@ -300,6 +308,12 @@ Keyboard Shortcuts
      - Undo
    * - Ctrl+Y
      - Redo
+   * - Ctrl+A
+     - Select all visible atoms
+   * - Escape
+     - Deselect all
+   * - Delete / Backspace
+     - Delete selected atoms
    * - Ctrl+L
      - Load structure file (CIF, XYZ, POSCAR, etc.)
    * - Ctrl+J
@@ -314,24 +328,53 @@ Keyboard Shortcuts
      - Save project
    * - Ctrl+T
      - Load project
+   * - Ctrl+B
+     - Toggle bond display
    * - Ctrl+F
      - Focus on selection (show only selected atoms)
    * - Ctrl+Shift+F
      - Exit focus mode (restore all atoms)
+   * - Ctrl+Shift+S
+     - Save screenshot
 
 Standard ASE-GUI keyboard shortcuts (Ctrl+O to open, Ctrl+S to save, etc.) are also available.
 
 Mouse Controls
 --------------
 
-Standard ASE-GUI mouse controls are available:
+Standard ASE-GUI mouse controls are available, plus a right-click context menu:
 
 - **Left click**: Select an atom
 - **Shift + left click**: Add to selection
 - **Ctrl + left click**: Toggle selection
+- **Right-click**: Context menu (Select Molecule Group / Move / Rotate / Delete)
 - **Left drag**: Rotate view
 - **Right drag** (or Shift + right drag): Translate view
 - **Mouse wheel**: Zoom
+
+Axis Indicator
+~~~~~~~~~~~~~~
+
+An XYZ axis indicator is displayed in the bottom-left corner of the 3D viewport.
+It updates in real-time with the current view rotation so you can always see which direction you're looking.
+Axes are color-coded: **X** = red, **Y** = green, **Z** = blue.
+
+Right-Click Context Menu
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Right-clicking in the 3D viewport shows a context menu with quick access to:
+
+- **Select Molecule Group**: Select all atoms in the molecule group of the clicked atom
+- **Move...**: Open move dialog
+- **Rotate...**: Open rotate dialog
+- **Delete Selected**: Delete currently selected atoms
+- **Delete Molecule**: Delete the molecule of the selected atom
+
+Screenshot
+~~~~~~~~~~
+
+Use **Ctrl+Shift+S** or the camera icon in the file panel to save the current 3D view as a PNG file.
+If Pillow is installed, the screenshot is saved as PNG; otherwise as EPS.
 
 Dialog Details
 --------------

@@ -8,6 +8,8 @@ that wires up all the state-mutating methods while replacing draw()
 and other display-only calls with no-ops.
 """
 
+import os
+import sys
 import numpy as np
 import pytest
 from ase import Atoms
@@ -113,6 +115,9 @@ class FakeGUI:
         self._drag_start_xy = None
         self._drag_start_positions = None
         self._draw_count = 0
+        self._elem_collapsed = False
+        self._mol_collapsed = False
+        self._atomlist_collapsed = True
 
         # Mock controller
         self.controller = MagicMock()
@@ -205,7 +210,7 @@ class FakeGUI:
                     self._GROUP_COLORS
                     * ((n_colors // len(self._GROUP_COLORS)) + 1)
                 )[:n_colors]
-                self.colormode_data = (colorscale, 0, n_colors - 1)
+                self.colormode_data = (colorscale, 0, n_colors)
             self.draw()
         else:
             if self.atoms is not None and mode in self.atoms.arrays:
@@ -232,7 +237,7 @@ class FakeGUI:
             self._GROUP_COLORS * ((n_groups // n_colors) + 1)
         )[:max(n_groups, 1)]
         self.colormode = "mol_id"
-        self.colormode_data = (colorscale, 0, max(n_groups - 1, 1))
+        self.colormode_data = (colorscale, 0, max(n_groups, 1))
         self.draw()
 
     def _reset_element_colors(self):
@@ -455,12 +460,16 @@ class FakeGUI:
         self.apply_visibility()
 
     def select_molecule(self, group_id):
-        """Select all atoms in a molecule group (mirrors _on_mol_select)."""
+        """Toggle selection of a molecule group (mirrors _on_mol_select)."""
         if self.atoms is None or "mol_id" not in self.atoms.arrays:
             return
         mol_ids = self.atoms.get_array("mol_id")
         n = len(self.atoms)
-        self.images.selected[:n] = (mol_ids == group_id)
+        mask = (mol_ids == group_id)
+        if np.array_equal(self.images.selected[:n], mask):
+            self.images.selected[:n] = False
+        else:
+            self.images.selected[:n] = mask
         self.draw()
 
     def start_drag(self, selected_indices):
@@ -499,6 +508,116 @@ class FakeGUI:
         self._drag_start_positions = None
         self.draw()
 
+    # --- View operation methods (mirrors the real GUI) ---
+
+    def _translate_view(self, dx, dy):
+        """Translate the view in screen coordinates."""
+        step = 20.0 / self.scale
+        self.center -= np.dot(self.axes, np.array([dx * step, -dy * step, 0.0]))
+        self.draw()
+
+    def _zoom_view(self, factor):
+        """Zoom the view by multiplying scale by factor."""
+        self.scale *= factor
+        self.draw()
+
+    def _rotate_view(self, axis, angle_deg):
+        """Rotate the view around the given axis."""
+        angle = np.radians(angle_deg)
+        c, s = np.cos(angle), np.sin(angle)
+        if axis == 'x':
+            R = [[1, 0, 0], [0, c, -s], [0, s, c]]
+        elif axis == 'y':
+            R = [[c, 0, s], [0, 1, 0], [-s, 0, c]]
+        else:
+            R = [[c, -s, 0], [s, c, 0], [0, 0, 1]]
+        self.axes = np.dot(self.axes, np.array(R))
+        self.draw()
+
+    # --- Background color (canvas mock) ---
+
+    def _set_canvas_bg(self, color):
+        """Set the canvas background color (mock version)."""
+        self._canvas_bg = color
+
+    def _get_canvas_bg(self):
+        """Get the current canvas background color."""
+        return getattr(self, '_canvas_bg', '#ffffff')
+
+    # --- Move / Rotate molecule logic (dialog-free version) ---
+
+    def move_atoms(self, indices, vector):
+        """Move atoms by a translation vector (mirrors move_molecule_dialog apply).
+
+        Parameters
+        ----------
+        indices : list[int]
+            Atom indices to move.
+        vector : array-like
+            3D translation vector in Angstrom.
+        """
+        if self.atoms is None or len(indices) == 0:
+            return
+        self._save_undo_state()
+        pos = self.atoms.get_positions()
+        vec = np.array(vector)
+        for i in indices:
+            pos[i] += vec
+        self.atoms.set_positions(pos)
+        self.images[self.frame] = self.atoms
+        self.set_frame(self.frame)
+        self.draw()
+
+    def rotate_atoms(self, indices, angles_deg):
+        """Rotate atoms by Euler angles around their centroid.
+
+        Parameters
+        ----------
+        indices : list[int]
+            Atom indices to rotate.
+        angles_deg : tuple of float
+            Euler angles (alpha, beta, gamma) in degrees, XYZ convention.
+        """
+        if self.atoms is None or len(indices) == 0:
+            return
+        from scipy.spatial.transform import Rotation as Rot
+        self._save_undo_state()
+        pos = self.atoms.get_positions()
+        atom_pos = pos[indices]
+        centroid = atom_pos.mean(axis=0)
+        R = Rot.from_euler('XYZ', angles_deg, degrees=True).as_matrix()
+        rotated = (atom_pos - centroid) @ R.T + centroid
+        for i, idx in enumerate(indices):
+            pos[idx] = rotated[i]
+        self.atoms.set_positions(pos)
+        self.images[self.frame] = self.atoms
+        self.set_frame(self.frame)
+        self.draw()
+
+    def move_molecule(self, mol_id, vector):
+        """Move all atoms in a molecule group by a translation vector."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        indices = list(np.where(mol_ids == mol_id)[0])
+        self.move_atoms(indices, vector)
+
+    def rotate_molecule(self, mol_id, angles_deg):
+        """Rotate all atoms in a molecule group by Euler angles."""
+        if self.atoms is None or "mol_id" not in self.atoms.arrays:
+            return
+        mol_ids = self.atoms.get_array("mol_id")
+        indices = list(np.where(mol_ids == mol_id)[0])
+        self.rotate_atoms(indices, angles_deg)
+
+    # --- Drag mode toggle (mirrors _toggle_drag_mode without UI) ---
+
+    def toggle_drag_mode(self):
+        """Toggle drag mode state (mirrors _toggle_drag_mode)."""
+        self._drag_mode = not self._drag_mode
+        if not self._drag_mode:
+            self._dragging = False
+
     def apply_mol_group_colors(self):
         """Apply custom molecule group colors (mirrors _apply_mol_group_colors)."""
         if self.atoms is None or "mol_id" not in self.atoms.arrays:
@@ -512,8 +631,127 @@ class FakeGUI:
                 g_id, self._GROUP_COLORS[g_id % n_colors])
             colorscale.append(color)
         self.colormode = "mol_id"
-        self.colormode_data = (colorscale, 0, max(n_groups - 1, 1))
+        self.colormode_data = (colorscale, 0, max(n_groups, 1))
         self.draw()
+
+    # --- Select all / deselect all ---
+
+    def select_all(self):
+        """Select all visible atoms."""
+        if self.atoms is None:
+            return
+        n = len(self.atoms)
+        vis = self.images.visible[:n]
+        self.images.selected[:n] = vis
+        self.draw()
+
+    def deselect_all(self):
+        """Deselect all atoms."""
+        if self.atoms is None:
+            return
+        n = len(self.atoms)
+        self.images.selected[:n] = False
+        self.draw()
+
+    # --- Context select molecule ---
+
+    def context_select_molecule(self, atom_idx):
+        """Select all atoms in the same molecule group as atom_idx."""
+        if self.atoms is None or len(self.atoms) == 0:
+            return
+        n = len(self.atoms)
+        if "groups" in self.atoms.info:
+            for grp in self.atoms.info["groups"]:
+                if atom_idx in grp:
+                    self.images.selected[:n] = False
+                    for i in grp:
+                        if i < n:
+                            self.images.selected[i] = True
+                    self.draw()
+                    return
+        if "mol_id" in self.atoms.arrays:
+            mol_ids = self.atoms.get_array("mol_id")
+            target_id = mol_ids[atom_idx]
+            self.images.selected[:n] = (mol_ids == target_id)
+            self.draw()
+
+    # --- Section collapse/expand ---
+
+    def toggle_section(self, section):
+        """Toggle collapse state of a side panel section."""
+        if section == "elem":
+            self._elem_collapsed = not self._elem_collapsed
+        elif section == "mol":
+            self._mol_collapsed = not self._mol_collapsed
+        elif section == "atomlist":
+            self._atomlist_collapsed = not self._atomlist_collapsed
+
+    # --- Status info ---
+
+    def get_status_info(self):
+        """Return status info string (mirrors _update_status_info logic)."""
+        if self.atoms is None or len(self.atoms) == 0:
+            return "No structure loaded"
+        from collections import Counter
+        n = len(self.atoms)
+        sel = self.images.selected[:n]
+        n_sel = int(sel.sum())
+        parts = [f"{n} atoms total"]
+        if n_sel > 0:
+            parts.append(f"{n_sel} selected")
+            syms = np.array(self.atoms.get_chemical_symbols())
+            sel_syms = syms[sel]
+            counts = Counter(sel_syms)
+            breakdown = ", ".join(f"{s}:{c}" for s, c in sorted(counts.items()))
+            parts.append(breakdown)
+        if "groups" in self.atoms.info:
+            ng = len(self.atoms.info["groups"])
+            parts.append(f"{ng} groups")
+        return " | ".join(parts)
+
+    # --- Atom List ---
+
+    def get_atom_list_data(self):
+        """Return atom list data as list of tuples (idx, elem, x, y, z, mol).
+
+        Mirrors the logic in _update_atom_list().
+        """
+        atoms = self.atoms
+        if atoms is None or len(atoms) == 0:
+            return []
+        syms = atoms.get_chemical_symbols()
+        pos = atoms.get_positions()
+        mol_ids = atoms.arrays.get('mol_id', None)
+        rows = []
+        for i in range(len(atoms)):
+            mol_val = int(mol_ids[i]) if mol_ids is not None else ""
+            rows.append((
+                i, syms[i],
+                round(pos[i, 0], 3), round(pos[i, 1], 3), round(pos[i, 2], 3),
+                mol_val,
+            ))
+        return rows
+
+    def atom_list_select(self, idx):
+        """Simulate selecting an atom via the atom list (mirrors _on_atom_tree_select)."""
+        n = len(self.atoms)
+        if idx < 0 or idx >= n:
+            return
+        self.images.selected[:n] = False
+        self.images.selected[idx] = True
+        self.draw()
+
+    # --- Axis indicator ---
+
+    def get_axis_projections(self):
+        """Return XYZ axis projections for the axis indicator."""
+        projections = {}
+        for i, label in enumerate(["X", "Y", "Z"]):
+            unit = np.zeros(3)
+            unit[i] = 1.0
+            proj = np.dot(self.axes[:2], unit)
+            projections[label] = proj
+        return projections
 
 
 # ===========================================================================
@@ -1415,6 +1653,16 @@ class TestMoleculeVisibility:
             else:
                 assert not gui.images.selected[i], f"Atom {i} should not be selected"
 
+    def test_select_molecule_toggle_deselect(self, atoms_with_mol):
+        """Pressing Sel twice on the same molecule should deselect it."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.select_molecule(0)
+        # First press: group 0 selected
+        assert gui.images.selected[0]
+        # Second press: deselect all
+        gui.select_molecule(0)
+        assert not gui.images.selected.any()
+
     def test_select_different_molecule(self, atoms_with_mol):
         gui = FakeGUI(atoms_with_mol)
         gui.select_molecule(0)
@@ -1522,3 +1770,993 @@ class TestDragMode:
         gui.drag_to([0.0, 0.0, 2.5])
         gui.end_drag()
         np.testing.assert_allclose(gui.atoms.positions[4], orig_pos + [0.0, 0.0, 2.5])
+
+
+# ===========================================================================
+# Color by Molecule - Distinct Colors Tests
+# ===========================================================================
+
+
+class TestColorByMoleculeDistinct:
+    """Verify that each molecule group gets a distinct color via
+    ASE's linear color-mapping formula:
+        index = int(scalar / cmax * N + 0.5)
+    """
+
+    @staticmethod
+    def _ase_color_indices(colormode_data, scalars):
+        """Reproduce ASE's get_colors() index mapping."""
+        colorscale, cmin, cmax = colormode_data
+        N = len(colorscale)
+        if cmin == cmax:
+            return [N // 2] * len(scalars)
+        indices = np.clip(
+            ((np.array(scalars, dtype=float) - cmin) / (cmax - cmin) * N + 0.5).astype(int),
+            0, N - 1,
+        )
+        return indices.tolist()
+
+    def test_two_groups_get_different_colors(self, atoms_with_mol):
+        """2 molecule groups must map to 2 different colorscale indices."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._apply_color_mode("mol_id")
+        assert gui.colormode == "mol_id"
+        mol_ids = gui.atoms.get_array("mol_id")
+        unique_ids = sorted(set(mol_ids))
+        indices = self._ase_color_indices(gui.colormode_data, unique_ids)
+        assert len(set(indices)) == len(unique_ids), (
+            f"Molecule groups {unique_ids} mapped to non-distinct "
+            f"color indices {indices}"
+        )
+
+    def test_four_groups_get_different_colors(self):
+        """4 molecule groups must each map to a distinct color index."""
+        atoms = Atoms(
+            symbols=["C"] * 8,
+            positions=[[i, 0, 0] for i in range(8)],
+            cell=[20, 20, 20],
+            pbc=True,
+        )
+        mol_ids = np.array([0, 0, 1, 1, 2, 2, 3, 3], dtype=int)
+        atoms.new_array("mol_id", mol_ids)
+        atoms.info["groups"] = [[0, 1], [2, 3], [4, 5], [6, 7]]
+        atoms.set_tags([0] * 8)
+        gui = FakeGUI(atoms)
+        gui._apply_color_mode("mol_id")
+        unique_ids = [0, 1, 2, 3]
+        indices = self._ase_color_indices(gui.colormode_data, unique_ids)
+        assert len(set(indices)) == 4, (
+            f"4 groups mapped to indices {indices} — expected 4 distinct values"
+        )
+
+    def test_single_group_does_not_crash(self):
+        """A single molecule group should work without division-by-zero."""
+        atoms = Atoms("CC", positions=[[0, 0, 0], [1, 0, 0]],
+                       cell=[10, 10, 10], pbc=True)
+        atoms.new_array("mol_id", np.array([0, 0], dtype=int))
+        atoms.info["groups"] = [[0, 1]]
+        atoms.set_tags([0, 0])
+        gui = FakeGUI(atoms)
+        gui._apply_color_mode("mol_id")
+        assert gui.colormode == "mol_id"
+        colorscale, cmin, cmax = gui.colormode_data
+        assert cmax > 0  # no division by zero
+
+    def test_many_groups_wrap_colors(self):
+        """When n_groups > n_colors, colors should wrap without error."""
+        n = 25
+        atoms = Atoms(
+            symbols=["C"] * n,
+            positions=[[i, 0, 0] for i in range(n)],
+            cell=[50, 50, 50],
+            pbc=True,
+        )
+        mol_ids = np.arange(n, dtype=int)  # 25 groups, 1 atom each
+        atoms.new_array("mol_id", mol_ids)
+        atoms.info["groups"] = [[i] for i in range(n)]
+        atoms.set_tags([0] * n)
+        gui = FakeGUI(atoms)
+        gui._apply_color_mode("mol_id")
+        colorscale, cmin, cmax = gui.colormode_data
+        assert len(colorscale) >= n
+        # All 25 should map to valid indices (no out-of-range)
+        indices = self._ase_color_indices(gui.colormode_data, list(range(n)))
+        assert all(0 <= idx < len(colorscale) for idx in indices)
+
+
+# ===========================================================================
+# 3D Sphere Renderer Tests
+# ===========================================================================
+
+
+class TestSphereRenderer:
+    """Verify _SphereRenderer generates correct sphere images."""
+
+    def test_render_sphere_returns_rgba_image(self):
+        """Rendered sphere should be an RGBA PIL Image."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+
+        renderer = _SphereRenderer()
+        img = renderer._render_sphere('#ff0000', 32, False)
+        assert img.mode == 'RGBA'
+        assert img.size == (32, 32)
+
+    def test_sphere_has_transparent_corners(self):
+        """Corners of the sphere image should be transparent."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+
+        renderer = _SphereRenderer()
+        img = renderer._render_sphere('#0000ff', 50, False)
+        # Top-left corner should be fully transparent
+        assert img.getpixel((0, 0))[3] == 0
+        # Bottom-right corner
+        assert img.getpixel((49, 49))[3] == 0
+
+    def test_sphere_center_is_opaque(self):
+        """Centre of the sphere should be opaque."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+
+        renderer = _SphereRenderer()
+        img = renderer._render_sphere('#00ff00', 40, False)
+        cx, cy = 20, 20
+        assert img.getpixel((cx, cy))[3] > 200
+
+    def test_sphere_has_highlight(self):
+        """Upper-left region should be brighter than lower-right (light source)."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+
+        renderer = _SphereRenderer()
+        img = renderer._render_sphere('#808080', 60, False)
+        # Sample upper-left and lower-right quadrant centres
+        ul = img.getpixel((18, 18))  # near highlight
+        lr = img.getpixel((42, 42))  # shadow side
+        brightness_ul = sum(ul[:3])
+        brightness_lr = sum(lr[:3])
+        assert brightness_ul > brightness_lr, (
+            f"Highlight ({brightness_ul}) should be brighter than shadow ({brightness_lr})"
+        )
+
+    def test_selected_sphere_has_outline(self):
+        """Selected sphere should differ from unselected."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+        import numpy as np
+
+        renderer = _SphereRenderer()
+        img_normal = renderer._render_sphere('#ff7f0e', 40, False)
+        img_selected = renderer._render_sphere('#ff7f0e', 40, True)
+        arr_n = np.array(img_normal)
+        arr_s = np.array(img_selected)
+        assert not np.array_equal(arr_n, arr_s), "Selected sphere must differ"
+
+    def test_different_colors_produce_different_images(self):
+        """Different atom colours should produce different sphere images."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+        import numpy as np
+
+        renderer = _SphereRenderer()
+        img_r = np.array(renderer._render_sphere('#ff0000', 30, False))
+        img_b = np.array(renderer._render_sphere('#0000ff', 30, False))
+        assert not np.array_equal(img_r, img_b)
+
+    def test_minimum_size_sphere(self):
+        """A size-2 sphere should render without error."""
+        sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+        from molecular_modeling_gui import _SphereRenderer
+
+        renderer = _SphereRenderer()
+        img = renderer._render_sphere('#ffffff', 2, False)
+        assert img.size == (2, 2)
+
+
+# ===========================================================================
+# View Operations (Pan / Orbit / Zoom) Tests
+# ===========================================================================
+
+
+class TestViewOperations:
+    """Verify view manipulation callbacks change the expected state."""
+
+    def test_translate_view_moves_center(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_center = gui.center.copy()
+        gui._translate_view(1, 0)  # move right
+        assert not np.allclose(gui.center, orig_center), \
+            "Center should change after translate"
+
+    def test_translate_view_all_directions(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            orig = gui.center.copy()
+            gui._translate_view(dx, dy)
+            assert not np.allclose(gui.center, orig), \
+                f"Center should change for dx={dx}, dy={dy}"
+
+    def test_zoom_in_increases_scale(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_scale = gui.scale
+        gui._zoom_view(1.1)
+        assert gui.scale > orig_scale
+
+    def test_zoom_out_decreases_scale(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_scale = gui.scale
+        gui._zoom_view(1 / 1.1)
+        assert gui.scale < orig_scale
+
+    def test_zoom_roundtrip(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_scale = gui.scale
+        gui._zoom_view(1.1)
+        gui._zoom_view(1 / 1.1)
+        np.testing.assert_allclose(gui.scale, orig_scale, rtol=1e-10)
+
+    def test_rotate_x_changes_axes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('x', 5)
+        assert not np.allclose(gui.axes, orig_axes)
+
+    def test_rotate_y_changes_axes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('y', 5)
+        assert not np.allclose(gui.axes, orig_axes)
+
+    def test_rotate_z_changes_axes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('z', 5)
+        assert not np.allclose(gui.axes, orig_axes)
+
+    def test_rotate_preserves_orthogonality(self, atoms_with_mol):
+        """Rotation should preserve the orthogonal nature of axes."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._rotate_view('x', 30)
+        gui._rotate_view('y', -15)
+        gui._rotate_view('z', 45)
+        # axes @ axes.T should be close to identity
+        product = gui.axes @ gui.axes.T
+        np.testing.assert_allclose(product, np.eye(3), atol=1e-10)
+
+    def test_rotate_360_returns_to_original(self, atoms_with_mol):
+        """72 rotations of 5° should return to original orientation."""
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        for _ in range(72):
+            gui._rotate_view('x', 5)
+        np.testing.assert_allclose(gui.axes, orig_axes, atol=1e-10)
+
+    def test_operations_trigger_draw(self, atoms_with_mol):
+        """Each view operation should call draw()."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._draw_count = 0
+        gui._translate_view(1, 0)
+        assert gui._draw_count == 1
+        gui._zoom_view(1.1)
+        assert gui._draw_count == 2
+        gui._rotate_view('x', 5)
+        assert gui._draw_count == 3
+
+
+# ===========================================================================
+# Background Color Tests
+# ===========================================================================
+
+
+class TestBackgroundColor:
+    """Verify canvas background color switching."""
+
+    def test_set_bg_white(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._set_canvas_bg("#ffffff")
+        assert gui._get_canvas_bg() == "#ffffff"
+
+    def test_set_bg_black(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._set_canvas_bg("#000000")
+        assert gui._get_canvas_bg() == "#000000"
+
+    def test_set_bg_dark_gray(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._set_canvas_bg("#333333")
+        assert gui._get_canvas_bg() == "#333333"
+
+    def test_set_bg_light_gray(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._set_canvas_bg("#d0d0d0")
+        assert gui._get_canvas_bg() == "#d0d0d0"
+
+    def test_set_bg_custom_color(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._set_canvas_bg("#1a2b3c")
+        assert gui._get_canvas_bg() == "#1a2b3c"
+
+    def test_default_bg_is_white(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        assert gui._get_canvas_bg() == "#ffffff"
+
+    def test_multiple_bg_changes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        for color in ["#000000", "#333333", "#ffffff", "#d0d0d0"]:
+            gui._set_canvas_bg(color)
+            assert gui._get_canvas_bg() == color
+
+
+# ===========================================================================
+# Trackball Rotation Logic Tests
+# ===========================================================================
+
+
+class TestTrackballLogic:
+    """Verify trackball rotation math works correctly."""
+
+    def test_trackball_inside_ball_x_drag_rotates_y(self, atoms_with_mol):
+        """Horizontal drag inside the ball should rotate around Y axis."""
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        # Simulate horizontal drag inside ball → rotate around Y
+        gui._rotate_view('y', 10)
+        assert not np.allclose(gui.axes, orig_axes)
+        # Y row should change; first element of axes should differ
+        assert not np.isclose(gui.axes[0, 0], orig_axes[0, 0])
+
+    def test_trackball_inside_ball_y_drag_rotates_x(self, atoms_with_mol):
+        """Vertical drag inside the ball should rotate around X axis."""
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('x', -10)
+        assert not np.allclose(gui.axes, orig_axes)
+
+    def test_trackball_outside_ball_rotates_z(self, atoms_with_mol):
+        """Drag outside the ball should rotate around Z axis."""
+        gui = FakeGUI(atoms_with_mol)
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('z', 15)
+        assert not np.allclose(gui.axes, orig_axes)
+        # Z rotation should leave z-axis row unchanged
+        np.testing.assert_allclose(gui.axes[2, 2], orig_axes[2, 2], atol=1e-10)
+
+    def test_combined_trackball_rotations_preserve_orthogonality(
+            self, atoms_with_mol):
+        """Multiple trackball-style rotations should keep axes orthogonal."""
+        gui = FakeGUI(atoms_with_mol)
+        # Simulate a complex trackball drag sequence
+        gui._rotate_view('y', 12)
+        gui._rotate_view('x', -8)
+        gui._rotate_view('z', 5)
+        gui._rotate_view('y', -3)
+        gui._rotate_view('x', 15)
+        product = gui.axes @ gui.axes.T
+        np.testing.assert_allclose(product, np.eye(3), atol=1e-10)
+
+
+# ===========================================================================
+# Drag Mode + View Operations Integration Tests
+# ===========================================================================
+
+
+class TestDragModeIntegration:
+    """Verify drag mode doesn't interfere with view operations."""
+
+    def test_view_ops_work_in_drag_mode(self, atoms_with_mol):
+        """Pan/zoom/orbit should still work when drag mode is on."""
+        gui = FakeGUI(atoms_with_mol)
+        gui._drag_mode = True
+
+        orig_center = gui.center.copy()
+        gui._translate_view(1, 0)
+        assert not np.allclose(gui.center, orig_center)
+
+        orig_scale = gui.scale
+        gui._zoom_view(1.1)
+        assert gui.scale > orig_scale
+
+        orig_axes = gui.axes.copy()
+        gui._rotate_view('x', 10)
+        assert not np.allclose(gui.axes, orig_axes)
+
+    def test_drag_then_view_op(self, atoms_with_mol):
+        """After a drag, view operations should still work normally."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.start_drag([0])
+        gui.drag_to([1.0, 0.0, 0.0])
+        gui.end_drag()
+
+        orig_center = gui.center.copy()
+        gui._translate_view(-1, 0)
+        assert not np.allclose(gui.center, orig_center)
+
+    def test_drag_preserves_view_state(self, atoms_with_mol):
+        """Dragging atoms should not affect the view center/scale/axes."""
+        gui = FakeGUI(atoms_with_mol)
+        orig_center = gui.center.copy()
+        orig_scale = gui.scale
+        orig_axes = gui.axes.copy()
+
+        gui.start_drag([0, 1])
+        gui.drag_to([2.0, 3.0, 0.0])
+        gui.end_drag()
+
+        np.testing.assert_allclose(gui.center, orig_center)
+        assert gui.scale == orig_scale
+        np.testing.assert_allclose(gui.axes, orig_axes)
+
+
+# ===========================================================================
+# Move Molecule/Atoms Tests
+# ===========================================================================
+
+
+class TestMoveAtoms:
+    """Verify move_atoms / move_molecule logic (mirrors move_molecule_dialog)."""
+
+    def test_move_selected_atoms(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.move_atoms([0, 1], [1.0, 2.0, 3.0])
+        np.testing.assert_allclose(gui.atoms.positions[0], orig[0] + [1, 2, 3])
+        np.testing.assert_allclose(gui.atoms.positions[1], orig[1] + [1, 2, 3])
+        # Unselected atoms unchanged
+        np.testing.assert_allclose(gui.atoms.positions[2], orig[2])
+
+    def test_move_molecule_group(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.move_molecule(0, [0.5, 0.0, 0.0])
+        # mol_id==0 → indices 0,1,2
+        for i in [0, 1, 2]:
+            np.testing.assert_allclose(
+                gui.atoms.positions[i], orig[i] + [0.5, 0, 0])
+        # mol_id==1 unchanged
+        for i in [3, 4, 5]:
+            np.testing.assert_allclose(gui.atoms.positions[i], orig[i])
+
+    def test_move_undo(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.move_atoms([0], [5.0, 5.0, 5.0])
+        assert not np.allclose(gui.atoms.positions[0], orig[0])
+        gui.undo()
+        np.testing.assert_allclose(gui.atoms.positions, orig)
+
+    def test_move_zero_vector(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.move_atoms([0, 1, 2], [0.0, 0.0, 0.0])
+        np.testing.assert_allclose(gui.atoms.positions, orig)
+
+    def test_move_no_atoms_does_nothing(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        count = gui._draw_count
+        gui.move_atoms([], [1.0, 1.0, 1.0])
+        np.testing.assert_allclose(gui.atoms.positions, orig)
+        assert gui._draw_count == count  # no draw triggered
+
+    def test_move_triggers_draw(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._draw_count = 0
+        gui.move_atoms([0], [1.0, 0.0, 0.0])
+        assert gui._draw_count >= 1
+
+
+# ===========================================================================
+# Rotate Molecule/Atoms Tests
+# ===========================================================================
+
+
+class TestRotateAtoms:
+    """Verify rotate_atoms / rotate_molecule logic (mirrors rotate_molecule_dialog)."""
+
+    def test_rotate_selected_atoms(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.rotate_atoms([0, 1, 2], (90, 0, 0))
+        # Positions should change
+        assert not np.allclose(gui.atoms.positions[:3], orig[:3])
+        # Unselected atoms unchanged
+        np.testing.assert_allclose(gui.atoms.positions[3:], orig[3:])
+
+    def test_rotate_preserves_centroid(self, atoms_with_mol):
+        """Rotation should keep the centroid of rotated atoms unchanged."""
+        gui = FakeGUI(atoms_with_mol)
+        indices = [0, 1, 2]
+        orig_centroid = gui.atoms.positions[indices].mean(axis=0)
+        gui.rotate_atoms(indices, (45, 30, 60))
+        new_centroid = gui.atoms.positions[indices].mean(axis=0)
+        np.testing.assert_allclose(new_centroid, orig_centroid, atol=1e-10)
+
+    def test_rotate_molecule_group(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.rotate_molecule(1, (0, 0, 90))
+        # mol_id==1 → indices 3,4,5 should change
+        assert not np.allclose(gui.atoms.positions[3:], orig[3:])
+        # mol_id==0 unchanged
+        np.testing.assert_allclose(gui.atoms.positions[:3], orig[:3])
+
+    def test_rotate_undo(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.rotate_atoms([3, 4, 5], (45, 45, 45))
+        assert not np.allclose(gui.atoms.positions[3:], orig[3:])
+        gui.undo()
+        np.testing.assert_allclose(gui.atoms.positions, orig)
+
+    def test_rotate_360_returns_to_original(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.rotate_atoms([0, 1, 2], (360, 0, 0))
+        np.testing.assert_allclose(gui.atoms.positions, orig, atol=1e-10)
+
+    def test_rotate_no_atoms_does_nothing(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        count = gui._draw_count
+        gui.rotate_atoms([], (90, 0, 0))
+        np.testing.assert_allclose(gui.atoms.positions, orig)
+        assert gui._draw_count == count
+
+    def test_rotate_triggers_draw(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui._draw_count = 0
+        gui.rotate_atoms([0], (10, 0, 0))
+        assert gui._draw_count >= 1
+
+
+# ===========================================================================
+# Drag Mode Toggle Tests
+# ===========================================================================
+
+
+class TestDragModeToggle:
+    """Verify drag mode toggle state transitions (mirrors _toggle_drag_mode)."""
+
+    def test_toggle_on(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        assert not gui._drag_mode
+        gui.toggle_drag_mode()
+        assert gui._drag_mode
+
+    def test_toggle_off(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_drag_mode()  # on
+        gui.toggle_drag_mode()  # off
+        assert not gui._drag_mode
+
+    def test_toggle_off_clears_dragging(self, atoms_with_mol):
+        """Turning off drag mode should clear _dragging flag."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_drag_mode()  # on
+        gui._dragging = True  # simulate mid-drag
+        gui.toggle_drag_mode()  # off
+        assert not gui._dragging
+
+    def test_toggle_on_does_not_start_drag(self, atoms_with_mol):
+        """Turning on drag mode alone should NOT start dragging."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_drag_mode()
+        assert gui._drag_mode
+        assert not gui._dragging
+
+    def test_drag_mode_on_then_drag_then_toggle_off(self, atoms_with_mol):
+        """Full cycle: toggle on → drag → toggle off."""
+        gui = FakeGUI(atoms_with_mol)
+        orig = gui.atoms.positions.copy()
+        gui.toggle_drag_mode()  # on
+        gui.start_drag([0])
+        gui.drag_to([1.0, 0.0, 0.0])
+        gui.end_drag()
+        assert not np.allclose(gui.atoms.positions[0], orig[0])
+        gui.toggle_drag_mode()  # off
+        assert not gui._drag_mode
+        assert not gui._dragging
+
+    def test_multiple_toggles(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        for _ in range(10):
+            gui.toggle_drag_mode()
+        # After even number of toggles, should be off
+        assert not gui._drag_mode
+
+
+# ===========================================================================
+# Delete Selected Atoms Tests
+# ===========================================================================
+
+
+class TestDeleteSelectedAtoms:
+    """Verify delete_selected_atoms logic."""
+
+    def test_delete_single_atom(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_len = len(gui.atoms)
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len - 1
+
+    def test_delete_no_selection_does_nothing(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_len = len(gui.atoms)
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len
+
+    def test_delete_undo(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_len = len(gui.atoms)
+        orig_pos = gui.atoms.positions.copy()
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len - 1
+        gui.undo()
+        assert len(gui.atoms) == orig_len
+        np.testing.assert_allclose(gui.atoms.positions, orig_pos)
+
+    def test_delete_multiple_atoms(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.images.selected[1] = True
+        gui.images.selected[2] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == 3  # 6 - 3
+
+
+# ===========================================================================
+# Collapsible Sections Tests
+# ===========================================================================
+
+
+class TestCollapsibleSections:
+    """Verify collapsible section toggle logic."""
+
+    def test_elem_default_expanded(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        assert not gui._elem_collapsed
+
+    def test_mol_default_expanded(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        assert not gui._mol_collapsed
+
+    def test_elem_toggle_collapse(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_section("elem")
+        assert gui._elem_collapsed
+
+    def test_elem_toggle_expand(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_section("elem")
+        gui.toggle_section("elem")
+        assert not gui._elem_collapsed
+
+    def test_mol_toggle_collapse(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_section("mol")
+        assert gui._mol_collapsed
+
+    def test_mol_toggle_expand(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_section("mol")
+        gui.toggle_section("mol")
+        assert not gui._mol_collapsed
+
+    def test_elem_and_mol_independent(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.toggle_section("elem")
+        assert gui._elem_collapsed
+        assert not gui._mol_collapsed
+        gui.toggle_section("mol")
+        assert gui._elem_collapsed
+        assert gui._mol_collapsed
+
+    def test_multiple_toggles(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        for _ in range(5):
+            gui.toggle_section("elem")
+        assert gui._elem_collapsed  # odd number → collapsed
+
+
+# ===========================================================================
+# Select All / Deselect All Tests
+# ===========================================================================
+
+
+class TestSelectAllDeselectAll:
+    """Verify select all and deselect all logic."""
+
+    def test_select_all(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.select_all()
+        n = len(gui.atoms)
+        assert gui.images.selected[:n].all()
+
+    def test_deselect_all(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[:] = True
+        gui.deselect_all()
+        n = len(gui.atoms)
+        assert not gui.images.selected[:n].any()
+
+    def test_select_all_respects_visibility(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.visible[2] = False
+        gui.select_all()
+        n = len(gui.atoms)
+        assert gui.images.selected[0]
+        assert gui.images.selected[1]
+        assert not gui.images.selected[2]
+
+    def test_deselect_then_select_all(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.images.selected[3] = True
+        gui.deselect_all()
+        assert not gui.images.selected[:len(gui.atoms)].any()
+        gui.select_all()
+        assert gui.images.selected[:len(gui.atoms)].all()
+
+
+# ===========================================================================
+# Context Select Molecule Tests
+# ===========================================================================
+
+
+class TestContextSelectMolecule:
+    """Verify context menu molecule selection."""
+
+    def test_select_molecule_by_groups(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.context_select_molecule(0)  # atom 0 is in group [0, 1, 2]
+        n = len(gui.atoms)
+        assert gui.images.selected[0]
+        assert gui.images.selected[1]
+        assert gui.images.selected[2]
+        assert not gui.images.selected[3]
+        assert not gui.images.selected[4]
+        assert not gui.images.selected[5]
+
+    def test_select_molecule_second_group(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.context_select_molecule(4)  # atom 4 is in group [3, 4, 5]
+        n = len(gui.atoms)
+        assert not gui.images.selected[0]
+        assert gui.images.selected[3]
+        assert gui.images.selected[4]
+        assert gui.images.selected[5]
+
+    def test_select_molecule_clears_previous_selection(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[:] = True
+        gui.context_select_molecule(0)
+        n = len(gui.atoms)
+        # Only group 0 selected
+        assert gui.images.selected[0]
+        assert not gui.images.selected[3]
+
+    def test_select_molecule_fallback_mol_id(self, atoms_with_mol):
+        """Fall back to mol_id array when groups info is missing."""
+        gui = FakeGUI(atoms_with_mol)
+        del gui.atoms.info["groups"]
+        gui.context_select_molecule(0)
+        n = len(gui.atoms)
+        mol_ids = gui.atoms.get_array("mol_id")
+        target = mol_ids[0]
+        expected = (mol_ids == target)
+        np.testing.assert_array_equal(gui.images.selected[:n], expected)
+
+
+# ===========================================================================
+# Status Info Tests
+# ===========================================================================
+
+
+class TestStatusInfo:
+    """Verify status info text generation."""
+
+    def test_no_selection(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        info = gui.get_status_info()
+        assert "6 atoms total" in info
+        assert "2 groups" in info
+
+    def test_with_selection(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.images.selected[2] = True
+        info = gui.get_status_info()
+        assert "2 selected" in info
+        assert "C:1" in info
+        assert "H:1" in info
+
+    def test_all_selected(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.select_all()
+        info = gui.get_status_info()
+        assert "6 selected" in info
+
+    def test_no_atoms(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.atoms = Atoms()
+        gui.images.initialize([gui.atoms])
+        info = gui.get_status_info()
+        assert "No structure loaded" in info
+
+
+# ===========================================================================
+# Axis Indicator Tests
+# ===========================================================================
+
+
+class TestAxisIndicator:
+    """Verify XYZ axis projection calculations."""
+
+    def test_default_axes_identity(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        proj = gui.get_axis_projections()
+        # With identity axes, X projects to [1, 0] on screen
+        np.testing.assert_allclose(proj["X"], [1.0, 0.0], atol=1e-10)
+        np.testing.assert_allclose(proj["Y"], [0.0, 1.0], atol=1e-10)
+        np.testing.assert_allclose(proj["Z"], [0.0, 0.0], atol=1e-10)
+
+    def test_rotated_axes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        # Rotate 90 degrees around Z
+        gui._rotate_view('z', 90)
+        proj = gui.get_axis_projections()
+        # After 90° Z rotation, X should project near [0, 1] and Y near [-1, 0]
+        assert abs(proj["X"][1]) > 0.5  # X has significant Y component
+
+
+# ===========================================================================
+# Undo with Size Change Tests
+# ===========================================================================
+
+
+class TestUndoSizeChange:
+    """Verify undo works correctly when atom count changes."""
+
+    def test_undo_after_delete(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_len = len(gui.atoms)
+        orig_pos = gui.atoms.positions.copy()
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len - 1
+        gui.undo()
+        assert len(gui.atoms) == orig_len
+        np.testing.assert_allclose(gui.atoms.positions, orig_pos)
+
+    def test_undo_preserves_mol_id(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_mol_ids = gui.atoms.get_array("mol_id").copy()
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        gui.undo()
+        np.testing.assert_array_equal(
+            gui.atoms.get_array("mol_id"), orig_mol_ids)
+
+    def test_redo_after_undo_size_change(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        reduced_len = len(gui.atoms)
+        gui.undo()
+        assert len(gui.atoms) == 6
+        gui.redo()
+        assert len(gui.atoms) == reduced_len
+
+    def test_multiple_undo_with_size_changes(self, atoms_with_mol):
+        gui = FakeGUI(atoms_with_mol)
+        orig_len = len(gui.atoms)
+        # Delete atom 0
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len - 1
+        # Delete another atom
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.atoms) == orig_len - 2
+        # Undo both
+        gui.undo()
+        assert len(gui.atoms) == orig_len - 1
+        gui.undo()
+        assert len(gui.atoms) == orig_len
+
+
+class TestAtomList:
+    """Tests for the Atom List side panel feature."""
+
+    def test_atom_list_data_with_mol_id(self, atoms_with_mol):
+        """Atom list should return correct data with mol_id."""
+        gui = FakeGUI(atoms_with_mol)
+        rows = gui.get_atom_list_data()
+        assert len(rows) == 6
+        # Check first row
+        idx, elem, x, y, z, mol = rows[0]
+        assert idx == 0
+        assert elem == "C"
+        assert mol == 0
+        # Check last row
+        idx, elem, x, y, z, mol = rows[5]
+        assert idx == 5
+        assert elem == "O"
+        assert mol == 1
+
+    def test_atom_list_data_without_mol_id(self):
+        """Atom list should handle atoms without mol_id."""
+        atoms = Atoms("H2", positions=[[0, 0, 0], [1, 0, 0]])
+        gui = FakeGUI(atoms)
+        rows = gui.get_atom_list_data()
+        assert len(rows) == 2
+        assert rows[0][1] == "H"
+        assert rows[0][5] == ""  # no mol_id → empty string
+
+    def test_atom_list_data_empty(self):
+        """Atom list should return empty for empty atoms."""
+        atoms = Atoms()
+        gui = FakeGUI(atoms)
+        rows = gui.get_atom_list_data()
+        assert rows == []
+
+    def test_atom_list_coordinates(self, atoms_with_mol):
+        """Atom list should show correct coordinates."""
+        gui = FakeGUI(atoms_with_mol)
+        rows = gui.get_atom_list_data()
+        pos = gui.atoms.get_positions()
+        for i, row in enumerate(rows):
+            assert row[2] == round(pos[i, 0], 3)
+            assert row[3] == round(pos[i, 1], 3)
+            assert row[4] == round(pos[i, 2], 3)
+
+    def test_atom_list_select(self, atoms_with_mol):
+        """Clicking atom in list should select it in 3D view."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.atom_list_select(3)
+        n = len(gui.atoms)
+        sel = gui.images.selected[:n]
+        assert sel[3]
+        assert sel.sum() == 1
+
+    def test_atom_list_select_clears_previous(self, atoms_with_mol):
+        """Selecting in atom list should clear previous selection."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.images.selected[1] = True
+        gui.atom_list_select(4)
+        n = len(gui.atoms)
+        sel = gui.images.selected[:n]
+        assert sel.sum() == 1
+        assert sel[4]
+
+    def test_atom_list_toggle_section(self, atoms_with_mol):
+        """Atom list section starts collapsed and can be toggled."""
+        gui = FakeGUI(atoms_with_mol)
+        assert gui._atomlist_collapsed is True
+        gui.toggle_section("atomlist")
+        assert gui._atomlist_collapsed is False
+        gui.toggle_section("atomlist")
+        assert gui._atomlist_collapsed is True
+
+    def test_atom_list_updates_after_delete(self, atoms_with_mol):
+        """Atom list should reflect changes after deleting atoms."""
+        gui = FakeGUI(atoms_with_mol)
+        assert len(gui.get_atom_list_data()) == 6
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        rows = gui.get_atom_list_data()
+        assert len(rows) == 5
+        assert [r[0] for r in rows] == [0, 1, 2, 3, 4]
+
+    def test_atom_list_updates_after_undo(self, atoms_with_mol):
+        """Atom list should reflect changes after undo."""
+        gui = FakeGUI(atoms_with_mol)
+        gui.images.selected[0] = True
+        gui.delete_selected_atoms()
+        assert len(gui.get_atom_list_data()) == 5
+        gui.undo()
+        assert len(gui.get_atom_list_data()) == 6
