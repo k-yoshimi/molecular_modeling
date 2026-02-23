@@ -19,7 +19,6 @@ A molecular modeling toolkit built on ASE with Voronoi cell optimization. Reads 
 Python 3.11 以降が必要です。
 
 ```bash
-cd molecular_modeling
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -34,7 +33,7 @@ pip install -e ".[dev]"
 
 ## 使い方 / Usage
 
-`molecular_modeling/` ディレクトリで実行してください。
+リポジトリルートで実行してください。
 
 ### CLI — パイプライン実行
 
@@ -56,13 +55,12 @@ python molecular_modeling_gui.py
 
 ## ドキュメント / Documentation
 
-- [日本語ドキュメント (PDF)](molecular_modeling/docs/MolecularModelingToolkit_ja.pdf)
-- [English Documentation (PDF)](molecular_modeling/docs/MolecularModelingToolkit_en.pdf)
+- [日本語ドキュメント (PDF)](docs/MolecularModelingToolkit_ja.pdf)
+- [English Documentation (PDF)](docs/MolecularModelingToolkit_en.pdf)
 
 ## テスト / Tests
 
 ```bash
-cd molecular_modeling
 pytest                         # 全テスト
 pytest -m "not slow"           # slow マーク以外
 pytest tests/test_voronoi_geom.py  # 単一ファイル
@@ -75,24 +73,23 @@ molecular_modeling/              ← リポジトリルート
 ├── README.md
 ├── CLAUDE.md
 ├── .github/workflows/           ← CI (GitHub Actions)
-└── molecular_modeling/          ← Python パッケージ
-    ├── pyproject.toml           ← 依存関係・ビルド設定
-    ├── run.py                   ← CLI エントリーポイント
-    ├── molecular_modeling_gui.py ← GUI エントリーポイント
-    ├── source/                  ← パッケージ本体
-    │   ├── main.py              ← メインパイプライン
-    │   ├── voronoi_geom.py      ← Voronoi 幾何計算
-    │   ├── build_system_from_toml.py
-    │   ├── optimize_voronoi_overlap.py
-    │   ├── render_voronoi_overlays.py
-    │   ├── write_structure.py
-    │   └── gui/                 ← GUI モジュール
-    ├── input/                   ← 実行時設定 (input.toml)
-    ├── data/                    ← 分子辞書 (*.toml)
-    ├── tests/                   ← テストスイート
-    ├── docs/                    ← ドキュメント (Sphinx / PDF)
-    ├── structure_out/           ← 出力: 構造ファイル
-    └── voronoi_pngs/            ← 出力: 可視化画像
+├── pyproject.toml               ← 依存関係・ビルド設定
+├── run.py                       ← CLI エントリーポイント
+├── molecular_modeling_gui.py    ← GUI エントリーポイント
+├── source/                      ← パッケージ本体 (= molecular_modeling)
+│   ├── main.py                  ← メインパイプライン
+│   ├── voronoi_geom.py          ← Voronoi 幾何計算
+│   ├── build_system_from_toml.py
+│   ├── optimize_voronoi_overlap.py
+│   ├── render_voronoi_overlays.py
+│   ├── write_structure.py
+│   └── gui/                     ← GUI モジュール
+├── input/                       ← 実行時設定 (input.toml)
+├── data/                        ← 分子辞書 (*.toml)
+├── tests/                       ← テストスイート
+├── docs/                        ← ドキュメント (Sphinx / PDF)
+├── structure_out/               ← 出力: 構造ファイル
+└── voronoi_pngs/                ← 出力: 可視化画像
 ```
 
 ## ライセンス / License
