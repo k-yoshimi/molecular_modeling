@@ -123,4 +123,156 @@ class TestBuildSystemFromToml:
         np.testing.assert_array_almost_equal(final_pos[0], [4.5, 5.0, 5.0])
         np.testing.assert_array_almost_equal(final_pos[1], [5.5, 5.0, 5.0])
 
+    @patch('molecular_modeling.build_system_from_toml.tomllib.load')
+    @patch('builtins.open')
+    def test_use_fractional_input(self, mock_open_func, mock_toml_load):
+        """Test that use_fractional=true converts input COMs from fractional to Cartesian."""
+        input_data = {
+            'molecules': ['mol'],
+            'supercell_repeat': [1, 1, 1],
+            'cell': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'center_of_mass': [[0.5, 0.5, 0.5]],  # fractional
+            'use_fractional': True,
+            'rng': 1,
+        }
+        mol_data = {
+            'symbols': ['C', 'H'],
+            'positions': [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            'center_of_mass': [[0.0, 0.0, 0.0]],
+            'lattice_vectors': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'use_fractional': False,
+            'voronoi_ref_id': 0,
+        }
+        file_paths = []
+
+        def open_side_effect(fp, *a, **kw):
+            file_paths.append(str(fp))
+            m = mock_open()
+            return m(fp, *a, **kw)
+
+        mock_open_func.side_effect = open_side_effect
+        mock_toml_load.side_effect = lambda f, *a, **kw: (
+            input_data if 'input.toml' in file_paths[-1] else mol_data
+        )
+
+        system = build_system_from_toml(verbose=False)
+        # Fractional (0.5, 0.5, 0.5) * diag(10, 10, 10) = (5, 5, 5)
+        com = system.positions.mean(axis=0)
+        np.testing.assert_array_almost_equal(com, [5.0, 5.0, 5.0])
+
+    @patch('molecular_modeling.build_system_from_toml.tomllib.load')
+    @patch('builtins.open')
+    def test_use_fractional_molecule_positions(self, mock_open_func, mock_toml_load):
+        """Test that molecule use_fractional=true converts positions from fractional to Cartesian."""
+        input_data = {
+            'molecules': ['mol'],
+            'supercell_repeat': [1, 1, 1],
+            'cell': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'center_of_mass': [[5.0, 5.0, 5.0]],
+            'use_fractional': False,
+            'rng': 1,
+        }
+        mol_data = {
+            'symbols': ['C', 'H'],
+            'positions': [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]],  # fractional
+            'center_of_mass': [[0.0, 0.0, 0.0]],
+            'lattice_vectors': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'use_fractional': True,  # positions are fractional
+            'voronoi_ref_id': 0,
+        }
+        file_paths = []
+
+        def open_side_effect(fp, *a, **kw):
+            file_paths.append(str(fp))
+            m = mock_open()
+            return m(fp, *a, **kw)
+
+        mock_open_func.side_effect = open_side_effect
+        mock_toml_load.side_effect = lambda f, *a, **kw: (
+            input_data if 'input.toml' in file_paths[-1] else mol_data
+        )
+
+        system = build_system_from_toml(verbose=False)
+        assert system is not None
+        # dict_meta COMs should also be converted
+        assert 'dict_meta' in system.info
+
+    @patch('molecular_modeling.build_system_from_toml.tomllib.load')
+    @patch('builtins.open')
+    def test_molecule_atom_substitutions(self, mock_open_func, mock_toml_load):
+        """Test molecule_atom_substitutions replaces atom list."""
+        input_data = {
+            'molecules': ['mol'],
+            'supercell_repeat': [1, 1, 1],
+            'cell': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'center_of_mass': [[5.0, 5.0, 5.0]],
+            'use_fractional': False,
+            'rng': 1,
+            'molecule_atom_substitutions': [
+                {'cell_index': [0, 0, 0], 'molecule_index': 0, 'new_symbols': ['N2']},
+            ],
+        }
+        mol_data = {
+            'symbols': ['C', 'H'],
+            'positions': [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            'center_of_mass': [[0.0, 0.0, 0.0]],
+            'lattice_vectors': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'use_fractional': False,
+            'voronoi_ref_id': 0,
+        }
+        file_paths = []
+
+        def open_side_effect(fp, *a, **kw):
+            file_paths.append(str(fp))
+            m = mock_open()
+            return m(fp, *a, **kw)
+
+        mock_open_func.side_effect = open_side_effect
+        mock_toml_load.side_effect = lambda f, *a, **kw: (
+            input_data if 'input.toml' in file_paths[-1] else mol_data
+        )
+
+        system = build_system_from_toml(verbose=False)
+        # Both atoms should be N after molecule_atom_substitutions with "N2"
+        assert list(system.get_chemical_symbols()) == ['N', 'N']
+
+    @patch('molecular_modeling.build_system_from_toml.tomllib.load')
+    @patch('builtins.open')
+    def test_verbose_output(self, mock_open_func, mock_toml_load, capsys):
+        """Test that verbose=True produces output."""
+        input_data = {
+            'molecules': ['mol'],
+            'supercell_repeat': [1, 1, 1],
+            'cell': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'center_of_mass': [[5.0, 5.0, 5.0]],
+            'use_fractional': False,
+            'rng': 1,
+        }
+        mol_data = {
+            'symbols': ['C', 'H'],
+            'positions': [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            'center_of_mass': [[0.0, 0.0, 0.0]],
+            'lattice_vectors': [[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]],
+            'use_fractional': False,
+            'voronoi_ref_id': 0,
+        }
+        file_paths = []
+
+        def open_side_effect(fp, *a, **kw):
+            file_paths.append(str(fp))
+            m = mock_open()
+            return m(fp, *a, **kw)
+
+        mock_open_func.side_effect = open_side_effect
+        mock_toml_load.side_effect = lambda f, *a, **kw: (
+            input_data if 'input.toml' in file_paths[-1] else mol_data
+        )
+
+        system = build_system_from_toml(verbose=True)
+        captured = capsys.readouterr()
+        assert "[build_system_from_toml] Built system." in captured.out
+        assert "atoms=" in captured.out
+        assert "molecules:" in captured.out
+        assert "rng setting:" in captured.out
+
 

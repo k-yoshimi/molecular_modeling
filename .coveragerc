@@ -1,0 +1,9 @@
+[run]
+source = source/
+omit =
+    source/gui/*
+    source/main.py
+
+[report]
+show_missing = true
+precision = 1

@@ -114,6 +114,98 @@ class TestOptimizeVoronoiOverlap:
                 rng=1,
             )
 
+    def test_optimize_groups_none_fallback(self, simple_atoms):
+        """Test that groups=None falls back to build_molecule_groups."""
+        simple_atoms.info['site_mol_name'] = ['test_mol']
+        simple_atoms.info['dict_meta'] = {
+            'test_mol': {
+                'lattice_vectors': np.array([
+                    [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0],
+                ], dtype=float),
+                'center_of_mass': np.array([[5.0, 5.0, 5.0]], dtype=float),
+                'voronoi_ref_id': 0,
+            },
+        }
+        simple_atoms.info['rng'] = {'optimize': 1, 'global': 1}
+
+        result = optimize_voronoi_overlap(
+            simple_atoms, groups=None, grid_num=(3, 3, 3), rng=1,
+        )
+        assert result is not None
+        assert 'optimized_angles_deg' in result.info
+
+    def test_optimize_rng_none_fallback(self, simple_atoms):
+        """Test that rng=None falls back to system.info['rng']."""
+        simple_atoms.info['site_mol_name'] = ['test_mol']
+        simple_atoms.info['dict_meta'] = {
+            'test_mol': {
+                'lattice_vectors': np.array([
+                    [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0],
+                ], dtype=float),
+                'center_of_mass': np.array([[5.0, 5.0, 5.0]], dtype=float),
+                'voronoi_ref_id': 0,
+            },
+        }
+        simple_atoms.info['rng'] = {'optimize': 2, 'global': 1}
+
+        groups = build_molecule_groups(simple_atoms)
+        result = optimize_voronoi_overlap(
+            simple_atoms, groups=groups, grid_num=(3, 3, 3), rng=None,
+        )
+        assert result is not None
+
+    def test_optimize_site_angles_from_info(self, simple_atoms):
+        """Test that x0_euler_deg falls back to system.info['site_angles_deg']."""
+        simple_atoms.info['site_mol_name'] = ['test_mol']
+        simple_atoms.info['dict_meta'] = {
+            'test_mol': {
+                'lattice_vectors': np.array([
+                    [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0],
+                ], dtype=float),
+                'center_of_mass': np.array([[5.0, 5.0, 5.0]], dtype=float),
+                'voronoi_ref_id': 0,
+            },
+        }
+        simple_atoms.info['rng'] = {'optimize': 1, 'global': 1}
+        simple_atoms.info['site_angles_deg'] = [[10.0, 20.0, 30.0]]
+
+        groups = build_molecule_groups(simple_atoms)
+        result = optimize_voronoi_overlap(
+            simple_atoms, groups=groups, grid_num=(3, 3, 3), rng=1,
+        )
+        assert result is not None
+        assert 'optimized_angles_deg' in result.info
+
+    def test_optimize_log_dir(self, simple_atoms):
+        """Test that log_dir writes optimization results to files."""
+        import tempfile
+        from pathlib import Path
+
+        simple_atoms.info['site_mol_name'] = ['test_mol']
+        simple_atoms.info['dict_meta'] = {
+            'test_mol': {
+                'lattice_vectors': np.array([
+                    [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0],
+                ], dtype=float),
+                'center_of_mass': np.array([[5.0, 5.0, 5.0]], dtype=float),
+                'voronoi_ref_id': 0,
+            },
+        }
+        simple_atoms.info['rng'] = {'optimize': 1, 'global': 1}
+
+        groups = build_molecule_groups(simple_atoms)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = optimize_voronoi_overlap(
+                simple_atoms, groups=groups, grid_num=(3, 3, 3), rng=1,
+                log_dir=tmpdir,
+            )
+            res_file = Path(tmpdir) / "site_0" / "res.txt"
+            assert res_file.exists()
+            content = res_file.read_text()
+            assert "fx =" in content
+            assert "alpha =" in content
+            assert "scale =" in content
+
     def test_optimize_voronoi_overlap_select_sites(self, simple_atoms):
         """
         Test optimization with site selection.
