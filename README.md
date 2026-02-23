@@ -2,6 +2,9 @@
 
 [![Tests](https://github.com/k-yoshimi/molecular_modeling/actions/workflows/test.yml/badge.svg)](https://github.com/k-yoshimi/molecular_modeling/actions/workflows/test.yml)
 [![License: LGPL v2.1+](https://img.shields.io/badge/License-LGPL_v2.1+-blue.svg)](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)
+[![Python >= 3.11](https://img.shields.io/badge/Python-≥3.11-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![version](https://img.shields.io/badge/version-0.1.0-orange.svg)](https://github.com/k-yoshimi/molecular_modeling)
+[![ASE](https://img.shields.io/badge/ASE-3.25-blueviolet.svg)](https://wiki.fysik.dtu.dk/ase/)
 [![Doc (en)](https://img.shields.io/badge/docs-English_(PDF)-green)](https://github.com/k-yoshimi/molecular_modeling/blob/main/docs/MolecularModelingToolkit_en.pdf)
 [![Doc (ja)](https://img.shields.io/badge/docs-日本語_(PDF)-green)](https://github.com/k-yoshimi/molecular_modeling/blob/main/docs/MolecularModelingToolkit_ja.pdf)
 
