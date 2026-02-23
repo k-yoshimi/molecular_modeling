@@ -3,6 +3,8 @@ name = "molecular_modeling"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+license = "LGPL-2.1-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "ase==3.25.0",
