@@ -10,7 +10,6 @@ With the virtual environment activated, run:
 
 .. code-block:: bash
 
-   cd molecular_modeling
    source .venv/bin/activate
    python run.py
 

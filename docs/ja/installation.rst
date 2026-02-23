@@ -29,7 +29,7 @@
 .. code-block:: bash
 
    git clone <repository-url>
-   cd molecular_modeling
+   cd molecular_modeling   # リポジトリルート
 
 2. 仮想環境の作成
 ~~~~~~~~~~~~~~~~~
