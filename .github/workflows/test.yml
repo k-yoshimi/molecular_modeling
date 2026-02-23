@@ -70,8 +70,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             texlive-luatex texlive-latex-extra texlive-fonts-recommended \
             texlive-latex-recommended texlive-lang-japanese \
-            fonts-noto-cjk fonts-noto-cjk-extra \
+            fonts-noto fonts-noto-cjk fonts-noto-cjk-extra \
             latexmk
+          # Rebuild font cache so LuaTeX can find Noto fonts
+          sudo fc-cache -fv
 
       - name: Build Japanese PDF
         run: SPHINX_LANG=ja make -C docs latexpdf-ja
