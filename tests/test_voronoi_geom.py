@@ -1,6 +1,8 @@
 """
 Unit tests for voronoi_geom module.
 """
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from molecular_modeling.voronoi_geom import (
@@ -457,11 +459,14 @@ class TestIoUViaUnionCart:
         assert 0.0 <= iou <= 1.0
 
     def test_zero_denom_returns_zero(self):
-        """Test that denom <= 0 returns 0 (line 663)."""
-        from unittest.mock import patch
+        """Test that denom <= 0 returns 0 (line 730)."""
         A = np.eye(3) * 10.0
         coms = np.array([[5.0, 5.0, 5.0]])
+        # Mock internals so that vol_sys + vol_dict - overlap <= 0
         with patch(
+            'molecular_modeling.voronoi_geom._compute_voronoi_volume_from_seeds',
+            return_value=0.0,
+        ), patch(
             'molecular_modeling.voronoi_geom.overlap_volume_union_cart',
             return_value=0.0,
         ), patch(
@@ -519,5 +524,76 @@ class TestCheckSystemVoronoiVolumeTiling:
         assert "[Voronoi tiling volume check]" in captured.out
         assert "Sum of Voronoi cell volumes" in captured.out
         assert "PASS" in captured.out or "FAIL" in captured.out
+
+
+class TestVoronoiCellsEdgeCases:
+    """Tests for edge cases in compute_voronoi_cells_from_coms (lines 169-192)."""
+
+    def test_unbounded_region_fallback(self):
+        """Test fallback cube when Voronoi region contains -1 (unbounded)."""
+        cell = np.eye(3) * 10.0
+        coms = np.array([[5.0, 5.0, 5.0]])
+
+        # Mock Voronoi to return region with -1 (unbounded)
+        import molecular_modeling.voronoi_geom as vg
+        from scipy.spatial import Voronoi
+
+        orig_voronoi = Voronoi
+
+        class FakeVoronoi:
+            def __init__(self, pts):
+                self.point_region = np.arange(len(pts))
+                self.regions = [[-1, 0, 1, 2]] * len(pts)
+                self.vertices = pts[:4] if len(pts) >= 4 else pts
+
+        with patch.object(vg, 'Voronoi', FakeVoronoi):
+            cells = compute_voronoi_cells_from_coms(cell, coms)
+
+        assert len(cells) == 1
+        # Fallback cube has 8 vertices
+        assert cells[0].verts.shape == (8, 3)
+
+    def test_convex_hull_exception_jitter_fallback(self):
+        """Test convex_hull jitter fallback on exception (lines 186-188)."""
+        cell = np.eye(3) * 10.0
+        coms = np.array([[5.0, 5.0, 5.0]])
+
+        import trimesh
+        orig_convex_hull = trimesh.convex.convex_hull
+        # _build_unit_cell_box_mesh calls convex_hull once (call 1),
+        # then per-region: first attempt fails (call 2), retry succeeds (call 3).
+        call_count = [0]
+
+        def flaky_convex_hull(pts, **kw):
+            call_count[0] += 1
+            if call_count[0] == 2:  # first per-region call
+                raise ValueError("degenerate")
+            return orig_convex_hull(pts, **kw)
+
+        with patch.object(trimesh.convex, 'convex_hull', side_effect=flaky_convex_hull):
+            cells = compute_voronoi_cells_from_coms(cell, coms)
+
+        assert len(cells) == 1
+        assert cells[0].verts.shape[1] == 3
+
+    def test_intersection_empty_fallback(self):
+        """Test empty intersection with scad triggers non-scad fallback (lines 191-192)."""
+        cell = np.eye(3) * 10.0
+        coms = np.array([[5.0, 5.0, 5.0]])
+
+        import trimesh
+        orig_intersection = trimesh.Trimesh.intersection
+
+        def patched_intersection(self_mesh, other, engine=None):
+            if engine == "scad":
+                # Return empty mesh to trigger the non-scad retry
+                return trimesh.Trimesh()
+            return orig_intersection(self_mesh, other)
+
+        with patch.object(trimesh.Trimesh, 'intersection', patched_intersection):
+            cells = compute_voronoi_cells_from_coms(cell, coms)
+
+        assert len(cells) == 1
+        assert cells[0].verts.shape[1] == 3
 
 

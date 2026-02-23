@@ -7,21 +7,12 @@ license = "LGPL-2.1-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "ase==3.25.0",
-    "contourpy==1.3.2",
-    "cycler==0.12.1",
-    "fonttools==4.60.2",
-    "kiwisolver==1.4.8",
-    "manifold3d==3.2.1",
-    "matplotlib==3.10.3",
-    "numpy==2.3.1",
-    "packaging==25.0",
-    "pillow==11.3.0",
-    "pyparsing==3.2.3",
-    "python-dateutil==2.9.0.post0",
-    "scipy==1.16.0",
-    "six==1.17.0",
-    "trimesh==4.7.1",
+    "ase>=3.23",
+    "manifold3d>=3.0",
+    "matplotlib>=3.9",
+    "numpy>=1.26",
+    "scipy>=1.14",
+    "trimesh>=4.4",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +21,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "mypy>=1.0",
+    "pre-commit>=4.0",
     "ruff>=0.8.0",
     "sphinx>=7.0",
 ]

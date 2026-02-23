@@ -1,6 +1,7 @@
 """Sphinx configuration for Molecular Modeling Toolkit documentation."""
 
 import os
+import platform
 import sys
 
 # Add source directory to path so autodoc can find modules
@@ -70,9 +71,12 @@ else:
     latex_docclass = {}
 latex_use_xindy = False
 latex_domain_indices = False
-latex_elements = {
-    'polyglossia': '',
-    'fontpkg': r'''
+
+# Platform-aware font configuration for LuaLaTeX
+_is_macos = platform.system() == 'Darwin'
+
+if _is_macos:
+    _fontpkg = r'''
 \usepackage{luatexja-fontspec}
 \setmainfont[BoldFont={Times New Roman Bold}]{Times New Roman}
 \setsansfont{Helvetica}
@@ -98,14 +102,47 @@ latex_elements = {
 \newunicodechar{→}{{\symbolfont →}}
 \newunicodechar{←}{{\symbolfont ←}}
 \newunicodechar{✦}{{\menlosymbol ✦}}
-''',
-    'preamble': r'''
+'''
+    _preamble = r'''
 \usepackage{pict2e}
 \usepackage{ellipse}
 % Suppress small-caps italic warning (Times New Roman has no scit shape)
 \DeclareFontShape{TU}{TimesNewRoman(0)}{m}{scit}{<->ssub*TimesNewRoman(0)/m/it}{}
 \DeclareFontShape{TU}{TimesNewRoman(0)}{m}{sc}{<->ssub*TimesNewRoman(0)/m/n}{}
-''',
+'''
+else:
+    # Linux (CI): use Noto fonts (available via fonts-noto-cjk package)
+    _fontpkg = r'''
+\usepackage{luatexja-fontspec}
+\setmainfont{Noto Serif}
+\setsansfont{Noto Sans}
+\setmonofont{Noto Sans Mono}
+\setmainjfont{Noto Serif CJK JP}
+\setsansjfont{Noto Sans CJK JP}
+\ltjdefcharrange{9}{"21A9, "21AA, "21BB, "2192, "2190,
+  "2716, "2726, "25B6, "25C0, "25B2, "25BC}
+\ltjsetparameter{jacharrange={-9}}
+\usepackage{newunicodechar}
+\newunicodechar{↩}{{\textrm{↩}}}
+\newunicodechar{↪}{{\textrm{↪}}}
+\newunicodechar{↻}{{\textrm{↻}}}
+\newunicodechar{✖}{{\textrm{✖}}}
+\newunicodechar{▶}{{\textrm{▶}}}
+\newunicodechar{◀}{{\textrm{◀}}}
+\newunicodechar{▲}{{\textrm{▲}}}
+\newunicodechar{▼}{{\textrm{▼}}}
+\newunicodechar{→}{{\textrm{→}}}
+\newunicodechar{←}{{\textrm{←}}}
+\newunicodechar{✦}{{\textrm{✦}}}
+'''
+    _preamble = r'''
+\usepackage{pict2e}
+'''
+
+latex_elements = {
+    'polyglossia': '',
+    'fontpkg': _fontpkg,
+    'preamble': _preamble,
     'geometry': r'\usepackage[margin=25mm,footskip=15mm]{geometry}',
     'printindex': '',
 }
