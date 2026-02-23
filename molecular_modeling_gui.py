@@ -4835,7 +4835,7 @@ class MolecularModelingGUI(GUI):
             original_dir = os.getcwd()
             os.chdir(proj_dir)
             try:
-                from source.build_system_from_toml import build_system_from_toml
+                from molecular_modeling.build_system_from_toml import build_system_from_toml
                 new_atoms = build_system_from_toml(verbose=True)
             finally:
                 os.chdir(original_dir)
