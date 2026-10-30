@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 
 import numpy as np
@@ -33,6 +34,16 @@ def make_calculator(method: str = "GFN2-xTB") -> Calculator:
         from ase.calculators.emt import EMT
 
         return EMT()
+    if method == "EMT-CRASH-ON-AU":  # test-only: kills the worker process when gold is present
+        from ase.calculators.emt import EMT
+
+        class _CrashOnAu(EMT):
+            def calculate(self, atoms=None, properties=("energy",), system_changes=("positions",)):
+                if atoms is not None and 79 in atoms.numbers:
+                    os._exit(1)
+                super().calculate(atoms, properties, system_changes)
+
+        return _CrashOnAu()
     raise ValueError(f"unsupported method {method!r}; use 'GFN2-xTB', 'GFN1-xTB' or 'EMT'")
 
 
@@ -71,6 +82,7 @@ def relax_candidate(
     Sets ``status`` to ``"relaxed"``, ``"rejected_deformed"`` (a molecule deviates more than
     ``max_mol_rmsd`` from the reference/its mirror image, or is broken) or ``"failed"``
     (exception text in ``meta["error"]``). Exceptions are never raised.
+    The input candidate is mutated in place and returned.
     """
     try:
         atoms = cand.atoms.copy()
@@ -103,6 +115,12 @@ def _worker(args: tuple) -> Candidate:
     return relax_candidate(cand, ref_mol, method, fmax, steps, max_mol_rmsd)
 
 
+def _failed(cand: Candidate, exc: BaseException) -> Candidate:
+    cand.status = "failed"
+    cand.meta["error"] = f"{type(exc).__name__}: {exc}"
+    return cand
+
+
 def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     """Relax candidates in parallel with ``cfg.n_procs`` processes; results keep the input order.
 
@@ -114,5 +132,24 @@ def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: s
     for c in cands:
         meta = {k: v for k, v in c.meta.items() if k != "pyxtal"}
         jobs.append((replace(c, meta=meta), ref_mol, method, cfg.relax_fmax, cfg.relax_steps, cfg.max_mol_rmsd))
-    with ProcessPoolExecutor(max_workers=cfg.n_procs, initializer=_init_worker) as ex:
-        return list(ex.map(_worker, jobs))
+    results: list[Candidate | None] = [None] * len(jobs)
+    pending = list(range(len(jobs)))
+    workers = cfg.n_procs
+    while pending:
+        broken: list[int] = []
+        with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as ex:
+            futures = {k: ex.submit(_worker, jobs[k]) for k in pending}
+            for k, fut in futures.items():
+                try:
+                    results[k] = fut.result()
+                except BrokenProcessPool:
+                    broken.append(k)
+                except Exception as exc:  # noqa: BLE001 - e.g. result unpickling errors
+                    results[k] = _failed(jobs[k][0], exc)
+        if workers == 1 and broken:
+            # with a single worker the first unresolved job in submission order is the one that crashed
+            results[broken[0]] = _failed(jobs[broken[0]][0], RuntimeError("worker process died"))
+            broken = broken[1:]
+        pending = broken
+        workers = 1  # re-run unresolved jobs one process at a time to isolate the crashing one
+    return [r for r in results if r is not None]

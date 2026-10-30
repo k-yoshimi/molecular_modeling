@@ -7,7 +7,7 @@ import pytest
 from ase import Atoms
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.gen_random import generate_random
-from molecular_modeling.csp.molecule import load_molecule
+from molecular_modeling.csp.molecule import load_molecule, molecule_rmsd
 from molecular_modeling.csp.relax import (
     make_calculator,
     max_deformation,
@@ -40,6 +40,46 @@ def test_mirror_image_molecules_not_flagged():
     )
     crystal.set_array("mol_id", np.array([0] * n + [1] * n))
     assert max_deformation(crystal, mol) < 1e-3
+    # the mirror branch is needed: the plain rmsd of the mirrored molecule is clearly nonzero
+    assert molecule_rmsd(mol, mirror) > 0.05
+
+
+def test_max_deformation_across_cell_boundary():
+    mol = load_molecule("data/benzene.toml")
+    n = len(mol)
+    atoms = Atoms(symbols=list(mol.symbols), positions=mol.positions + [0.5, 0.5, 5.0], cell=np.diag([12.0, 12.0, 12.0]), pbc=True)
+    atoms.set_array("mol_id", np.zeros(n, dtype=int))
+    atoms.wrap()
+    assert np.any(np.abs(atoms.positions - (mol.positions + [0.5, 0.5, 5.0])) > 1.0)  # really wrapped
+    assert max_deformation(atoms, mol) < 1e-3
+
+
+def _emt_cands(n, gold=()):
+    out = []
+    for k in range(n):
+        el = "Au" if k in gold else "Cu"
+        atoms = Atoms(el + "4", positions=[[0, 0, 0], [0, 0, 2.5], [5, 5, 0], [5, 5, 2.5]], cell=[10, 10, 10], pbc=True)
+        atoms.set_array("mol_id", np.array([0, 0, 1, 1]))
+        out.append(Candidate(atoms=atoms, origin="random", space_group=1, meta={"pyxtal": object(), "tag": k}))
+    return out
+
+
+def test_relax_many_parallel_order_and_meta():
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    out = relax_many(_emt_cands(4), mol, cfg, method="EMT")
+    assert [c.meta["tag"] for c in out] == [0, 1, 2, 3]
+    assert all("pyxtal" not in c.meta for c in out)
+    assert all(c.status in {"relaxed", "rejected_deformed"} for c in out)
+
+
+def test_relax_many_survives_worker_crash():
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    out = relax_many(_emt_cands(4, gold={1}), mol, cfg, method="EMT-CRASH-ON-AU")
+    assert [c.meta["tag"] for c in out] == [0, 1, 2, 3]
+    assert out[1].status == "failed" and "error" in out[1].meta
+    assert [out[i].status for i in (0, 2, 3)] == ["relaxed"] * 3
 
 
 def test_relax_candidate_emt_fills_fields():
@@ -75,5 +115,6 @@ def test_relax_many_survives_failure():
     out = relax_many(cands, mol, cfg, method="GFN2-xTB")
     assert len(out) == 2
     assert [c.status for c in out].count("failed") >= 1
+    assert out[1].status != "failed"
     failed = next(c for c in out if c.status == "failed")
     assert "error" in failed.meta
