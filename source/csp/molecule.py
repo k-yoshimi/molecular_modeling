@@ -170,3 +170,37 @@ def match_and_align(
 def molecule_rmsd(ref: Atoms, mol: Atoms) -> float:
     """RMSD (Å, heavy atoms) between two molecules after optimal matching and superposition."""
     return match_and_align(mol, ref).rmsd
+
+
+#: vdW radius (Å) used for elements that ASE has no value for.
+FALLBACK_VDW_RADIUS = 2.0
+#: Grid points per Å^3 for :func:`molecule_volume`.
+VOLUME_POINTS_PER_A3 = 50.0
+
+
+def molecule_volume(mol: Atoms) -> float:
+    """Van der Waals volume (Å^3): union of vdW spheres, estimated on a regular grid.
+
+    The grid has about 50 points per Å^3 and is placed deterministically relative to the
+    molecule, so the result does not depend on any random state.
+    """
+    from ase.data import vdw_radii
+
+    pos = mol.get_positions()
+    radii = np.array([vdw_radii[z] for z in mol.get_atomic_numbers()], dtype=float)
+    radii[~np.isfinite(radii)] = FALLBACK_VDW_RADIUS
+    h = VOLUME_POINTS_PER_A3 ** (-1.0 / 3.0)
+    lo = (pos - radii[:, None]).min(axis=0) - h
+    hi = (pos + radii[:, None]).max(axis=0) + h
+    axes = [lo[d] + h * (np.arange(int(np.ceil((hi[d] - lo[d]) / h))) + 0.5) for d in range(3)]
+    inside = np.zeros([len(a) for a in axes], dtype=bool)
+    for p, r in zip(pos, radii):
+        sl = []
+        for d in range(3):
+            i0 = max(int(np.floor((p[d] - r - lo[d]) / h)), 0)
+            i1 = min(int(np.ceil((p[d] + r - lo[d]) / h)) + 1, len(axes[d]))
+            sl.append(slice(i0, i1))
+        gx, gy, gz = np.meshgrid(axes[0][sl[0]], axes[1][sl[1]], axes[2][sl[2]], indexing="ij")
+        d2 = (gx - p[0]) ** 2 + (gy - p[1]) ** 2 + (gz - p[2]) ** 2
+        inside[sl[0], sl[1], sl[2]] |= d2 <= r * r
+    return float(inside.sum() * h**3)

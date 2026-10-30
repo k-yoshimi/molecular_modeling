@@ -1,0 +1,119 @@
+"""Tests for seed-crystal candidate generation."""
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+pytest.importorskip("pyxtal")
+
+from molecular_modeling.csp.config import SeedSpec  # noqa: E402
+from molecular_modeling.csp.gen_random import generate_random  # noqa: E402
+from molecular_modeling.csp.gen_seed import generate_from_seed, read_seed_molecules  # noqa: E402
+from molecular_modeling.csp.molecule import load_molecule, molecule_rmsd, molecule_volume  # noqa: E402
+
+DATA = Path(__file__).parent / "data"
+
+
+def write_seed_cif(path: Path, occupancy_of_first_site: float = 1.0) -> Path:
+    """Write a wrapped benzene P2_1/c crystal (from the random generator) as a P1 CIF with occupancies."""
+    mol = load_molecule("data/benzene.toml")
+    cand = generate_random(mol, 14, 4, n=1, rng=np.random.default_rng(0))[0]
+    atoms = cand.atoms.copy()
+    atoms.wrap()
+    a, b, c, al, be, ga = atoms.cell.cellpar()
+    frac = atoms.get_scaled_positions()
+    lines = [
+        "data_seed",
+        f"_cell_length_a {a:.6f}",
+        f"_cell_length_b {b:.6f}",
+        f"_cell_length_c {c:.6f}",
+        f"_cell_angle_alpha {al:.6f}",
+        f"_cell_angle_beta {be:.6f}",
+        f"_cell_angle_gamma {ga:.6f}",
+        "_symmetry_space_group_name_H-M 'P 1'",
+        "loop_",
+        "_atom_site_label",
+        "_atom_site_type_symbol",
+        "_atom_site_fract_x",
+        "_atom_site_fract_y",
+        "_atom_site_fract_z",
+        "_atom_site_occupancy",
+    ]
+    for i, (s, f) in enumerate(zip(atoms.get_chemical_symbols(), frac)):
+        occ = occupancy_of_first_site if i == 0 else 1.0
+        lines.append(f"{s}{i + 1} {s} {f[0]:.8f} {f[1]:.8f} {f[2]:.8f} {occ}")
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_read_seed_molecules_splits_and_rejoins():
+    cell, mols = read_seed_molecules(DATA / "seed_benzene_p21c.cif")
+    assert cell.shape == (3, 3)
+    assert len(mols) == 4
+    ref = load_molecule("data/benzene.toml")
+    assert all(len(m) == 12 and molecule_rmsd(ref, m) < 1e-3 for m in mols)
+
+
+def test_seed_rejoins_and_keeps_rigid_molecules():
+    mol = load_molecule("data/benzene.toml")
+    cands = generate_from_seed(mol, SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[], volume_scale=1.0))
+    assert len(cands) == 1
+    assert cands[0].origin == "seed:seed_benzene_p21c"
+    assert cands[0].space_group == 1
+    atoms = cands[0].atoms
+    for k in set(atoms.arrays["mol_id"]):
+        assert molecule_rmsd(mol, atoms[atoms.arrays["mol_id"] == k]) < 1e-3
+
+
+def test_seed_substitution_enumerates_uniform_choices():
+    # substitute 1 of benzene's 6 H by F: 6 choices, symmetric copies uniform across molecules
+    mol = load_molecule("data/benzene.toml")
+    mol_f = mol.copy()
+    mol_f.symbols[6] = "F"
+    spec = SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[("H", "F", 1)], volume_scale=1.0)
+    cands = generate_from_seed(mol_f, spec)
+    assert len(cands) == 6
+    assert all(c.atoms.get_chemical_symbols().count("F") == 4 for c in cands)
+    assert sorted(c.meta["substitution_choice"][0] for c in cands) == list(range(6, 12))
+    for c in cands:
+        at = c.atoms
+        for k in range(4):
+            sub = at[at.arrays["mol_id"] == k]
+            assert molecule_rmsd(mol_f, sub) < 1e-3
+
+
+def test_seed_auto_volume_scales_cell_not_molecules():
+    mol = load_molecule("data/benzene.toml")
+    spec = SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[], volume_scale="auto")
+    cell0, _ = read_seed_molecules(spec.cif)
+    big = mol.copy()
+    big.symbols[6] = "Cl"
+    spec_cl = SeedSpec(cif=spec.cif, substitutions=[("H", "Cl", 1)], volume_scale="auto")
+    c_auto = generate_from_seed(mol, spec)[0]
+    assert abs(c_auto.atoms.get_volume() / abs(np.linalg.det(cell0)) - 1.0) < 0.02
+    c_cl = generate_from_seed(big, spec_cl)[0]
+    ratio = c_cl.atoms.get_volume() / abs(np.linalg.det(cell0))
+    assert ratio > 1.05
+    for k in range(4):
+        sub = c_cl.atoms[c_cl.atoms.arrays["mol_id"] == k]
+        assert molecule_rmsd(big, sub) < 1e-3
+
+
+def test_seed_rejects_partial_occupancy(tmp_path):
+    cif = write_seed_cif(tmp_path / "dis.cif", occupancy_of_first_site=0.7)
+    with pytest.raises(ValueError, match="occupancy") as ei:
+        read_seed_molecules(cif)
+    assert "C1" in str(ei.value)
+
+
+def test_seed_mismatched_composition_raises():
+    mol = load_molecule("data/benzene.toml")
+    mol.symbols[6] = "F"  # F in the input but no substitution requested
+    with pytest.raises(ValueError):
+        generate_from_seed(mol, SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[], volume_scale=1.0))
+
+
+def test_molecule_volume_benzene():
+    v = molecule_volume(load_molecule("data/benzene.toml"))
+    assert 75.0 < v < 90.0  # ~78.8 with ASE's Bondi radii (converged grid)
+    assert v == molecule_volume(load_molecule("data/benzene.toml"))
