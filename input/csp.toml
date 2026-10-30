@@ -1,0 +1,23 @@
+# Example CSP input (blind search for benzene)
+molecule = "data/benzene.toml"   # molecule file (.toml in data/ format, or .xyz)
+mode = "blind"                   # "blind": default space groups; "informed": use space_groups below
+space_groups = [14, 2]           # used only in informed mode (ignored in blind mode)
+# z = { 14 = 4 }                 # optional: space group -> Z (default: general multiplicity x z_prime)
+z_prime = 1                      # molecules per asymmetric unit when z is not given
+n_candidates_per_sg = 50         # candidates generated per space group
+packing_range = [0.6, 0.8]       # allowed packing fraction range for generated cells
+overlap_factor = 0.7             # reject if distance < factor * sum of vdW radii
+n_prescreen_keep = 150           # candidates kept after cheap prescreening
+relax_steps = 150                # GFN2-xTB relaxation steps
+relax_fmax = 0.05                # relaxation force threshold (eV/A)
+n_procs = 4                      # worker processes
+max_mol_rmsd = 0.5               # max heavy-atom RMSD of molecule after relaxation (A)
+time_budget_min = 60             # wall-clock budget (minutes)
+rng = 1                          # random seed
+out_dir = "csp_out"              # output directory
+# generators = { random = 0.6, voronoi = 0.4 }   # relative weights; "seed" added with seed_structures
+
+# [[seed_structures]]            # optional seed crystals (informed mode)
+# cif = "seed.cif"               # parent CIF
+# substitutions = [["O", "S", 1]]  # (old element, new element, count per molecule)
+# volume_scale = "auto"          # or a number
