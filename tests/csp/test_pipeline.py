@@ -1,4 +1,5 @@
 """Tests for deduplication, the CSP pipeline and the CLI."""
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -30,7 +31,6 @@ def test_run_csp_benzene_end_to_end(tmp_path):
     cfg = replace(
         default_cfg(), space_groups=[2], n_candidates_per_sg=6, n_prescreen_keep=2,
         relax_steps=3, n_procs=1, out_dir=tmp_path,
-        packing_range=(0.3, 0.8),  # PyXtal's benzene cells have packing ~0.46
     )
     out = run_csp(cfg)
     rows = (tmp_path / "candidates.csv").read_text().splitlines()
@@ -51,7 +51,24 @@ def test_cli_returns_zero(tmp_path):
     cfg_path = tmp_path / "csp.toml"
     cfg_path.write_text(
         'molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2]\n'
-        f'n_candidates_per_sg = 4\npacking_range = [0.3, 0.8]\nn_prescreen_keep = 1\nrelax_steps = 2\nn_procs = 1\nout_dir = "{tmp_path / "out"}"\n'
+        f'n_candidates_per_sg = 4\nn_prescreen_keep = 1\nrelax_steps = 2\nn_procs = 1\nout_dir = "{tmp_path / "out"}"\n'
     )
     assert cli.main([str(cfg_path)]) == 0
     assert (tmp_path / "out" / "candidates.csv").exists()
+
+
+@pytest.mark.slow
+def test_run_csp_time_budget_respected(tmp_path):
+    """With far more candidates than a 3-minute budget allows, the run stops near the budget.
+
+    The budget is a target for the whole run; the first round of ``n_procs`` relaxations always runs,
+    so ``relax_steps`` is chosen such that one round fits well inside the budget.
+    """
+    cfg = replace(
+        default_cfg(), space_groups=[2, 14], n_candidates_per_sg=100, n_prescreen_keep=150,
+        relax_steps=60, n_procs=2, time_budget_min=3, out_dir=tmp_path,
+    )
+    t0 = time.monotonic()
+    run_csp(cfg)
+    assert time.monotonic() - t0 < 3 * 60 * 1.2
+    assert "time budget" in (tmp_path / "run.log").read_text()

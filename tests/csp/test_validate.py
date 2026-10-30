@@ -105,7 +105,6 @@ def test_validate_run_reports_rank_and_origin(tmp_path):
         relax_steps=3,
         n_procs=1,
         out_dir=tmp_path,
-        packing_range=(0.3, 0.8),
     )
     out = run_csp(cfg)
     exp = tmp_path / "exp.cif"

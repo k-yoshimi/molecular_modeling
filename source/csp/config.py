@@ -42,13 +42,13 @@ class CSPConfig:
     space_groups: list[int] = field(default_factory=lambda: list(DEFAULT_SPACE_GROUPS))
     z: dict[int, int] | None = None
     z_prime: int = 1
-    n_candidates_per_sg: int = 500
+    n_candidates_per_sg: int = 150
     generators: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_GENERATORS))
     seed_structures: list[SeedSpec] = field(default_factory=list)
-    packing_range: tuple[float, float] = (0.6, 0.8)
+    packing_range: tuple[float, float] = (0.4, 0.8)
     overlap_factor: float = 0.7
-    n_prescreen_keep: int = 150
-    relax_steps: int = 150
+    n_prescreen_keep: int = 32
+    relax_steps: int = 60
     relax_fmax: float = 0.05
     n_procs: int = field(default_factory=lambda: os.cpu_count() or 1)
     max_mol_rmsd: float = 0.5

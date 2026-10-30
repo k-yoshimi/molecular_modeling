@@ -4,11 +4,11 @@ mode = "blind"                   # "blind": default space groups; "informed": us
 space_groups = [14, 2]           # used only in informed mode (ignored in blind mode)
 # z = { 14 = 4 }                 # optional: space group -> Z (default: general multiplicity x z_prime)
 z_prime = 1                      # molecules per asymmetric unit when z is not given
-n_candidates_per_sg = 50         # candidates generated per space group
-packing_range = [0.6, 0.8]       # allowed packing fraction range for generated cells
+n_candidates_per_sg = 50         # candidates generated per space group (built-in default: 150)
+packing_range = [0.4, 0.8]       # allowed packing fraction (vdW volume / cell volume) of the generated, unrelaxed cells
 overlap_factor = 0.7             # reject if distance < factor * sum of vdW radii
-n_prescreen_keep = 150           # candidates kept after cheap prescreening
-relax_steps = 150                # GFN2-xTB relaxation steps
+n_prescreen_keep = 32            # candidates kept after cheap prescreening (default sized for ~1 h, see the guide)
+relax_steps = 60                 # GFN2-xTB relaxation steps per candidate
 relax_fmax = 0.05                # relaxation force threshold (eV/A)
 n_procs = 4                      # worker processes
 max_mol_rmsd = 0.5               # max heavy-atom RMSD of molecule after relaxation (A)

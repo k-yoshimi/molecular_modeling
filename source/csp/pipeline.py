@@ -124,11 +124,13 @@ def _relax_with_budget(
     n_first = min(cfg.n_procs, len(cands))
     t0 = time.perf_counter()
     done = relax_many(cands[:n_first], mol, cfg, method)
-    per_cand = (time.perf_counter() - t0) / n_first
+    round_time = time.perf_counter() - t0  # wall time of one round of ``n_first`` parallel relaxations
+    per_cand = round_time / n_first
     rest = cands[n_first:]
     if rest:
         remaining = cfg.time_budget_min * 60 * SAFETY_MARGIN - (time.perf_counter() - t_start)
-        fit = max(0, int(remaining / per_cand)) if per_cand > 0 else len(rest)
+        # Only whole rounds count: a partly filled last round still takes as long as a full one.
+        fit = max(0, int(remaining // round_time)) * n_first if round_time > 0 else len(rest)
         if fit < len(rest):
             logger.info(
                 "time budget: %.1f s per candidate, %.0f s left; relaxing %d of %d remaining candidates",

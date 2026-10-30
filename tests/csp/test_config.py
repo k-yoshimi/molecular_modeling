@@ -44,7 +44,7 @@ def test_defaults_and_no_seed(tmp_path):
     cfg = load_csp_config(p)
     assert cfg.mode == "blind"
     assert cfg.generators == {"random": 0.6, "voronoi": 0.4}
-    assert cfg.n_candidates_per_sg == 500 and cfg.rng == 1
+    assert cfg.n_candidates_per_sg == 150 and cfg.rng == 1
 
 
 def test_unknown_key_rejected(tmp_path):
