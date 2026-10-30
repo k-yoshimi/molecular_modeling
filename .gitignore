@@ -225,3 +225,4 @@ source/voronoi_pngs/
 
 # uv lock file (library, not pinned)
 uv.lock
+.superpowers/
