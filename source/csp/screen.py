@@ -87,7 +87,7 @@ def rigid_lj_energy(atoms: Atoms, cutoff: float = 10.0) -> float:
     return e / 2.0 / len(np.unique(mol))
 
 
-def _density(atoms: Atoms) -> float:
+def crystal_density(atoms: Atoms) -> float:
     return float(atomic_masses[atoms.numbers].sum() * AMU_PER_A3_TO_G_PER_CM3 / atoms.get_volume())
 
 
@@ -114,7 +114,7 @@ def prescreen(cands: list[Candidate], mol_volume: float, cfg: CSPConfig) -> tupl
     for c in survivors:
         pf = packing_fraction(c.atoms, mol_volume)
         c.meta["packing"] = pf
-        c.density = _density(c.atoms)
+        c.density = crystal_density(c.atoms)
         if lo <= pf <= hi:
             packed.append(c)
     counts["packing"] = len(packed)
