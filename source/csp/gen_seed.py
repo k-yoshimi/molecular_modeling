@@ -60,6 +60,19 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
     atoms = read(str(cif), format="cif", store_tags=True)
     assert isinstance(atoms, Atoms)
     _check_occupancies(atoms, cif)
+    return np.array(atoms.get_cell()), split_molecules(atoms, source=str(cif))
+
+
+def split_molecules(atoms: Atoms, source: str = "structure") -> list[Atoms]:
+    """Split a periodic structure into whole molecules (bond-graph components, unwrapped across PBC).
+
+    Atom order inside each molecule follows the order in ``atoms``; ``mol_id`` is not used.
+
+    Raises
+    ------
+    ValueError
+        If a molecule cannot be rejoined into one connected piece (``source`` names the input).
+    """
     cell = np.array(atoms.get_cell())
     symbols = atoms.get_chemical_symbols()
     pos = atoms.get_positions()
@@ -83,9 +96,11 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
         sym = [symbols[i] for i in comp]
         unwrapped = unwrap_molecule(pos[comp], sym, cell, True)
         if not is_connected(unwrapped, sym):
-            raise ValueError(f"{cif}: molecule containing atom {comp[0]} cannot be rejoined (bonds wrap around the cell)")
+            raise ValueError(
+                f"{source}: molecule containing atom {comp[0]} cannot be rejoined (bonds wrap around the cell)"
+            )
         mols.append(Atoms(sym, positions=unwrapped, pbc=False))
-    return cell, mols
+    return mols
 
 
 def _symmetry_maps(cell: np.ndarray, parents: list[Atoms]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
