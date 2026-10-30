@@ -60,3 +60,29 @@ def test_match_and_align_element_map():
         match_and_align(sub, mol)
     res = match_and_align(sub, mol, element_map={"S": "C"})
     assert res.rmsd < 1e-6
+
+
+def _cubane():
+    a = 1.57 / 2
+    corners = np.array([[x, y, z] for x in (-a, a) for y in (-a, a) for z in (-a, a)])
+    h = corners * (1 + 1.09 / (a * np.sqrt(3)))
+    return Atoms("C8H8", positions=np.vstack([corners, h]))
+
+
+def test_match_and_align_degenerate_inertia_cube():
+    mol = _cubane()
+    bad = 0
+    for s in range(50):
+        moved = mol.copy()
+        moved.positions = Rotation.random(random_state=s).apply(mol.positions) + [1, -2, 3]
+        moved = moved[np.random.default_rng(s).permutation(len(moved))]
+        bad += match_and_align(moved, mol).rmsd >= 1e-6
+    assert bad == 0
+
+
+def test_perm_maps_hydrogens_with_heavy_only():
+    mol = load_molecule("data/benzene.toml")
+    moved = _moved(mol, 5)
+    res = match_and_align(moved, mol, heavy_only=True)
+    out = moved.positions[res.perm] @ res.rotation.T + res.translation
+    np.testing.assert_allclose(out, mol.positions, atol=1e-5)

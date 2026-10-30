@@ -10,6 +10,9 @@ from ase import Atoms
 from ase.io import read
 from molecular_modeling.molecule_unwrap import is_connected
 from scipy.optimize import linear_sum_assignment
+from scipy.spatial.transform import Rotation
+
+N_RANDOM_STARTS = 16
 
 
 @dataclass
@@ -79,13 +82,16 @@ def _assign(mob_pos: np.ndarray, tgt_pos: np.ndarray, mob_sym: np.ndarray, tgt_s
 
 
 def _initial_rotations(mobile: np.ndarray, target: np.ndarray) -> list[np.ndarray]:
-    """Four proper rotations aligning principal axes (sign combinations with det=+1)."""
+    """Four principal-axis alignments plus ``N_RANDOM_STARTS`` deterministic random rotations."""
     _, vm = np.linalg.eigh(np.cov((mobile - mobile.mean(0)).T, bias=True))
     _, vt = np.linalg.eigh(np.cov((target - target.mean(0)).T, bias=True))
     for v in (vm, vt):  # make the axis frames right-handed
         if np.linalg.det(v) < 0:
             v[:, 2] *= -1
-    return [vt @ np.diag(s) @ vm.T for s in ([1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1])]
+    rots = [vt @ np.diag(s) @ vm.T for s in ([1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1])]
+    # Principal axes are arbitrary for degenerate inertia (cubes, spheres, ...): add fixed-seed random starts.
+    rots.extend(Rotation.random(N_RANDOM_STARTS, random_state=0).as_matrix())
+    return rots
 
 
 def match_and_align(
