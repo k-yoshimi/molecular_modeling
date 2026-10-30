@@ -71,4 +71,47 @@ def test_run_csp_time_budget_respected(tmp_path):
     t0 = time.monotonic()
     run_csp(cfg)
     assert time.monotonic() - t0 < 3 * 60 * 1.2
+    # ~85 candidates survive prescreening but at most a few rounds fit, so truncation is certain.
     assert "time budget" in (tmp_path / "run.log").read_text()
+
+
+class _FakeClock:
+    """Stand-in for the ``time`` module whose clock only moves when the fake relaxation runs."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def perf_counter(self) -> float:
+        return self.now
+
+
+def _run_budget(monkeypatch, budget_min, n_cands=40, n_procs=4, round_s=100.0):
+    from molecular_modeling.csp import pipeline
+
+    clock = _FakeClock()
+    sizes: list[int] = []
+
+    def fake_relax_many(cands, mol, cfg, method):
+        sizes.append(len(cands))
+        clock.now += round_s
+        return list(cands)
+
+    monkeypatch.setattr(pipeline, "time", clock)
+    monkeypatch.setattr(pipeline, "relax_many", fake_relax_many)
+    cfg = replace(default_cfg(), n_procs=n_procs, time_budget_min=budget_min)
+    done = pipeline._relax_with_budget(list(range(n_cands)), None, cfg, "EMT", 0.0)  # type: ignore[arg-type]
+    return done, sizes
+
+
+def test_relax_budget_floors_to_whole_rounds(monkeypatch):
+    # 10 min * 0.9 = 540 s; first round takes 100 s -> 440 s left -> 4 whole rounds of 4 candidates.
+    done, sizes = _run_budget(monkeypatch, budget_min=10)
+    assert sizes == [4, 16]
+    assert len(done) == 20
+
+
+def test_relax_budget_first_round_always_runs(monkeypatch):
+    # 1 min budget is shorter than one round (100 s): the first round still runs, nothing more does.
+    done, sizes = _run_budget(monkeypatch, budget_min=1)
+    assert sizes == [4]
+    assert len(done) == 4

@@ -200,12 +200,17 @@ Reading the output
    Structures of the top 50.
 
 ``run.log``
-   How many candidates survived each stage and how long it took. Example (benzene, P-1)::
+   How many candidates survived each stage and how long it took. Example from a real run (benzene,
+   space groups P-1 and P2\ :sub:`1`/c, ``time_budget_min = 3``, 2 processes, 60 steps)::
 
-      generated 200 candidates {'random': 120, 'voronoi': 80} in 23.0 s
-      prescreen {'generated': 200, 'no_overlap': 85, 'packing': 85, 'kept': 85} in 3.4 s
-      relax: 2 relaxed, 0 rejected_deformed, 0 failed in 206.1 s
+      generated 200 candidates {'random': 120, 'voronoi': 80} in 22.9 s
+      prescreen {'generated': 200, 'no_overlap': 85, 'packing': 85, 'kept': 85} in 3.3 s
+      time budget: 37.0 s per candidate, 62 s left; relaxing 0 of 83 remaining candidates
+      relax: 2 relaxed, 0 rejected_deformed, 0 failed in 73.9 s
       dedupe: 2 -> 2 in 0.0 s
+
+   Here the first round (2 candidates, 74 s) already used most of the 3-minute budget, so no further
+   candidate was relaxed. Generation takes 23 s mostly because of the Voronoi orientation search.
 
    ``rejected_deformed`` counts molecules that deformed beyond ``max_mol_rmsd``; ``failed`` counts
    failed calculations. A line starting with ``time budget:`` means the number of relaxations was reduced
@@ -269,7 +274,8 @@ expect it to be slower.
    * - (reference) benzene P-1 Z = 2 (24 atoms), 150 steps
      - about 17 s
 
-GFN2-xTB cost grows nearly with the cube of the atom count, so 72 atoms cost about 40 times more than 24.
+GFN2-xTB cost grows faster than the cube of the atom count (a cubic law would give 27 times); 72 atoms
+cost roughly 40 times more per step than 24 atoms in these measurements.
 Relaxation takes almost all of the time.
 
 **Why these defaults** (fit within 90 % of ``time_budget_min = 60``, i.e. 54 min):
@@ -280,7 +286,11 @@ Relaxation takes almost all of the time.
 - One relaxation round (8 candidates at once): 60 steps x 10.9 s = about 11 min.
 - The remaining 54 - 4 = 50 min allows 4 rounds, about 44 min, i.e. 8 x 4 = **32 candidates**
   (``n_prescreen_keep = 32``).
-- Total about 48 min, inside the target.
+- Total about 48 min, inside the target. **This total is calculated from the measured step times; a full
+  default run was not timed end to end.** Convergence at 60 steps was not checked: ``relax_fmax`` may not be
+  reached.
+- A larger molecule than naphthalene, such as OS-2SMe, takes longer per step and therefore gets fewer rounds
+  within the same time.
 
 With ``relax_steps = 150`` one round takes about 27 min and only one round (8 candidates) fits into an
 hour. A relaxation that stops before full convergence is still adequate for narrowing down candidates,
@@ -288,8 +298,8 @@ so 60 is used. For production runs, raise ``time_budget_min``, reduce the number
 (``informed`` mode), or adjust ``n_procs`` to the number of cores.
 
 The time target works as follows. The first round (``n_procs`` candidates) is timed, and only as many whole
-rounds as fit in the remaining time are run. **The first round always runs**, so a ``time_budget_min``
-shorter than one round is exceeded.
+rounds as fit in the remaining time are run. **The first round always runs** (about 11 min at the defaults
+for naphthalene, plus about 4 min of generation), so a ``time_budget_min`` under about 15 min is exceeded.
 
 About the packing range
 ~~~~~~~~~~~~~~~~~~~~~~~
