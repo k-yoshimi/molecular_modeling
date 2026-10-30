@@ -29,12 +29,13 @@ def deduplicate(
         Representatives, lowest energy first. Their ``meta`` is copied before ``duplicates`` is added.
     """
     from pymatgen.analysis.structure_matcher import StructureMatcher
+    from pymatgen.core import Structure
     from pymatgen.io.ase import AseAtomsAdaptor
 
     matcher = StructureMatcher(ltol=ltol, stol=stol, angle_tol=angle_tol)
     order = sorted(cands, key=lambda c: float("inf") if c.energy_per_mol is None else c.energy_per_mol)
     kept: list[Candidate] = []
-    structures = []
+    structures: list[Structure] = []
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", module=r"pymatgen\..*")
         for cand in order:
