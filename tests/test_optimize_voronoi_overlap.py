@@ -250,4 +250,44 @@ class TestOptimizeVoronoiOverlap:
         angles = result.info['optimized_angles_deg']
         assert angles.shape == (2, 3)
 
+    def test_optimize_preserves_intramolecular_distances(self, simple_atoms):
+        """
+        Optimization must rigidly rotate molecules, never rescale them.
+
+        The dictionary lattice is larger than the system cell, so the volume-matching
+        scale s differs from 1. Interatomic distances inside a molecule must still be
+        unchanged, while the scale remains recorded for the Voronoi comparison.
+        """
+        simple_atoms.info['site_mol_name'] = ['test_mol']
+        simple_atoms.info['dict_meta'] = {
+            'test_mol': {
+                'lattice_vectors': np.diag([13.0, 13.0, 13.0]).astype(float),
+                'center_of_mass': np.array([[6.5, 6.5, 6.5]], dtype=float),
+                'voronoi_ref_id': 0,
+            },
+        }
+        simple_atoms.info['rng'] = {'optimize': 1, 'global': 1}
+
+        groups = build_molecule_groups(simple_atoms)
+        assert all(len(g) >= 2 for g in groups)
+
+        def intramolecular_distances(atoms):
+            out = []
+            for g in groups:
+                pos = atoms.get_positions()[g]
+                for i in range(len(g)):
+                    for j in range(i + 1, len(g)):
+                        out.append(np.linalg.norm(pos[i] - pos[j]))
+            return np.array(out)
+
+        before = intramolecular_distances(simple_atoms)
+        result = optimize_voronoi_overlap(
+            simple_atoms, groups=groups, grid_num=(3, 3, 3), rng=1,
+        )
+        after = intramolecular_distances(result)
+
+        scales = np.asarray(result.info['optimized_scales'], float)
+        assert not np.allclose(scales, 1.0)
+        np.testing.assert_allclose(after, before, atol=1e-8)
+
 

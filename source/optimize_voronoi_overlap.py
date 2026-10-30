@@ -51,7 +51,7 @@ def optimize_voronoi_overlap(
     Returns
     -------
     ase.Atoms
-        The same `Atoms` with positions rotated/scaled in place and
+        The same `Atoms` with positions rotated in place and
         optimization results stored in `system.info` (`optimized_angles_deg`,
         `optimized_scales`, `optimized_iou`).
 
@@ -62,7 +62,9 @@ def optimize_voronoi_overlap(
       2. Compute dictionary Voronoi cell volume ``V_dict`` (rotation-invariant).
       3. Set uniform scale ``s = (V_sys / V_dict)^(1/3)`` (or 1 if ``V_dict <= 0``).
       4. Grid search then Nelder–Mead to maximize IoU using rotated+scaled dictionary seeds.
-      5. Apply rotation and uniform scaling about the site COM to atom coordinates.
+      5. Apply rotation only (rigid body) about the site COM to atom coordinates.
+         The scale ``s`` is used solely for the Voronoi cell comparison and is
+         not applied to atom coordinates, so intramolecular distances are kept.
     """
     # Resolve rng
     if rng is None:
@@ -184,12 +186,11 @@ def optimize_voronoi_overlap(
         if fx_star < best_fx:
             best_x, best_fx = x_star, fx_star
 
-        # ---- Step 5: apply rotation + uniform scaling to site atoms about COM ----
+        # ---- Step 5: rigidly rotate site atoms about COM (no scaling of coordinates) ----
         from scipy.spatial.transform import Rotation as R
         rot = R.from_euler("xyz", best_x, degrees=True)
         sub = pos[idxs]
-        # Order doesn't matter for uniform scaling around the same center; use rotate-then-scale.
-        pos[idxs] = p_ref + s * (rot.apply(sub - p_ref))
+        pos[idxs] = p_ref + rot.apply(sub - p_ref)
         system.set_positions(pos)
 
         final_angles[site_id] = best_x
