@@ -13,6 +13,7 @@ from typing import Callable, List, Optional
 
 import numpy as np
 from ase import Atoms
+from molecular_modeling.molecule_unwrap import extract_molecule
 
 from .base_dialog import BaseDialog, LabeledEntry
 
@@ -333,24 +334,13 @@ class SaveMoleculeDialog(BaseDialog):
         """Apply dialog result - write the TOML file."""
         name = self.name_entry.get().strip()
 
-        positions = self.atoms.get_positions()
-        symbols = self.atoms.get_chemical_symbols()
-
-        # Molecule positions and symbols
-        mol_symbols = [symbols[i] for i in self.selected_indices]
-        mol_positions = positions[self.selected_indices]
-
-        # Center of mass (using ASE)
-        sub_atoms = self.atoms[self.selected_indices]
-        com = sub_atoms.get_center_of_mass()
-        com_array = np.array([com])
+        # Rejoin the molecule across periodic boundaries; centre = plain mean of atom positions
+        mol_symbols, mol_positions_shifted, com = extract_molecule(self.atoms, self.selected_indices)
+        com_array = com[None, :]
 
         # Lattice vectors from the cell
         cell = self.atoms.get_cell()
         lattice = np.array(cell)
-
-        # Positions relative to the molecule's COM
-        mol_positions_shifted = mol_positions - com
 
         # Generate TOML
         toml_str = _format_toml(
