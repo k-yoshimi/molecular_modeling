@@ -1,0 +1,165 @@
+import itertools
+from pathlib import Path
+
+import numpy as np
+import pytest
+from ase import Atoms
+from molecular_modeling.csp.candidate import Candidate
+from molecular_modeling.csp.config import SeedSpec
+from molecular_modeling.csp.gen_voronoi import (
+    best_orientation,
+    convex_iou,
+    generate_voronoi,
+    molecule_shape_points,
+    orient_candidate,
+    site_voronoi_vertices,
+)
+from molecular_modeling.csp.molecule import load_molecule, molecule_rmsd
+from scipy.spatial import ConvexHull
+
+pytest.importorskip("pyxtal")
+
+# ASE 3.x still assigns to ndarray.shape, which NumPy 2.5 deprecates (third-party, harmless).
+pytestmark = pytest.mark.filterwarnings("ignore:Setting the shape on a NumPy array:DeprecationWarning")
+
+DATA = Path(__file__).parent / "data"
+
+
+def spglib_number(atoms: Atoms) -> int:
+    import spglib
+
+    cell = (atoms.get_cell().array, atoms.get_scaled_positions(), atoms.get_atomic_numbers())
+    return int(spglib.get_symmetry_dataset(cell, symprec=1e-3).number)
+
+
+def rigid_rmsd(ref: Atoms, mol: Atoms) -> float:
+    """RMSD to ``ref`` or to its mirror image (improper symmetry copies are mirror images)."""
+    mirror = ref.copy()
+    mirror.positions[:, 0] *= -1
+    return min(molecule_rmsd(ref, mol), molecule_rmsd(mirror, mol))
+
+
+def test_molecule_shape_points_centered_and_sized():
+    mol = load_molecule("data/benzene.toml")
+    pts = molecule_shape_points(mol, n_sphere=26)
+    assert pts.shape == (12 * 26, 3)
+    np.testing.assert_allclose(pts.mean(axis=0), 0.0, atol=1e-10)
+    # every point lies on a vdW sphere: about 1.2 Å (H) or 1.7 Å (C) from its atom
+    d = np.linalg.norm(pts.reshape(12, 26, 3) - mol.get_positions()[:, None, :], axis=2)
+    np.testing.assert_allclose(d[:6], 1.7)
+    np.testing.assert_allclose(d[6:], 1.2)
+    # 26 points per atom already give a hull within 10 % of a finely sampled one
+    fine = ConvexHull(molecule_shape_points(mol, n_sphere=400)).volume
+    assert 0.9 * fine < ConvexHull(pts).volume <= fine
+
+
+def test_site_voronoi_vertices_single_site_is_cell_box():
+    cell = np.diag([4.0, 5.0, 6.0])
+    v = site_voronoi_vertices(cell, np.array([[1.0, 1.0, 1.0]]), 0)
+    np.testing.assert_allclose(v.mean(axis=0), 0.0, atol=1e-10)
+    assert ConvexHull(v).volume == pytest.approx(120.0)
+
+
+def test_convex_iou_identity_and_disjoint():
+    cube = np.array(list(itertools.product([-1, 1], repeat=3)), float)
+    assert convex_iou(cube, cube) == pytest.approx(1.0)
+    assert convex_iou(cube, cube * 0.5) == pytest.approx(1 / 8)
+
+
+def test_convex_iou_no_common_interior_is_zero():
+    cube = np.array(list(itertools.product([-1, 1], repeat=3)), float)
+    assert convex_iou(cube, cube + 5.0) == 0.0
+
+
+def test_best_orientation_aligns_elongated_shape_with_elongated_cell():
+    # a rod along x in an orthorhombic cell elongated along z -> rod should end up along z
+    rod = np.array([[x, y, z] for x in (-3, 3) for y in (-0.5, 0.5) for z in (-0.5, 0.5)], float)
+    cell = np.diag([4.0, 4.0, 12.0])
+    coms = np.zeros((1, 3))
+    rot, iou = best_orientation(rod, site_voronoi_vertices(cell, coms, 0))
+    assert abs(rot.apply([1, 0, 0])[2]) > 0.95
+    # the volume-matched rod (19 x 3.2 x 3.2 Å) overlaps the 4 x 4 x 12 Å cell by 12 x 3.2 x 3.2 Å
+    assert iou == pytest.approx(0.47, abs=0.03)
+
+
+def test_best_orientation_is_deterministic():
+    rod = np.array([[x, y, z] for x in (-3, 3) for y in (-0.5, 0.5) for z in (-0.5, 0.5)], float)
+    cv = site_voronoi_vertices(np.diag([4.0, 6.0, 12.0]), np.zeros((1, 3)), 0)
+    r1, i1 = best_orientation(rod, cv)
+    r2, i2 = best_orientation(rod, cv)
+    np.testing.assert_allclose(r1.as_matrix(), r2.as_matrix())
+    assert i1 == i2
+
+
+def test_orient_candidate_keeps_symmetry_and_rigidity():
+    from molecular_modeling.csp.gen_random import generate_random
+
+    mol = load_molecule("data/benzene.toml")
+    skel = generate_random(mol, 14, 4, n=1, rng=np.random.default_rng(2))[0]
+    before = skel.atoms.get_positions().copy()
+    out = orient_candidate(skel)
+    assert len(out) == 2 and all(c.origin == "voronoi" for c in out)
+    np.testing.assert_allclose(skel.atoms.get_positions(), before)  # input untouched
+    for c in out:
+        assert c.space_group == 14
+        assert 0.0 < c.meta["voronoi_iou"] <= 1.0
+        for k in range(4):
+            assert rigid_rmsd(mol, c.atoms[c.atoms.arrays["mol_id"] == k]) < 1e-3
+        assert spglib_number(c.atoms) == 14
+    assert molecule_rmsd(mol, out[0].atoms[out[0].atoms.arrays["mol_id"] == 0]) < 1e-3
+    # the two variants differ in orientation
+    assert not np.allclose(out[0].atoms.get_positions(), out[1].atoms.get_positions(), atol=1e-3)
+
+
+def test_orient_candidate_orients_every_wyckoff_site():
+    from molecular_modeling.csp.gen_random import generate_random
+
+    mol = load_molecule("data/benzene.toml")
+    skel = generate_random(mol, 2, 4, n=1, rng=np.random.default_rng(3))[0]  # Z'=2 in P-1
+    sites = skel.meta["pyxtal"].mol_sites
+    assert len(sites) >= 2
+    old = [s.orientation.matrix.copy() for s in sites]
+    out = orient_candidate(skel)
+    assert len(out[0].meta["voronoi_iou_per_site"]) == len(sites)
+    new_sites = out[0].meta["pyxtal"].mol_sites
+    for s_old, s_new in zip(old, new_sites):
+        assert not np.allclose(s_old, s_new.orientation.matrix)
+    # original pyxtal object unchanged
+    for s, m in zip(sites, old):
+        np.testing.assert_allclose(s.orientation.matrix, m)
+    for c in out:
+        for k in range(4):
+            assert rigid_rmsd(mol, c.atoms[c.atoms.arrays["mol_id"] == k]) < 1e-3
+        assert spglib_number(c.atoms) == 2
+
+
+def test_orient_seed_candidate_rotates_each_molecule_about_its_centre():
+    from molecular_modeling.csp.gen_seed import generate_from_seed
+
+    mol = load_molecule("data/benzene.toml")
+    skel = generate_from_seed(mol, SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[], volume_scale=1.0))[0]
+    out = orient_candidate(skel)
+    assert len(out) == 2 and all(c.origin == "voronoi" for c in out)
+    ids = skel.atoms.arrays["mol_id"]
+    for c in out:
+        assert "pyxtal" not in c.meta
+        np.testing.assert_array_equal(c.atoms.arrays["mol_id"], ids)
+        assert len(c.meta["voronoi_iou_per_site"]) == len(set(ids))
+        for k in sorted(set(ids)):
+            sel = ids == k
+            np.testing.assert_allclose(
+                c.atoms.positions[sel].mean(axis=0), skel.atoms.positions[sel].mean(axis=0), atol=1e-8
+            )
+            assert rigid_rmsd(mol, c.atoms[sel]) < 1e-3
+
+
+def test_generate_voronoi_concatenates():
+    cube_mol = Atoms("C2", positions=[[-0.7, 0, 0], [0.7, 0, 0]])
+    atoms = Atoms("C2", positions=cube_mol.positions + 2.0, cell=np.diag([4.0, 4.0, 8.0]), pbc=True)
+    atoms.set_array("mol_id", np.array([0, 0]))
+    skel = Candidate(atoms=atoms, origin="seed:x", space_group=1)
+    out = generate_voronoi([skel, skel])
+    assert len(out) == 4 and all(c.origin == "voronoi" for c in out)
+    # the C2 rod ends up along the long cell axis
+    d = out[0].atoms.positions[1] - out[0].atoms.positions[0]
+    assert abs(d[2]) / np.linalg.norm(d) > 0.95
