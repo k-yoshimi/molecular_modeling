@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,13 @@ from molecular_modeling.molecule_unwrap import _bond_matrix, is_connected, unwra
 
 from .candidate import Candidate
 from .config import SeedSpec
-from .molecule import match_and_align, molecule_volume
+from .molecule import AlignResult, match_and_align, molecule_volume
+
+logger = logging.getLogger(__name__)
+
+#: Symmetry detection tolerance (Å) and atom-matching tolerance (Å) for parent-molecule mappings.
+SYMPREC = 0.1
+MATCH_TOL = 0.3
 
 
 def _check_occupancies(atoms: Atoms, cif: Path) -> None:
@@ -51,15 +58,16 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
     """
     cif = Path(cif)
     atoms = read(str(cif), format="cif", store_tags=True)
-    _check_occupancies(atoms, cif)  # type: ignore[arg-type]
-    cell = np.array(atoms.get_cell())  # type: ignore[union-attr]
-    symbols = atoms.get_chemical_symbols()  # type: ignore[union-attr]
-    pos = atoms.get_positions()  # type: ignore[union-attr]
+    assert isinstance(atoms, Atoms)
+    _check_occupancies(atoms, cif)
+    cell = np.array(atoms.get_cell())
+    symbols = atoms.get_chemical_symbols()
+    pos = atoms.get_positions()
     bonded, _ = _bond_matrix(pos, symbols, cell, True)
 
-    seen = np.zeros(len(atoms), dtype=bool)  # type: ignore[arg-type]
+    seen = np.zeros(len(atoms), dtype=bool)
     mols: list[Atoms] = []
-    for start in range(len(atoms)):  # type: ignore[arg-type]
+    for start in range(len(atoms)):
         if seen[start]:
             continue
         comp = [start]
@@ -78,6 +86,47 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
             raise ValueError(f"{cif}: molecule containing atom {comp[0]} cannot be rejoined (bonds wrap around the cell)")
         mols.append(Atoms(sym, positions=unwrapped, pbc=False))
     return cell, mols
+
+
+def _symmetry_maps(cell: np.ndarray, parents: list[Atoms]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
+    """Isometries taking parent molecule 0 onto each parent molecule, from the crystal's own symmetry.
+
+    For each molecule k >= 1 returns ``(M, shift, jmap)`` such that atom ``i`` of molecule 0 at
+    Cartesian ``x`` goes to ``x @ M + shift`` and corresponds to atom ``jmap[i]`` of molecule k;
+    ``M`` is orthogonal (proper or improper). ``None`` if no space-group operation (plus lattice
+    translation) maps molecule 0 onto molecule k.
+    """
+    import spglib
+
+    syms = [s for p in parents for s in p.get_chemical_symbols()]
+    numbers = Atoms(syms).get_atomic_numbers()
+    inv = np.linalg.inv(cell)
+    frac = [p.get_positions() @ inv for p in parents]
+    data = spglib.get_symmetry((cell, np.vstack(frac), numbers),  # type: ignore[arg-type]
+         symprec=SYMPREC)
+    out: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = [None]
+    if data is None:
+        return out * len(parents)
+    rots, trans = data["rotations"], data["translations"]
+    z0 = parents[0].get_atomic_numbers()
+    for k in range(1, len(parents)):
+        zk = parents[k].get_atomic_numbers()
+        found = None
+        for w_mat, w_vec in zip(rots, trans):
+            t = frac[0] @ w_mat.T + w_vec
+            n = np.round(frac[k].mean(axis=0) - t.mean(axis=0))
+            t = t + n
+            cart_t = t @ cell
+            cart_k = frac[k] @ cell
+            d = np.linalg.norm(cart_t[:, None, :] - cart_k[None, :, :], axis=2)
+            d[z0[:, None] != zk[None, :]] = np.inf
+            jmap = d.argmin(axis=1)
+            if d[np.arange(len(jmap)), jmap].max() < MATCH_TOL and len(set(jmap)) == len(jmap):
+                m = inv @ w_mat.T @ cell
+                found = (m, (w_vec + n) @ cell, jmap)
+                break
+        out.append(found)
+    return out
 
 
 def _enumerate_choices(symbols: list[str], substitutions: list[tuple[str, str, int]]) -> list[list[int]]:
@@ -126,8 +175,15 @@ def generate_from_seed(mol: Atoms, seed: SeedSpec) -> list[Candidate]:
         if sorted(p.get_chemical_symbols()) != sorted(p0_sym):
             raise ValueError(f"{seed.cif}: parent molecule {k} has a different composition from molecule 0")
 
-    # parent molecule 0 -> parent molecule k (unsubstituted parents, identical composition)
-    k_align = [match_and_align(p0, p, heavy_only=False) for p in parents[1:]]
+    # parent molecule 0 -> parent molecule k: crystal symmetry first, rigid fit only for P1 parents
+    sym_maps = _symmetry_maps(cell, parents)
+    k_align: list[AlignResult | None] = []
+    for k in range(1, len(parents)):
+        if sym_maps[k] is None:
+            logger.warning("%s: no symmetry operation maps molecule 0 onto molecule %d; using a rigid fit", seed.cif, k)
+            k_align.append(match_and_align(p0, parents[k], heavy_only=False))
+        else:
+            k_align.append(None)
 
     if seed.volume_scale == "auto":
         ratio = molecule_volume(mol) / molecule_volume(p0)
@@ -155,10 +211,20 @@ def generate_from_seed(mol: Atoms, seed: SeedSpec) -> list[Candidate]:
         base = (mol.get_positions()[al.perm]) @ al.rotation.T + al.translation
 
         mol_positions = [base]
-        for ka in k_align:
-            moved = base[ka.perm] @ ka.rotation.T + ka.translation
-            mol_positions.append(moved)
-        mol_symbols = [sub_sym] + [[sub_sym[j] for j in ka.perm] for ka in k_align]
+        mol_symbols = [sub_sym]
+        for k, ka in enumerate(k_align, start=1):
+            if ka is not None:
+                mol_positions.append(base[ka.perm] @ ka.rotation.T + ka.translation)
+                mol_symbols.append([sub_sym[j] for j in ka.perm])
+            else:
+                m, shift, jmap = sym_maps[k]  # type: ignore[misc]
+                moved = np.empty_like(base)
+                moved[jmap] = base @ m + shift
+                syms_k = [""] * len(jmap)
+                for i, j in enumerate(jmap):
+                    syms_k[j] = sub_sym[i]
+                mol_positions.append(moved)
+                mol_symbols.append(syms_k)
 
         all_pos: list[np.ndarray] = []
         all_sym: list[str] = []

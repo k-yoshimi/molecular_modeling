@@ -14,6 +14,13 @@ from molecular_modeling.csp.molecule import load_molecule, molecule_rmsd, molecu
 DATA = Path(__file__).parent / "data"
 
 
+def rigid_rmsd(ref, mol) -> float:
+    """RMSD to ``ref`` or to its mirror image (symmetry ops of the parent can be improper)."""
+    mirror = ref.copy()
+    mirror.positions = -mirror.positions
+    return min(molecule_rmsd(ref, mol), molecule_rmsd(mirror, mol))
+
+
 def write_seed_cif(path: Path, occupancy_of_first_site: float = 1.0) -> Path:
     """Write a wrapped benzene P2_1/c crystal (from the random generator) as a P1 CIF with occupancies."""
     mol = load_molecule("data/benzene.toml")
@@ -62,7 +69,7 @@ def test_seed_rejoins_and_keeps_rigid_molecules():
     assert cands[0].space_group == 1
     atoms = cands[0].atoms
     for k in set(atoms.arrays["mol_id"]):
-        assert molecule_rmsd(mol, atoms[atoms.arrays["mol_id"] == k]) < 1e-3
+        assert rigid_rmsd(mol, atoms[atoms.arrays["mol_id"] == k]) < 1e-3
 
 
 def test_seed_substitution_enumerates_uniform_choices():
@@ -79,7 +86,23 @@ def test_seed_substitution_enumerates_uniform_choices():
         at = c.atoms
         for k in range(4):
             sub = at[at.arrays["mol_id"] == k]
-            assert molecule_rmsd(mol_f, sub) < 1e-3
+            assert rigid_rmsd(mol_f, sub) < 1e-3
+
+
+def test_seed_substituted_site_is_same_in_every_molecule():
+    mol = load_molecule("data/benzene.toml")
+    mol_f = mol.copy()
+    mol_f.symbols[6] = "F"
+    spec = SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[("H", "F", 1)], volume_scale=1.0)
+    cands = generate_from_seed(mol_f, spec)
+    for c in cands:
+        at = c.atoms
+        sites = []
+        for k in range(4):
+            sym = at[at.arrays["mol_id"] == k].get_chemical_symbols()
+            sites.append(sym.index("F"))
+        assert len(set(sites)) == 1, (c.meta["substitution_choice"], sites)
+        assert sites[0] == c.meta["substitution_choice"][0]
 
 
 def test_seed_auto_volume_scales_cell_not_molecules():
@@ -96,7 +119,7 @@ def test_seed_auto_volume_scales_cell_not_molecules():
     assert ratio > 1.05
     for k in range(4):
         sub = c_cl.atoms[c_cl.atoms.arrays["mol_id"] == k]
-        assert molecule_rmsd(big, sub) < 1e-3
+        assert rigid_rmsd(big, sub) < 1e-3
 
 
 def test_seed_rejects_partial_occupancy(tmp_path):
@@ -117,3 +140,11 @@ def test_molecule_volume_benzene():
     v = molecule_volume(load_molecule("data/benzene.toml"))
     assert 75.0 < v < 90.0  # ~78.8 with ASE's Bondi radii (converged grid)
     assert v == molecule_volume(load_molecule("data/benzene.toml"))
+
+
+def test_load_molecule_accepts_compact_symbols():
+    from molecular_modeling.molecule_unwrap import is_connected
+
+    nap = load_molecule("data/naphthalene.toml")
+    assert len(nap) == 18
+    assert is_connected(nap.get_positions(), nap.get_chemical_symbols())

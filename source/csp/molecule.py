@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 from ase import Atoms
 from ase.io import read
+from molecular_modeling.build_system_from_toml import expand_symbols
 from molecular_modeling.molecule_unwrap import is_connected
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
@@ -47,7 +48,7 @@ def load_molecule(path: str | Path) -> Atoms:
         pos = np.asarray(d["positions"], dtype=float)
         if d.get("use_fractional", False):
             pos = pos @ np.asarray(d["lattice_vectors"], dtype=float)
-        atoms = Atoms(symbols=list(d["symbols"]), positions=pos)
+        atoms = Atoms(symbols=expand_symbols(list(d["symbols"])), positions=pos)
     elif suffix == ".xyz":
         atoms = read(str(path), format="xyz")  # type: ignore[assignment]
     else:

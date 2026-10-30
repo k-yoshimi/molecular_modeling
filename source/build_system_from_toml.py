@@ -10,6 +10,29 @@ from ase import Atoms
 from scipy.spatial.transform import Rotation as R
 
 
+def expand_symbols(tokens: List[str]) -> List[str]:
+    """
+    Expand compact chemical tokens into elemental symbols.
+
+    Parameters
+    ----------
+    tokens : list[str]
+        Strings such as ``"C6H6"`` or ``"Si6O6"``.
+
+    Returns
+    -------
+    list[str]
+        Flattened elemental symbols expanded by count.
+    """
+    pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
+    result: List[str] = []
+    for token in tokens:
+        for element, count_str in pattern.findall(token):
+            count = int(count_str) if count_str else 1
+            result.extend([element] * count)
+    return result
+
+
 def build_system_from_toml(*, verbose: bool = True) -> Atoms:
     """
     Build an ASE `Atoms` object from TOML inputs (supercell + substitutions).
@@ -75,28 +98,6 @@ def build_system_from_toml(*, verbose: bool = True) -> Atoms:
         center_of_mass_cart = center_of_mass_in
 
     # ----------- Helpers -----------
-    def expand_symbols(tokens: List[str]) -> List[str]:
-        """
-        Expand compact chemical tokens into elemental symbols.
-
-        Parameters
-        ----------
-        tokens : list[str]
-            Strings such as ``"C6H6"`` or ``"Si6O6"``.
-
-        Returns
-        -------
-        list[str]
-            Flattened elemental symbols expanded by count.
-        """
-        pattern = re.compile(r"([A-Z][a-z]?)(\d*)")
-        result: List[str] = []
-        for token in tokens:
-            for element, count_str in pattern.findall(token):
-                count = int(count_str) if count_str else 1
-                result.extend([element] * count)
-        return result
-
     def compute_positions(cfg: dict, site_com_cart: np.ndarray, angles_xyz_deg: List[float]) -> np.ndarray:
         """
         Compute rotated and translated Cartesian positions for one site.
