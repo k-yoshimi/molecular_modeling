@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from ase.io import write
 
 pytest.importorskip("pyxtal")
 pytest.importorskip("tblite")
@@ -191,3 +192,34 @@ def test_write_outputs_quotes_awkward_seed_names(tmp_path):
     assert rows[0]["energy_per_mol_eV"] == "-1.250000" and rows[0]["density_gcm3"] == "1.1000"
     assert rows[0]["max_mol_rmsd"] == "0.0100" and rows[0]["status"] == "relaxed"
     assert (tmp_path / f"001_{c.meta['id']}.cif").exists()
+
+
+def test_reused_output_dir_with_fewer_survivors(tmp_path):
+    """A second run into the same directory leaves CSV and ranked CIFs in agreement."""
+    import csv
+
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.validate import validate_run
+
+    cands = generate_random(load_molecule("data/benzene.toml"), 2, 2, n=3, rng=np.random.default_rng(0))
+    for k, c in enumerate(cands):
+        c.energy_per_mol, c.status = -1.0 + k, "relaxed"
+        c.meta["id"] = f"random-2-{k}"
+    cfg = replace(default_cfg(), out_dir=tmp_path)
+    pipeline._write_outputs(cfg, cands)  # first run: 3 survivors
+    assert len(list(tmp_path.glob("[0-9][0-9][0-9]_*.cif"))) == 3
+    (tmp_path / "notes.cif").write_text("not a ranked file")
+
+    second = [replace(cands[2], energy_per_mol=-2.0)]  # second run: 1 survivor, a different structure
+    pipeline._write_outputs(cfg, second)
+    with open(tmp_path / "candidates.csv", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    listed = {f"{int(r['rank']):03d}_{r['id']}.cif" for r in rows}
+    ranked = {p.name for p in tmp_path.glob("[0-9][0-9][0-9]_*.cif")}
+    assert listed == ranked == {"001_random-2-2.cif"}
+    assert (tmp_path / "notes.cif").exists()  # files that are not ranked CIFs are left alone
+
+    exp = tmp_path / "exp.cif"
+    write(exp, cands[0].atoms)  # matches only the stale first-run rank 1
+    report = validate_run(tmp_path, [exp], flip=None)
+    assert report.n_compared == 1 and report.entries[0].best_rank is None
