@@ -139,3 +139,20 @@ def test_relax_budget_relaxes_everything_when_time_allows(monkeypatch):
     done, sizes, _ = _run_budget(monkeypatch, budget_min=60, n_cands=10)
     assert sizes == [4, 4, 2]
     assert done == list(range(10))
+
+
+@pytest.mark.parametrize(("weight", "expect_seed"), [(0.0, False), (0.5, True), (None, True)])
+def test_seed_generator_weight_switches_seed_candidates(weight, expect_seed):
+    from pathlib import Path
+
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.config import SeedSpec
+
+    gens = {"random": 1.0} if weight is None else {"random": 1.0, "seed": weight}
+    cfg = replace(
+        default_cfg(), space_groups=[], generators=gens,
+        seed_structures=[SeedSpec(cif=Path("tests/csp/data/seed_benzene_p21c.cif"), volume_scale=1.0)],
+    )
+    cands = pipeline._generate(cfg, load_molecule("data/benzene.toml"), np.random.default_rng(0))
+    assert bool(cands) == expect_seed
+    assert all(c.origin.startswith("seed:") for c in cands)

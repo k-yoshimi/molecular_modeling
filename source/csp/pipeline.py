@@ -15,7 +15,7 @@ from ase import Atoms
 from ase.io import write
 
 from .candidate import MAX_CIF, Candidate
-from .config import CSPConfig
+from .config import SEED_GENERATOR_WEIGHT, CSPConfig
 from .dedupe import deduplicate
 from .gen_random import default_z, generate_random
 from .gen_seed import generate_from_seed
@@ -82,7 +82,12 @@ def _split_counts(cfg: CSPConfig) -> tuple[int, int]:
 
 
 def _generate(cfg: CSPConfig, mol: Atoms, rng: np.random.Generator) -> list[Candidate]:
-    """Generate all candidates (random, Voronoi-oriented and seed-based)."""
+    """Generate all candidates (random, Voronoi-oriented and seed-based).
+
+    ``random`` and ``voronoi`` weights split ``n_candidates_per_sg`` between those generators. The
+    ``seed`` weight only switches the seed generator on (> 0, the default when absent) or off (0):
+    a seed always yields one candidate per substitution choice.
+    """
     n_rand, n_vor = _split_counts(cfg)
     out: list[Candidate] = []
     for sg in cfg.space_groups:
@@ -102,7 +107,10 @@ def _generate(cfg: CSPConfig, mol: Atoms, rng: np.random.Generator) -> list[Cand
                 logger.info("space group %d: voronoi generator returned %d of %d requested", sg, len(vor), n_vor)
         logger.info("space group %d (Z=%d): random %d, voronoi %d", sg, z, len(rand), len(vor))
         out.extend(rand + vor)
-    for seed in cfg.seed_structures:
+    seed_weight = float(cfg.generators.get("seed", SEED_GENERATOR_WEIGHT))
+    if cfg.seed_structures and seed_weight <= 0:
+        logger.info("seed generator weight is %g: %d seed structure(s) not used", seed_weight, len(cfg.seed_structures))
+    for seed in cfg.seed_structures if seed_weight > 0 else []:
         seeded = generate_from_seed(mol, seed)
         logger.info("seed %s: %d candidates", seed.cif, len(seeded))
         out.extend(seeded)

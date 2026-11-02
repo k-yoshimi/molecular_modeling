@@ -66,3 +66,28 @@ def test_default_cfg_and_candidate():
     assert cfg.space_groups == [2] and cfg.n_procs == 1
     c = Candidate(atoms=Atoms("H"), origin="random", space_group=2)
     assert c.status == "generated" and c.meta == {}
+
+
+def _seed_toml(tmp_path, generators: str = "") -> Path:
+    p = tmp_path / "csp.toml"
+    p.write_text(
+        'molecule = "data/benzene.toml"\n' + generators + '[[seed_structures]]\ncif = "tests/csp/data/seed_benzene_p21c.cif"\n'
+    )
+    return p
+
+
+def test_seed_weight_added_when_seeds_given(tmp_path):
+    assert load_csp_config(_seed_toml(tmp_path)).generators["seed"] > 0
+
+
+def test_seed_weight_zero_kept(tmp_path):
+    cfg = load_csp_config(_seed_toml(tmp_path, "generators = {random = 1.0, seed = 0}\n"))
+    assert cfg.generators["seed"] == 0
+
+
+@pytest.mark.parametrize(
+    "generators", ["generators = {random = 1.0, seed = -1}\n", "generators = {random = 1.0, sede = 1}\n"]
+)
+def test_bad_generator_weights_rejected(tmp_path, generators):
+    with pytest.raises(ValueError, match="generators"):
+        load_csp_config(_seed_toml(tmp_path, generators))

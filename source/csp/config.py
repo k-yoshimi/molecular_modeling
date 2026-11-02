@@ -9,8 +9,11 @@ from typing import Any, Literal
 
 DEFAULT_SPACE_GROUPS: list[int] = [14, 2, 19, 15, 4, 61]
 DEFAULT_GENERATORS: dict[str, float] = {"random": 0.6, "voronoi": 0.4}
-#: Relative weight given to the seed generator when seed structures are supplied.
+#: Relative weight given to the seed generator when seed structures are supplied. For the seed
+#: generator the weight is an on/off switch: > 0 uses the seeds, 0 ignores them.
 SEED_GENERATOR_WEIGHT = 0.5
+#: Generator names accepted in ``generators``.
+GENERATOR_NAMES = ("random", "voronoi", "seed")
 
 
 @dataclass
@@ -66,7 +69,8 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     Raises
     ------
     ValueError
-        On unknown keys, bad mode, or ``informed`` mode without ``space_groups``.
+        On unknown keys, bad mode, ``informed`` mode without ``space_groups``, or unknown generator
+        names / negative generator weights.
     """
     with open(path, "rb") as f:
         raw: dict[str, Any] = tomllib.load(f)
@@ -109,6 +113,12 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     kwargs["seed_structures"] = seeds
 
     generators = dict(kwargs.get("generators", DEFAULT_GENERATORS))
+    bad_names = sorted(set(generators) - set(GENERATOR_NAMES))
+    if bad_names:
+        raise ValueError(f"unknown generators {bad_names}; use {', '.join(GENERATOR_NAMES)}")
+    for name, w in generators.items():
+        if not isinstance(w, (int, float)) or isinstance(w, bool) or w < 0:
+            raise ValueError(f"generators: weight of {name!r} must be a non-negative number, got {w!r}")
     if seeds and "seed" not in generators:
         generators["seed"] = SEED_GENERATOR_WEIGHT
     kwargs["generators"] = generators

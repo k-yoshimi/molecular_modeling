@@ -77,7 +77,10 @@ Input file (input/csp.toml)
      - Candidates generated per space group
    * - ``generators``
      - ``{random=0.6, voronoi=0.4}``
-     - Relative weights of the generators; ``seed`` is added automatically when seeds are given
+     - Relative weights of the generators (non-negative; names ``random``, ``voronoi``, ``seed``).
+       ``random`` and ``voronoi`` share ``n_candidates_per_sg`` in this ratio. ``seed`` is only an
+       on/off switch: when seeds are given it defaults to 0.5 (on), and ``seed = 0`` ignores them; each
+       seed always gives one candidate per substitution choice
    * - ``seed_structures``
      - omitted
      - List of seed CIFs (``[[seed_structures]]``), see below
