@@ -156,3 +156,24 @@ def test_seed_generator_weight_switches_seed_candidates(weight, expect_seed):
     cands = pipeline._generate(cfg, load_molecule("data/benzene.toml"), np.random.default_rng(0))
     assert bool(cands) == expect_seed
     assert all(c.origin.startswith("seed:") for c in cands)
+
+
+def test_write_outputs_quotes_awkward_seed_names(tmp_path):
+    import csv
+
+    from molecular_modeling.csp import pipeline
+
+    c = generate_random(load_molecule("data/benzene.toml"), 2, 2, n=1, rng=np.random.default_rng(0))[0]
+    c.origin = 'seed:parent,form "II"'
+    c.energy_per_mol, c.density, c.status = -1.25, 1.1, "relaxed"
+    c.meta.update(id=f"{pipeline._tag(c.origin)}-1-0", max_mol_rmsd=0.01)
+    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), [c])
+    text = (tmp_path / "candidates.csv").read_text()
+    assert text.splitlines()[0] == CSV_HEADER
+    rows = list(csv.DictReader(text.splitlines()))
+    assert len(rows) == 1 and None not in rows[0]  # no extra columns
+    assert rows[0]["origin"] == 'seed:parent,form "II"'
+    assert rows[0]["id"] == c.meta["id"]
+    assert rows[0]["energy_per_mol_eV"] == "-1.250000" and rows[0]["density_gcm3"] == "1.1000"
+    assert rows[0]["max_mol_rmsd"] == "0.0100" and rows[0]["status"] == "relaxed"
+    assert (tmp_path / f"001_{c.meta['id']}.cif").exists()

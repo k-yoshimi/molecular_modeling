@@ -1,6 +1,7 @@
 """End-to-end crystal structure prediction: generate, screen, relax, deduplicate, write."""
 from __future__ import annotations
 
+import csv
 import logging
 import math
 import time
@@ -163,19 +164,23 @@ def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
     for old in out_dir.glob("[0-9][0-9][0-9]_*.cif"):
         old.unlink()
     emin = ranked[0].energy_per_mol if ranked else 0.0
-    lines = [CSV_HEADER]
+    rows: list[list[str]] = []
     for rank, c in enumerate(ranked, start=1):
         assert c.energy_per_mol is not None and emin is not None
         rel = (c.energy_per_mol - emin) * EV_TO_KJMOL
         dens = "" if c.density is None else f"{c.density:.4f}"
         rmsd = c.meta.get("max_mol_rmsd")
-        lines.append(
-            f"{rank},{c.meta['id']},{c.energy_per_mol:.6f},{rel:.3f},{dens},{c.space_group},"
-            f"{_spacegroup_out(c.atoms)},{c.origin},{'' if rmsd is None else f'{rmsd:.4f}'},{c.status}"
-        )
+        rows.append([
+            str(rank), c.meta["id"], f"{c.energy_per_mol:.6f}", f"{rel:.3f}", dens, str(c.space_group),
+            str(_spacegroup_out(c.atoms)), c.origin, "" if rmsd is None else f"{rmsd:.4f}", c.status,
+        ])
         if rank <= MAX_CIF:
             write(out_dir / f"{rank:03d}_{c.meta['id']}.cif", c.atoms)
-    (out_dir / "candidates.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # csv.writer quotes fields that contain commas or quotes (e.g. from seed file names)
+    with open(out_dir / "candidates.csv", "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(CSV_HEADER.split(","))
+        writer.writerows(rows)
 
 
 def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
