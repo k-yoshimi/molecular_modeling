@@ -113,6 +113,17 @@ def split_molecules(atoms: Atoms, source: str = "structure") -> list[Atoms]:
     return mols
 
 
+def _nearest_orthogonal(m: np.ndarray) -> np.ndarray:
+    """The orthogonal matrix nearest to ``m`` (polar decomposition), with the same determinant sign.
+
+    A space-group operation found with a tolerance (cell metric only approximately preserved) gives a
+    Cartesian matrix that is slightly non-orthogonal and would deform the molecules it is applied to.
+    The singular values are positive, so a proper operation stays proper and an improper one improper.
+    """
+    u, _, vt = np.linalg.svd(m)
+    return u @ vt
+
+
 def _symmetry_maps(cell: np.ndarray, parents: list[Atoms]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
     """Isometries taking parent molecule 0 onto each parent molecule, from the crystal's own symmetry.
 
@@ -147,8 +158,10 @@ def _symmetry_maps(cell: np.ndarray, parents: list[Atoms]) -> list[tuple[np.ndar
             d[z0[:, None] != zk[None, :]] = np.inf
             jmap = d.argmin(axis=1)
             if d[np.arange(len(jmap)), jmap].max() < MATCH_TOL and len(set(jmap)) == len(jmap):
-                m = inv @ w_mat.T @ cell
-                found = (m, (w_vec + n) @ cell, jmap)
+                m = _nearest_orthogonal(inv @ w_mat.T @ cell)
+                # translation refitted for the orthogonalised M: centroid of molecule 0 onto that of molecule k
+                shift = cart_k.mean(axis=0) - (frac[0] @ cell).mean(axis=0) @ m
+                found = (m, shift, jmap)
                 break
         out.append(found)
     return out

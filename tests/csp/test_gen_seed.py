@@ -3,6 +3,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from ase import Atoms
+from ase.io import write
 
 pytest.importorskip("pyxtal")
 
@@ -148,3 +150,42 @@ def test_load_molecule_accepts_compact_symbols():
     nap = load_molecule("data/naphthalene.toml")
     assert len(nap) == 18
     assert is_connected(nap.get_positions(), nap.get_chemical_symbols())
+
+
+# Asymmetric molecule (no internal symmetry) for the approximate-symmetry tests.
+ASYM_MOL = Atoms("CNOS", positions=[[0, 0, 0], [1.3, 0, 0], [-0.4, 1.2, 0.3], [0.2, -0.6, 1.6]])
+
+
+def _pair_distances(pos: np.ndarray) -> np.ndarray:
+    return np.linalg.norm(pos[:, None, :] - pos[None, :, :], axis=2)
+
+
+@pytest.mark.parametrize(
+    "w_mat",
+    [np.diag([1, -1, 1]), np.diag([-1, 1, -1])],  # mirror (improper) and 2-fold axis (proper)
+    ids=["mirror", "twofold"],
+)
+def test_seed_approximate_symmetry_keeps_molecules_rigid(tmp_path, w_mat):
+    # gamma is 0.23 degrees off 90, so the operation is a symmetry only within the detection tolerance
+    # and its Cartesian matrix is not exactly orthogonal.
+    cell = np.array([[10.0, 0, 0], [0.04, 10.0, 0], [0, 0, 10.0]])
+    frac0 = (ASYM_MOL.positions + [2.0, 2.5, 3.0]) @ np.linalg.inv(cell)
+    frac1 = frac0 @ w_mat.T + [0.5, 0.5, 0.5]
+    seed = Atoms("CNOS" * 2, scaled_positions=np.vstack([frac0, frac1]) % 1.0, cell=cell, pbc=True)
+    cif = tmp_path / "seed.cif"
+    write(cif, seed)
+    mol = ASYM_MOL.copy()
+    mol.positions -= mol.positions.mean(axis=0)
+    cands = generate_from_seed(mol, SeedSpec(cif=cif, volume_scale=1.0))
+    ref = _pair_distances(mol.positions)
+    atoms = cands[0].atoms
+    for m in np.unique(atoms.arrays["mol_id"]):
+        idx = np.nonzero(atoms.arrays["mol_id"] == m)[0]
+        assert atoms.get_chemical_symbols()[idx[0] : idx[-1] + 1] == list("CNOS")
+        np.testing.assert_allclose(_pair_distances(atoms.positions[idx]), ref, atol=1e-9)
+    # each molecule still sits where (and with the handedness) the parent has it, up to the tolerance
+    _, parents = read_seed_molecules(cif)
+    for m, parent in enumerate(parents):
+        pos = atoms.positions[atoms.arrays["mol_id"] == m]
+        np.testing.assert_allclose(pos - pos.mean(axis=0), parent.positions - parent.positions.mean(axis=0), atol=0.02)
+        np.testing.assert_allclose(pos.mean(axis=0), parent.positions.mean(axis=0), atol=1e-9)
