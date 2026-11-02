@@ -288,3 +288,61 @@ def test_cli_writes_markdown(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "exp.cif" in printed
     assert "exp.cif" in (tmp_path / "validation.md").read_text()
+
+
+# Asymmetric three-atom molecule used for the extra-molecule (density) tests.
+CNO_MOL = Atoms("CNO", positions=[[0, 0, 0], [1.3, 0, 0], [-0.4, 1.2, 0.3]])
+
+
+def _cno_crystal(body_centred: bool) -> Atoms:
+    """One CNO molecule in a 20 Å cubic cell, optionally with a second copy at the body centre."""
+    pos = [CNO_MOL.positions + 5.0]
+    if body_centred:
+        pos.append(CNO_MOL.positions + 15.0)
+    n = len(pos)
+    a = Atoms("CNO" * n, positions=np.vstack(pos), cell=np.eye(3) * 20.0, pbc=True)
+    a.set_array("mol_id", np.repeat(np.arange(n), 3))
+    return a
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_extra_candidate_molecules_are_not_a_match(reverse):
+    # The body-centred crystal contains every molecule of the simple cubic one plus as many again;
+    # it must not count as the same structure in either direction.
+    simple, centred = _cno_crystal(False), _cno_crystal(True)
+    a, b = (centred, simple) if reverse else (simple, centred)
+    rmsd, n = rmsd_cluster(a, b)
+    assert n < 15
+
+
+def test_validate_run_extra_candidate_molecules_not_matched(tmp_path):
+    _fake_out_dir(tmp_path, [("random-1-0", "random", _cno_crystal(True))])
+    exp = tmp_path / "exp.cif"
+    write(exp, _cno_crystal(False))
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+
+
+def test_validate_run_flipped_only_candidate(tmp_path):
+    exp_atoms = generate_random(OSS_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    _fake_out_dir(tmp_path, [("random-2-0", "random", _swap_first(exp_atoms, "O", "S"))])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    report = validate_run(tmp_path, [exp])
+    entry = report.entries[0]
+    assert not entry.success and not report.success
+    assert entry.best_rank is None
+    assert entry.flip_match_rank == 1
+
+
+def test_validate_run_flip_check_rejects_extra_molecules(tmp_path):
+    # Flip (element-mapped) comparisons get the same extra-molecule check as plain ones.
+    simple = _cno_crystal(False)
+    simple.set_chemical_symbols(["C", "S", "O"])
+    centred = _cno_crystal(True)
+    centred.set_chemical_symbols(["C", "O", "S"] * 2)  # flipped and doubled
+    _fake_out_dir(tmp_path, [("random-1-0", "random", centred)])
+    exp = tmp_path / "exp.cif"
+    write(exp, simple)
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.best_rank is None and entry.flip_match_rank is None

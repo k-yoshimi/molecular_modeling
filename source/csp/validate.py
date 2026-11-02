@@ -165,11 +165,14 @@ def _match_clusters(
     b_pos: list[np.ndarray],
     b_sym: list[np.ndarray],
     b_com: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int] | None:
     """Pair cluster molecules by centroid, then atoms within each pair by position (per element).
 
-    Returns ``(target, mobile, com_dist)`` (stacked matched atoms of a and b, centroid distances of the
-    molecule pairs), or ``None`` if a pair has different compositions.
+    Returns ``(target, mobile, com_dist, n_extra)``: stacked matched atoms of a and b, centroid
+    distances of the molecule pairs, and the number of *unpaired* b molecules whose centroid lies
+    inside a's cluster (closer to a's centre molecule than the farthest cluster molecule minus
+    :data:`MATCH_COM_DIST`). Such a molecule has no partner in a although a matching structure would
+    have one there, so a denser b is not mistaken for a. ``None`` if a pair has different compositions.
     """
     cost = np.linalg.norm(a_com[:, None, :] - b_com[None, :, :], axis=2)
     rows, cols = linear_sum_assignment(cost)
@@ -180,7 +183,15 @@ def _match_clusters(
         perm = _assign(b_pos[j], a_pos[i], b_sym[j], a_sym[i])
         tgt.append(a_pos[i])
         mob.append(b_pos[j][perm])
-    return np.vstack(tgt), np.vstack(mob), cost[rows, cols]
+    radius = float(np.max(np.linalg.norm(a_com - a_com[0], axis=1))) - MATCH_COM_DIST
+    unpaired = np.setdiff1d(np.arange(len(b_com)), cols)
+    n_extra = int(np.sum(np.linalg.norm(b_com[unpaired] - a_com[0], axis=1) < radius))
+    return np.vstack(tgt), np.vstack(mob), cost[rows, cols], n_extra
+
+
+def _n_matched(com_dist: np.ndarray, n_extra: int) -> int:
+    """Matched cluster molecules (partner centroid within MATCH_COM_DIST), less unpaired intruders of b."""
+    return max(int(np.sum(com_dist < MATCH_COM_DIST)) - n_extra, 0)
 
 
 @dataclass
@@ -206,10 +217,10 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
         a.self_rotations = _self_rotations(a.heavy_pos[0], a.heavy_sym[0])
     pivot = a_pos[0].mean(axis=0)  # the self-rotations act about the centroid of the fitted centre atoms
 
-    def key(res: tuple[np.ndarray, np.ndarray, np.ndarray]) -> tuple[bool, float]:
-        tgt, mob, com_dist = res
+    def key(res: tuple[np.ndarray, np.ndarray, np.ndarray, int]) -> tuple[bool, float]:
+        tgt, mob, com_dist, n_extra = res
         rmsd = float(np.sqrt(np.mean(np.sum((tgt - mob) ** 2, axis=1))))
-        return int(np.sum(com_dist < MATCH_COM_DIST)) < n_mol, rmsd
+        return _n_matched(com_dist, n_extra) < n_mol, rmsd
 
     pools = []
     hyps: list[tuple[tuple[bool, float], int, np.ndarray, np.ndarray]] = []
@@ -260,14 +271,14 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
                 break
             res = cur
             if it < N_REFINE:
-                tgt, mob_moved, _ = cur
+                tgt, mob_moved, _, _ = cur
                 # refit on the untransformed b coordinates of the matched atoms
                 rot, trans = _kabsch((mob_moved - trans) @ rot, tgt)
         if res is None:
             continue
         k = key(res)
         if best is None or k < best[0]:
-            best = (k, _Result(k[1], int(np.sum(res[2] < MATCH_COM_DIST)), mirror))
+            best = (k, _Result(k[1], _n_matched(res[2], res[3]), mirror))
     assert best is not None
     return best[1]
 
@@ -289,8 +300,10 @@ def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int
     -------
     (rmsd, n_matched)
         Heavy-atom RMSD (Å) over the matched cluster and the number of molecules of ``a``'s cluster
-        whose centroid lies within 2.0 Å of its partner, for the best overlay (fully matched clusters
-        first, then lowest RMSD). ``(inf, 0)`` if the structures cannot be compared (the reason is
+        whose centroid lies within 2.0 Å of its partner, less the number of molecules of ``b`` that are
+        left without a partner although they lie inside the cluster (so a denser ``b`` that contains
+        all of ``a``'s molecules is not a match), for the best overlay (fully matched clusters first,
+        then lowest RMSD). ``(inf, 0)`` if the structures cannot be compared (the reason is
         logged as a warning).
     """
     ca = _prepare(np.array(a.get_cell()), split_molecules(a, "a"))
