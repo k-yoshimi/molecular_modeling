@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 
 from ase import Atoms
 
+#: Number of top-ranked candidates written as CIF files (``001_<id>.cif`` ...).
+MAX_CIF = 50
+
 
 @dataclass
 class Candidate:

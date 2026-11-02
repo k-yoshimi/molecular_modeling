@@ -14,7 +14,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import write
 
-from .candidate import Candidate
+from .candidate import MAX_CIF, Candidate
 from .config import CSPConfig
 from .dedupe import deduplicate
 from .gen_random import default_z, generate_random
@@ -30,7 +30,6 @@ CSV_HEADER = (
     "rank,id,energy_per_mol_eV,rel_energy_kJmol,density_gcm3,space_group_in,space_group_out,origin,max_mol_rmsd,status"
 )
 EV_TO_KJMOL = 96.485
-MAX_CIF = 50
 SAFETY_MARGIN = 0.9
 
 
@@ -143,7 +142,14 @@ def _relax_with_budget(
 
 
 def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
+    """Write ``candidates.csv`` and CIFs of the top :data:`MAX_CIF` candidates.
+
+    Ranked CIFs (``NNN_<id>.cif``) left in ``cfg.out_dir`` by an earlier run are removed first, so
+    the directory only holds files of this run.
+    """
     out_dir = Path(cfg.out_dir)
+    for old in out_dir.glob("[0-9][0-9][0-9]_*.cif"):
+        old.unlink()
     emin = ranked[0].energy_per_mol if ranked else 0.0
     lines = [CSV_HEADER]
     for rank, c in enumerate(ranked, start=1):

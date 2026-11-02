@@ -22,6 +22,7 @@ from ase.io import read
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
 
+from .candidate import MAX_CIF
 from .gen_seed import read_seed_molecules, split_molecules
 from .molecule import _assign, _initial_rotations, _kabsch, match_and_align
 
@@ -423,26 +424,48 @@ class ValidationReport:
 _Cand = tuple[int, str, str, "_Crystal | str"]
 
 
+def _load_cif(cif: Path) -> _Crystal | str:
+    """A candidate CIF as a prepared crystal, or an error message if it cannot be read."""
+    try:
+        atoms = read(str(cif), format="cif")
+        assert isinstance(atoms, Atoms)
+        return _prepare(np.array(atoms.get_cell()), split_molecules(atoms, str(cif)))
+    except Exception as exc:  # a broken candidate file must not stop the validation
+        logger.warning("%s: cannot be read: %s", cif.name, exc)
+        return f"cannot be read: {exc}"
+
+
 def _read_candidates(out_dir: Path) -> list[_Cand]:
-    """Candidate CIFs in ``out_dir`` as (rank, id, origin, crystal or error message), ordered by rank."""
-    origins: dict[str, str] = {}
+    """Candidate CIFs in ``out_dir`` as (rank, id, origin, crystal or error message), ordered by rank.
+
+    If ``candidates.csv`` exists, only the CIFs of its rows (``<rank:03d>_<id>.cif``) are used, so
+    files left from another run are ignored. A row whose rank or id was already seen is skipped with
+    a warning; a listed CIF that is missing (within the top :data:`MAX_CIF`) is reported as not
+    comparable. Without ``candidates.csv`` every ``NNN_<id>.cif`` file is used (origin ``?``).
+    """
     csv_path = out_dir / "candidates.csv"
-    if csv_path.exists():
-        with open(csv_path, newline="", encoding="utf-8") as fh:
-            for row in csv.DictReader(fh):
-                origins[row["id"]] = row["origin"]
     out: list[_Cand] = []
-    for cif in sorted(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
-        rank, cid = int(cif.stem[:3]), cif.stem[4:]
-        crystal: _Crystal | str
-        try:
-            atoms = read(str(cif), format="cif")
-            assert isinstance(atoms, Atoms)
-            crystal = _prepare(np.array(atoms.get_cell()), split_molecules(atoms, str(cif)))
-        except Exception as exc:  # a broken candidate file must not stop the validation
-            logger.warning("%s: cannot be read: %s", cif.name, exc)
-            crystal = f"cannot be read: {exc}"
-        out.append((rank, cid, origins.get(cid, "?"), crystal))
+    if not csv_path.exists():
+        for cif in sorted(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
+            out.append((int(cif.stem[:3]), cif.stem[4:], "?", _load_cif(cif)))
+        return sorted(out, key=lambda t: t[0])
+
+    seen_ranks: set[int] = set()
+    seen_ids: set[str] = set()
+    with open(csv_path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            rank, cid = int(row["rank"]), row["id"]
+            if rank in seen_ranks or cid in seen_ids:
+                logger.warning("candidates.csv: duplicate row (rank %d, id %s) skipped", rank, cid)
+                continue
+            seen_ranks.add(rank)
+            seen_ids.add(cid)
+            cif = out_dir / f"{rank:03d}_{cid}.cif"
+            if cif.exists():
+                out.append((rank, cid, row["origin"], _load_cif(cif)))
+            elif rank <= MAX_CIF:
+                logger.warning("%s: listed in candidates.csv but missing", cif.name)
+                out.append((rank, cid, row["origin"], "CIF file missing"))
     return sorted(out, key=lambda t: t[0])
 
 

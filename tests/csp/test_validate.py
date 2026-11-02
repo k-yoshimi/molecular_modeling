@@ -346,3 +346,41 @@ def test_validate_run_flip_check_rejects_extra_molecules(tmp_path):
     write(exp, simple)
     entry = validate_run(tmp_path, [exp]).entries[0]
     assert entry.best_rank is None and entry.flip_match_rank is None
+
+
+def test_validate_run_ignores_cifs_not_listed_in_csv(tmp_path):
+    # A stale ranked CIF from an earlier run in the same directory must not be compared.
+    target = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-2-0", "random", _benzene(2, 2, 6))])
+    write(tmp_path / "002_voronoi-14-0.cif", target)
+    exp = tmp_path / "exp.cif"
+    write(exp, target)
+    report = validate_run(tmp_path, [exp], flip=None)
+    assert report.n_compared == 1
+    assert [c.id for c in report.entries[0].comparisons] == ["random-2-0"]
+    assert report.entries[0].best_rank is None
+
+
+def test_validate_run_duplicate_csv_rows_compared_once(tmp_path, caplog):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    csv_path = tmp_path / "candidates.csv"
+    rows = csv_path.read_text().splitlines()
+    csv_path.write_text("\n".join([*rows, rows[1]]) + "\n")  # the same rank and id twice
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.validate"):
+        report = validate_run(tmp_path, [exp], flip=None)
+    assert report.n_compared == 1
+    assert "duplicate" in caplog.text
+
+
+def test_validate_run_reports_missing_listed_cif(tmp_path):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a), ("random-14-1", "random", a)])
+    (tmp_path / "002_random-14-1.cif").unlink()
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    comps = validate_run(tmp_path, [exp], flip=None).entries[0].comparisons
+    assert [c.rank for c in comps] == [1, 2]
+    assert comps[1].note is not None and "missing" in comps[1].note

@@ -115,3 +115,18 @@ def test_relax_budget_first_round_always_runs(monkeypatch):
     done, sizes = _run_budget(monkeypatch, budget_min=1)
     assert sizes == [4]
     assert len(done) == 4
+
+
+def test_write_outputs_removes_stale_ranked_cifs(tmp_path):
+    from molecular_modeling.csp import pipeline
+
+    cands = generate_random(load_molecule("data/benzene.toml"), 2, 2, n=3, rng=np.random.default_rng(0))
+    for k, c in enumerate(cands):
+        c.energy_per_mol = -1.0 + k
+        c.meta["id"] = f"random-2-{k}"
+    cfg = replace(default_cfg(), out_dir=tmp_path)
+    pipeline._write_outputs(cfg, cands)
+    assert len(list(tmp_path.glob("[0-9][0-9][0-9]_*.cif"))) == 3
+    (tmp_path / "notes.cif").write_text("user file")
+    pipeline._write_outputs(cfg, cands[:1])  # a second run in the same directory with fewer survivors
+    assert sorted(p.name for p in tmp_path.glob("*.cif")) == ["001_random-2-0.cif", "notes.cif"]

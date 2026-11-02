@@ -197,7 +197,9 @@ Reading the output
         - ``relaxed`` (accepted)
 
 ``001_<id>.cif`` ... ``050_<id>.cif``
-   Structures of the top 50.
+   Structures of the top 50. When ``out_dir`` is reused, ranked CIFs (``NNN_<id>.cif``) of the
+   earlier run are deleted first; ``candidates.csv`` and ``run.log`` are overwritten. Validation reads
+   only the CIFs listed in ``candidates.csv``.
 
 ``run.log``
    How many candidates survived each stage and how long it took. Example from a real run (benzene,
