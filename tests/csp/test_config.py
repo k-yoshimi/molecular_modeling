@@ -71,7 +71,9 @@ def test_default_cfg_and_candidate():
 def _seed_toml(tmp_path, generators: str = "") -> Path:
     p = tmp_path / "csp.toml"
     p.write_text(
-        'molecule = "data/benzene.toml"\n' + generators + '[[seed_structures]]\ncif = "tests/csp/data/seed_benzene_p21c.cif"\n'
+        'molecule = "data/benzene.toml"\n'
+        + generators
+        + '[[seed_structures]]\ncif = "tests/csp/data/seed_benzene_p21c.cif"\n'
     )
     return p
 

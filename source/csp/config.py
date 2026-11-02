@@ -1,4 +1,5 @@
 """Configuration for crystal structure prediction."""
+
 from __future__ import annotations
 
 import os

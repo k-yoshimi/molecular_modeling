@@ -1,4 +1,5 @@
 """Tests for seed-crystal candidate generation."""
+
 from pathlib import Path
 
 import numpy as np

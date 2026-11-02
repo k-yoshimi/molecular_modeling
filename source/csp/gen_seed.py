@@ -1,4 +1,5 @@
 """Candidate generation from a (substituted) parent crystal."""
+
 from __future__ import annotations
 
 import itertools
@@ -138,8 +139,10 @@ def _symmetry_maps(cell: np.ndarray, parents: list[Atoms]) -> list[tuple[np.ndar
     numbers = Atoms(syms).get_atomic_numbers()
     inv = np.linalg.inv(cell)
     frac = [p.get_positions() @ inv for p in parents]
-    data = spglib.get_symmetry((cell, np.vstack(frac), numbers),  # type: ignore[arg-type]
-         symprec=SYMPREC)
+    data = spglib.get_symmetry(
+        (cell, np.vstack(frac), numbers),  # type: ignore[arg-type]
+        symprec=SYMPREC,
+    )
     out: list[tuple[np.ndarray, np.ndarray, np.ndarray] | None] = [None]
     if data is None:
         return out * len(parents)

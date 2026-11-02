@@ -1,4 +1,5 @@
 """End-to-end crystal structure prediction: generate, screen, relax, deduplicate, write."""
+
 from __future__ import annotations
 
 import csv
@@ -143,7 +144,9 @@ def _relax_with_budget(
             if remaining < longest:
                 logger.info(
                     "time budget: %.1f s per candidate, %.0f s left; relaxing 0 of %d remaining candidates",
-                    longest / n_round, max(remaining, 0.0), len(rest),
+                    longest / n_round,
+                    max(remaining, 0.0),
+                    len(rest),
                 )
                 break
         batch, rest = rest[:n_round], rest[n_round:]
@@ -170,10 +173,20 @@ def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
         rel = (c.energy_per_mol - emin) * EV_TO_KJMOL
         dens = "" if c.density is None else f"{c.density:.4f}"
         rmsd = c.meta.get("max_mol_rmsd")
-        rows.append([
-            str(rank), c.meta["id"], f"{c.energy_per_mol:.6f}", f"{rel:.3f}", dens, str(c.space_group),
-            str(_spacegroup_out(c.atoms)), c.origin, "" if rmsd is None else f"{rmsd:.4f}", c.status,
-        ])
+        rows.append(
+            [
+                str(rank),
+                c.meta["id"],
+                f"{c.energy_per_mol:.6f}",
+                f"{rel:.3f}",
+                dens,
+                str(c.space_group),
+                str(_spacegroup_out(c.atoms)),
+                c.origin,
+                "" if rmsd is None else f"{rmsd:.4f}",
+                c.status,
+            ]
+        )
         if rank <= MAX_CIF:
             write(out_dir / f"{rank:03d}_{c.meta['id']}.cif", c.atoms)
     # csv.writer quotes fields that contain commas or quotes (e.g. from seed file names)
@@ -223,7 +236,10 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
         n_fail = sum(c.status == "failed" for c in relaxed)
         logger.info(
             "relax: %d relaxed, %d rejected_deformed, %d failed in %.1f s",
-            n_ok, n_rej, n_fail, time.perf_counter() - t,
+            n_ok,
+            n_rej,
+            n_fail,
+            time.perf_counter() - t,
         )
 
         t = time.perf_counter()

@@ -1,4 +1,5 @@
 """Cell relaxation of crystal candidates with a tight-binding (or test) calculator, in parallel."""
+
 from __future__ import annotations
 
 import os
@@ -139,9 +140,7 @@ def _failed(cand: Candidate, exc: BaseException) -> Candidate:
     return cand
 
 
-def _run_parallel(
-    jobs: list[tuple], keys: list[int], workers: int, results: list[Candidate | None]
-) -> list[int]:
+def _run_parallel(jobs: list[tuple], keys: list[int], workers: int, results: list[Candidate | None]) -> list[int]:
     """Run ``jobs[k]`` for ``k`` in ``keys`` on one pool; fill ``results`` and return unresolved keys.
 
     Unresolved are jobs whose result was lost because the pool broke (a worker died), whether they

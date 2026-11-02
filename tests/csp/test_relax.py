@@ -1,4 +1,5 @@
 """Tests for cell relaxation of candidates."""
+
 import importlib.util
 from dataclasses import replace
 
@@ -47,7 +48,9 @@ def test_mirror_image_molecules_not_flagged():
 def test_max_deformation_across_cell_boundary():
     mol = load_molecule("data/benzene.toml")
     n = len(mol)
-    atoms = Atoms(symbols=list(mol.symbols), positions=mol.positions + [0.5, 0.5, 5.0], cell=np.diag([12.0, 12.0, 12.0]), pbc=True)
+    atoms = Atoms(
+        symbols=list(mol.symbols), positions=mol.positions + [0.5, 0.5, 5.0], cell=np.diag([12.0, 12.0, 12.0]), pbc=True
+    )
     atoms.set_array("mol_id", np.zeros(n, dtype=int))
     atoms.wrap()
     assert np.any(np.abs(atoms.positions - (mol.positions + [0.5, 0.5, 5.0])) > 1.0)  # really wrapped
@@ -84,8 +87,7 @@ def test_relax_many_survives_worker_crash():
 
 def test_relax_candidate_emt_fills_fields():
     mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
-    atoms = Atoms("Cu4", positions=[[0, 0, 0], [0, 0, 2.5], [5, 5, 0], [5, 5, 2.5]],
-                  cell=[10, 10, 10], pbc=True)
+    atoms = Atoms("Cu4", positions=[[0, 0, 0], [0, 0, 2.5], [5, 5, 0], [5, 5, 2.5]], cell=[10, 10, 10], pbc=True)
     atoms.set_array("mol_id", np.array([0, 0, 1, 1]))
     c = Candidate(atoms=atoms, origin="random", space_group=1, meta={"pyxtal": object(), "lj": 1.0})
     out = relax_candidate(c, mol, "EMT", fmax=0.5, steps=3, max_mol_rmsd=5.0)

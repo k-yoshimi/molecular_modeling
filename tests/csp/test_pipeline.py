@@ -1,4 +1,5 @@
 """Tests for deduplication, the CSP pipeline and the CLI."""
+
 import math
 import time
 from dataclasses import replace
@@ -30,8 +31,13 @@ def test_deduplicate_merges_identical():
 
 def test_run_csp_benzene_end_to_end(tmp_path):
     cfg = replace(
-        default_cfg(), space_groups=[2], n_candidates_per_sg=6, n_prescreen_keep=2,
-        relax_steps=3, n_procs=1, out_dir=tmp_path,
+        default_cfg(),
+        space_groups=[2],
+        n_candidates_per_sg=6,
+        n_prescreen_keep=2,
+        relax_steps=3,
+        n_procs=1,
+        out_dir=tmp_path,
     )
     out = run_csp(cfg)
     rows = (tmp_path / "candidates.csv").read_text().splitlines()
@@ -66,8 +72,14 @@ def test_run_csp_time_budget_respected(tmp_path):
     so ``relax_steps`` is chosen such that one round fits well inside the budget.
     """
     cfg = replace(
-        default_cfg(), space_groups=[2, 14], n_candidates_per_sg=100, n_prescreen_keep=150,
-        relax_steps=60, n_procs=2, time_budget_min=3, out_dir=tmp_path,
+        default_cfg(),
+        space_groups=[2, 14],
+        n_candidates_per_sg=100,
+        n_prescreen_keep=150,
+        relax_steps=60,
+        n_procs=2,
+        time_budget_min=3,
+        out_dir=tmp_path,
     )
     t0 = time.monotonic()
     run_csp(cfg)
@@ -150,7 +162,9 @@ def test_seed_generator_weight_switches_seed_candidates(weight, expect_seed):
 
     gens = {"random": 1.0} if weight is None else {"random": 1.0, "seed": weight}
     cfg = replace(
-        default_cfg(), space_groups=[], generators=gens,
+        default_cfg(),
+        space_groups=[],
+        generators=gens,
         seed_structures=[SeedSpec(cif=Path("tests/csp/data/seed_benzene_p21c.cif"), volume_scale=1.0)],
     )
     cands = pipeline._generate(cfg, load_molecule("data/benzene.toml"), np.random.default_rng(0))
