@@ -29,6 +29,20 @@ UFF_LJ: dict[str, tuple[float, float]] = {
 }
 
 
+def check_supported_elements(mol: Atoms) -> None:
+    """Raise ValueError if ``mol`` has an element without UFF Lennard-Jones parameters (see ``UFF_LJ``).
+
+    The rigid LJ prescreen needs parameters for every element, so this is checked when the molecule is
+    loaded rather than after candidate generation.
+    """
+    missing = sorted(set(mol.get_chemical_symbols()) - set(UFF_LJ))
+    if missing:
+        raise ValueError(
+            f"element(s) {', '.join(missing)} not supported: the Lennard-Jones prescreen has parameters only "
+            f"for {', '.join(UFF_LJ)}"
+        )
+
+
 def _mol_ids(atoms: Atoms) -> np.ndarray:
     return atoms.arrays["mol_id"]
 

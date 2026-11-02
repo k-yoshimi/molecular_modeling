@@ -126,3 +126,22 @@ def test_informed_mode_keeps_z_prime(tmp_path):
     p = tmp_path / "csp.toml"
     p.write_text('molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2]\nz_prime = 2\n')
     assert load_csp_config(p).z_prime == 2
+
+
+def test_partial_generators_table_keeps_other_defaults(tmp_path):
+    # switching seeds off must not silently switch the random and Voronoi generators off too
+    cfg = load_csp_config(_seed_toml(tmp_path, "generators = {seed = 0}\n"))
+    assert cfg.generators == {"random": 0.6, "voronoi": 0.4, "seed": 0}
+    p = tmp_path / "plain.toml"
+    p.write_text('molecule = "data/benzene.toml"\ngenerators = {random = 1.0}\n')
+    assert load_csp_config(p).generators == {"random": 1.0, "voronoi": 0.4}
+
+
+def test_all_generators_off_rejected(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\ngenerators = {random = 0, voronoi = 0}\n')
+    with pytest.raises(ValueError, match="no generator"):
+        load_csp_config(p)
+    # seeds alone are enough
+    cfg = load_csp_config(_seed_toml(tmp_path, "generators = {random = 0, voronoi = 0}\n"))
+    assert cfg.generators["seed"] > 0

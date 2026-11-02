@@ -223,3 +223,19 @@ def test_reused_output_dir_with_fewer_survivors(tmp_path):
     write(exp, cands[0].atoms)  # matches only the stale first-run rank 1
     report = validate_run(tmp_path, [exp], flip=None)
     assert report.n_compared == 1 and report.entries[0].best_rank is None
+
+
+def test_run_csp_rejects_elements_without_lj_parameters(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    xyz = tmp_path / "silane.xyz"
+    xyz.write_text("5\n\nSi 0 0 0\nH 0.85 0.85 0.85\nH -0.85 -0.85 0.85\nH -0.85 0.85 -0.85\nH 0.85 -0.85 -0.85\n")
+
+    def no_generation(*args, **kwargs):
+        raise AssertionError("generation must not start")
+
+    monkeypatch.setattr(pipeline, "_generate", no_generation)
+    cfg = replace(default_cfg(), molecule=xyz, out_dir=tmp_path / "out")
+    with pytest.raises(ValueError, match="Si") as exc:
+        run_csp(cfg)
+    assert "H, C, N, O, F, S, Cl, Se, Br, I" in str(exc.value)

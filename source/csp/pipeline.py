@@ -24,7 +24,7 @@ from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
 from .molecule import load_molecule, molecule_volume
 from .relax import relax_many
-from .screen import prescreen
+from .screen import check_supported_elements, prescreen
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +217,7 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
         t_start = time.perf_counter()
         rng = np.random.default_rng(cfg.rng)
         mol = load_molecule(cfg.molecule)
+        check_supported_elements(mol)
 
         t = time.perf_counter()
         cands = _generate(cfg, mol, rng)

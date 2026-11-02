@@ -77,7 +77,7 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     ------
     ValueError
         On unknown keys, bad mode, ``informed`` mode without ``space_groups``, or unknown generator
-        names / negative or non-finite generator weights.
+        names / negative or non-finite generator weights, or no generator enabled.
     """
     with open(path, "rb") as f:
         raw: dict[str, Any] = tomllib.load(f)
@@ -127,7 +127,9 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     ]
     kwargs["seed_structures"] = seeds
 
-    generators = dict(kwargs.get("generators", DEFAULT_GENERATORS))
+    # the file's table is merged over the defaults: a name left out keeps its default weight, so a
+    # partial table (e.g. only ``seed = 0``) cannot switch other generators off by omission
+    generators = {**DEFAULT_GENERATORS, **kwargs.get("generators", {})}
     bad_names = sorted(set(generators) - set(GENERATOR_NAMES))
     if bad_names:
         raise ValueError(f"unknown generators {bad_names}; use {', '.join(GENERATOR_NAMES)}")
@@ -136,6 +138,10 @@ def load_csp_config(path: str | Path) -> CSPConfig:
             raise ValueError(f"generators: weight of {name!r} must be a finite non-negative number, got {w!r}")
     if seeds and "seed" not in generators:
         generators["seed"] = SEED_GENERATOR_WEIGHT
+    if generators.get("random", 0) + generators.get("voronoi", 0) <= 0 and not (
+        seeds and generators.get("seed", 0) > 0
+    ):
+        raise ValueError("generators: no generator is enabled (random and voronoi are 0 and no seeds are used)")
     kwargs["generators"] = generators
 
     return CSPConfig(**kwargs)
