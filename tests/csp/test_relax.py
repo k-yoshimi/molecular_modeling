@@ -213,3 +213,19 @@ def test_relax_candidate_rejects_bonded_molecules(shift):
 def test_relax_candidate_accepts_separate_molecules():
     out = relax_candidate(_c2_pair(4.0), C2, "EMT", fmax=0.05, steps=0, max_mol_rmsd=0.5)
     assert out.status == "relaxed" and "reject_reason" not in out.meta
+
+
+def test_relax_candidate_rejects_molecule_bonded_to_own_image():
+    # C2 along a 2.8 Å axis: each C is 1.4 Å from the other and from the other's periodic image (a chain).
+    atoms = Atoms("C2", positions=[[0, 3, 3], [1.4, 3, 3]], cell=[2.8, 10, 10], pbc=True)
+    atoms.set_array("mol_id", np.array([0, 0]))
+    out = relax_candidate(Candidate(atoms=atoms, origin="random", space_group=1), C2, "EMT", 0.05, 0, 0.5)
+    assert out.status == "rejected_deformed"
+    assert "bond" in out.meta["reject_reason"]
+
+
+def test_relax_candidate_accepts_wrapped_molecule():
+    # an ordinary molecule split across the cell boundary is not a bond to an image
+    out = relax_candidate(_c2_pair(5.0, shift=(9.0, 2.0, 3.0)), C2, "EMT", fmax=0.05, steps=0, max_mol_rmsd=0.5)
+    assert np.ptp(out.atoms.positions[:2, 0]) > 5  # really wrapped
+    assert out.status == "relaxed" and "reject_reason" not in out.meta

@@ -11,12 +11,12 @@ import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator
 from ase.filters import FrechetCellFilter
+from ase.neighborlist import natural_cutoffs, neighbor_list
 from ase.optimize import FIRE
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
-from molecular_modeling.csp.gen_seed import bond_components
 from molecular_modeling.csp.molecule import molecule_rmsd
-from molecular_modeling.csp.screen import crystal_density
+from molecular_modeling.csp.screen import crystal_density, whole_molecules
 from molecular_modeling.molecule_unwrap import is_connected, unwrap_molecule
 
 
@@ -77,14 +77,23 @@ def max_deformation(atoms: Atoms, ref_mol: Atoms) -> float:
 
 
 def molecules_bonded_together(atoms: Atoms) -> bool:
-    """True if the periodic bond graph does not split ``atoms`` into exactly its ``mol_id`` molecules.
+    """True if any molecule is covalently bonded to another molecule or to a periodic image of itself.
 
-    This catches bonds formed between molecules (or between a molecule and a periodic image of
-    another), which a per-molecule shape check cannot see.
+    Every ``mol_id`` molecule is first made whole (unwrapped across the cell boundary). Bonds are then
+    looked for with the same criterion as the molecule split (1.2 x natural covalent radii, periodic
+    images included); a bond counts as intermolecular unless it joins two atoms of the same molecule
+    at the same lattice shift. This catches molecules bonded to each other and molecules that have
+    become infinite chains through their own images, which a per-molecule shape check cannot see.
+
+    Raises
+    ------
+    ValueError
+        If a molecule is not one connected piece.
     """
-    mol_id = atoms.arrays["mol_id"]
-    expected = {frozenset(np.nonzero(mol_id == m)[0].tolist()) for m in np.unique(mol_id)}
-    return {frozenset(c) for c in bond_components(atoms)} != expected
+    whole = whole_molecules(atoms)
+    i, j, shift = neighbor_list("ijS", whole, natural_cutoffs(whole, mult=1.2))
+    mol = whole.arrays["mol_id"]
+    return bool(np.any((mol[i] != mol[j]) | np.any(shift != 0, axis=1)))
 
 
 def relax_candidate(
@@ -94,7 +103,7 @@ def relax_candidate(
 
     Sets ``status`` to ``"relaxed"``, ``"rejected_deformed"`` (a molecule deviates more than
     ``max_mol_rmsd`` from the reference/its mirror image, or is broken, or molecules have bonded to
-    each other; the reason is in ``meta["reject_reason"]``) or ``"failed"``
+    each other or to their own periodic images; the reason is in ``meta["reject_reason"]``) or ``"failed"``
     (exception text in ``meta["error"]``). Exceptions are never raised.
     The input candidate is mutated in place and returned.
     """
@@ -113,8 +122,12 @@ def relax_candidate(
         cand.meta["max_mol_rmsd"] = dev
         cand.meta["converged"] = converged
         cand.meta.pop("reject_reason", None)
-        if molecules_bonded_together(atoms):
-            cand.meta["reject_reason"] = "molecules bonded to each other"
+        try:
+            bonded = molecules_bonded_together(atoms)
+        except ValueError:  # a broken molecule; max_deformation reports it as infinite deformation
+            bonded = False
+        if bonded:
+            cand.meta["reject_reason"] = "molecules bonded to each other or to their own periodic images"
         elif not dev <= max_mol_rmsd:
             cand.meta["reject_reason"] = f"molecule deformed (RMSD {dev:.3f} > {max_mol_rmsd} Å)"
         cand.status = "rejected_deformed" if "reject_reason" in cand.meta else "relaxed"

@@ -33,7 +33,7 @@ def _mol_ids(atoms: Atoms) -> np.ndarray:
     return atoms.arrays["mol_id"]
 
 
-def _whole_molecules(atoms: Atoms) -> Atoms:
+def whole_molecules(atoms: Atoms) -> Atoms:
     """Copy of ``atoms`` in which every ``mol_id`` molecule is unwrapped into one connected piece.
 
     After this, two atoms of the same molecule at the same lattice shift (``S == 0`` in a neighbour
@@ -70,7 +70,7 @@ def has_intermolecular_overlap(atoms: Atoms, factor: float = 0.7) -> bool:
     molecule that is not one connected piece counts as an overlap (the candidate is unusable).
     """
     try:
-        atoms = _whole_molecules(atoms)
+        atoms = whole_molecules(atoms)
     except ValueError:
         return True
     radii = vdw_radii[atoms.numbers].astype(float)
@@ -111,7 +111,7 @@ def rigid_lj_energy(atoms: Atoms, cutoff: float = 10.0) -> float:
         if sym not in UFF_LJ:
             raise KeyError(f"no UFF Lennard-Jones parameters for element {sym!r}")
         x[k], dep[k] = UFF_LJ[sym]
-    atoms = _whole_molecules(atoms)
+    atoms = whole_molecules(atoms)
     i, j, s, d = neighbor_list("ijSd", atoms, cutoff)
     mol = _mol_ids(atoms)
     inter = (mol[i] != mol[j]) | np.any(s != 0, axis=1)
