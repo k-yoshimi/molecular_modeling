@@ -384,3 +384,62 @@ def test_validate_run_reports_missing_listed_cif(tmp_path):
     comps = validate_run(tmp_path, [exp], flip=None).entries[0].comparisons
     assert [c.rank for c in comps] == [1, 2]
     assert comps[1].note is not None and "missing" in comps[1].note
+
+
+def _cno_lattice() -> Atoms:
+    """3x3x3 repeat of the simple cubic CNO crystal (27 molecules, 60 Å cell)."""
+    ref = _cno_crystal(False).repeat((3, 3, 3))
+    ref.set_array("mol_id", np.repeat(np.arange(27), 3))
+    return ref
+
+
+def _cno_one_extra() -> Atoms:
+    """The 27-molecule lattice plus one extra molecule near the edge of the reference cluster."""
+    ref = _cno_lattice()
+    extra = Atoms("CNO", positions=CNO_MOL.positions + 5.0 + [27.0, 0, 0])
+    out = ref + extra
+    out.wrap()
+    out.set_array("mol_id", np.repeat(np.arange(28), 3))
+    return out
+
+
+def _cno_isolated_cluster() -> Atoms:
+    """Only the 15 molecules nearest to molecule 0 of the reference, in a 60 Å cell (5/9 of its density)."""
+    ref = _cno_lattice()
+    c = validate_mod._prepare(np.array(ref.get_cell()), split_molecules(ref))
+    idx, shift = validate_mod._cluster(c, 0, 15)
+    pos = np.vstack([c.mols[k].positions + s for k, s in zip(idx, shift)]) + 20.0
+    out = Atoms("CNO" * 15, positions=pos, cell=np.eye(3) * 60.0, pbc=True)
+    out.set_array("mol_id", np.repeat(np.arange(15), 3))
+    return out
+
+
+@pytest.mark.parametrize("make", [_cno_one_extra, _cno_isolated_cluster], ids=["edge_extra", "lower_density"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_rejects_partial_and_density_mismatch(make, reverse):
+    a, b = _cno_lattice(), make()
+    if reverse:
+        a, b = b, a
+    rmsd, n = rmsd_cluster(a, b)
+    assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+@pytest.mark.parametrize("make", [_cno_one_extra, _cno_isolated_cluster], ids=["edge_extra", "lower_density"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_validate_run_rejects_partial_and_density_mismatch(tmp_path, make, reverse):
+    exp_atoms, cand = _cno_lattice(), make()
+    if reverse:
+        exp_atoms, cand = cand, exp_atoms
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+    if make is _cno_isolated_cluster:
+        note = entry.comparisons[0].note
+        assert note is not None and "densit" in note
+
+
+def test_rmsd_cluster_same_lattice_in_supercell_still_matches():
+    rmsd, n = rmsd_cluster(_cno_lattice(), _cno_crystal(False))
+    assert rmsd < 1e-6 and n == 15

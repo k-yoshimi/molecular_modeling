@@ -47,6 +47,12 @@ N_SELF_STARTS = 48
 MAX_SELF_ROTATIONS = 120
 #: Two rotation matrices closer than this (Frobenius norm) are the same.
 SAME_ROT_TOL = 0.1
+#: Structures whose molecular number densities (molecules per Å^3) differ by more than this factor are
+#: not compared. A 15-molecule cluster cannot detect a missing or extra molecule outside it, so a
+#: structure with far fewer or more molecules per volume could otherwise look identical. Relaxed and
+#: experimental cells of the same polymorph differ by a few percent (thermal expansion, method error),
+#: well inside this factor.
+MAX_DENSITY_RATIO = 1.2
 
 
 @dataclass
@@ -284,6 +290,32 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
     return best[1]
 
 
+def _density(c: _Crystal) -> float:
+    return len(c.mols) / abs(float(np.linalg.det(c.cell)))
+
+
+def _compare(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
+    """Cluster comparison of ``a`` and ``b`` that must hold both ways and at matching density.
+
+    The clusters are compared with ``a`` as reference and with ``b`` as reference, and the worse of the
+    two counts (fewer matched molecules, larger RMSD), so neither structure may contain molecules the
+    other lacks near the cluster centre. Structures whose molecular densities differ by more than
+    :data:`MAX_DENSITY_RATIO` are reported as not comparable (``rmsd`` inf).
+    """
+    if not a.mols or not b.mols:
+        return _Result(math.inf, 0, note="no molecules to compare")
+    fwd = _rmsd_crystals(a, b, n_mol)  # first, so that composition problems are reported as such
+    if fwd.note:
+        return fwd
+    ratio = _density(a) / _density(b)
+    if max(ratio, 1.0 / ratio) > MAX_DENSITY_RATIO:
+        return _Result(math.inf, 0, note=f"molecular densities differ by a factor {max(ratio, 1.0 / ratio):.2f}")
+    rev = _rmsd_crystals(b, a, n_mol)
+    if rev.note:
+        return rev
+    return _Result(max(fwd.rmsd, rev.rmsd), min(fwd.n_matched, rev.n_matched), fwd.mirror)
+
+
 def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int]:
     """COMPACK-style cluster RMSD between two periodic molecular crystals.
 
@@ -297,6 +329,11 @@ def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int
     matter. The best overlays are refined by a Kabsch fit over all matched heavy atoms. The cell choice
     of either structure does not matter.
 
+    The comparison is made both ways (clusters around a molecule of ``a`` and around a molecule of
+    ``b``) and the worse result is returned, so that extra or missing molecules in either structure
+    prevent a match. Structures whose molecular densities differ by more than
+    :data:`MAX_DENSITY_RATIO` are not compared.
+
     Returns
     -------
     (rmsd, n_matched)
@@ -304,12 +341,12 @@ def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int
         whose centroid lies within 2.0 Å of its partner, less the number of molecules of ``b`` that are
         left without a partner although they lie inside the cluster (so a denser ``b`` that contains
         all of ``a``'s molecules is not a match), for the best overlay (fully matched clusters first,
-        then lowest RMSD). ``(inf, 0)`` if the structures cannot be compared (the reason is
-        logged as a warning).
+        then lowest RMSD), taking the worse of the two directions. ``(inf, 0)`` if the structures
+        cannot be compared (the reason, e.g. different densities, is logged as a warning).
     """
     ca = _prepare(np.array(a.get_cell()), split_molecules(a, "a"))
     cb = _prepare(np.array(b.get_cell()), split_molecules(b, "b"))
-    res = _rmsd_crystals(ca, cb, n_mol)
+    res = _compare(ca, cb, n_mol)
     if res.note:
         logger.warning("structures not comparable: %s", res.note)
     return res.rmsd, res.n_matched
@@ -479,7 +516,7 @@ def _compare_all(
             continue
         if element_map:
             crystal = _with_symbols_mapped(crystal, element_map)
-        res = _rmsd_crystals(exp, crystal, n_mol)
+        res = _compare(exp, crystal, n_mol)
         if res.note:
             logger.warning("%03d_%s.cif: not comparable: %s", rank, cid, res.note)
         out.append(Comparison(rank, cid, origin, res.rmsd, res.n_matched, res.mirror, res.note))
