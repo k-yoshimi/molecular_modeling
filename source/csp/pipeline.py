@@ -117,27 +117,31 @@ def _generate(cfg: CSPConfig, mol: Atoms, rng: np.random.Generator) -> list[Cand
 def _relax_with_budget(
     cands: list[Candidate], mol: Atoms, cfg: CSPConfig, method: str, t_start: float
 ) -> list[Candidate]:
-    """Relax ``cands``, truncating the list if the time budget would be exceeded."""
-    if not cands:
-        return []
-    n_first = min(cfg.n_procs, len(cands))
-    t0 = time.perf_counter()
-    done = relax_many(cands[:n_first], mol, cfg, method)
-    round_time = time.perf_counter() - t0  # wall time of one round of ``n_first`` parallel relaxations
-    per_cand = round_time / n_first
-    rest = cands[n_first:]
-    if rest:
-        remaining = cfg.time_budget_min * 60 * SAFETY_MARGIN - (time.perf_counter() - t_start)
-        # Only whole rounds count: a partly filled last round still takes as long as a full one.
-        fit = max(0, int(remaining // round_time)) * n_first if round_time > 0 else len(rest)
-        if fit < len(rest):
-            logger.info(
-                "time budget: %.1f s per candidate, %.0f s left; relaxing %d of %d remaining candidates",
-                per_cand, max(remaining, 0.0), fit, len(rest),
-            )
-            rest = rest[:fit]
-    if rest:
-        done = done + relax_many(rest, mol, cfg, method)
+    """Relax ``cands`` in rounds of ``cfg.n_procs``, stopping when the next round would exceed the budget.
+
+    The first round always runs. Before each further round the remaining time is compared with the
+    longest round so far; if it is shorter, the remaining candidates are dropped.
+    """
+    budget = cfg.time_budget_min * 60 * SAFETY_MARGIN
+    n_round = max(cfg.n_procs, 1)
+    done: list[Candidate] = []
+    rest = list(cands)
+    longest = 0.0  # wall time of the slowest round so far
+    n_done_rounds = 0
+    while rest:
+        if n_done_rounds:
+            remaining = budget - (time.perf_counter() - t_start)
+            if remaining < longest:
+                logger.info(
+                    "time budget: %.1f s per candidate, %.0f s left; relaxing 0 of %d remaining candidates",
+                    longest / n_round, max(remaining, 0.0), len(rest),
+                )
+                break
+        batch, rest = rest[:n_round], rest[n_round:]
+        t0 = time.perf_counter()
+        done = done + relax_many(batch, mol, cfg, method)
+        longest = max(longest, time.perf_counter() - t0)
+        n_done_rounds += 1
     return done
 
 

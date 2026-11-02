@@ -300,9 +300,14 @@ hour. A relaxation that stops before full convergence is still adequate for narr
 so 60 is used. For production runs, raise ``time_budget_min``, reduce the number of space groups
 (``informed`` mode), or adjust ``n_procs`` to the number of cores.
 
-The time target works as follows. The first round (``n_procs`` candidates) is timed, and only as many whole
-rounds as fit in the remaining time are run. **The first round always runs** (about 11 min at the defaults
-for naphthalene, plus about 4 min of generation), so a ``time_budget_min`` under about 15 min is exceeded.
+The time target works as follows. Candidates are relaxed in rounds of ``n_procs``, and every round is
+timed. Before each further round the time left (90 % of ``time_budget_min`` minus the time used so far)
+is compared with the slowest round so far; if it is shorter, the remaining candidates are skipped.
+Because the check is repeated before every round, later rounds that are slower than the first one stop
+the run early; a single round that is unexpectedly slow can still overrun the target by up to its own
+length.
+**The first round always runs** (about 11 min at the defaults for naphthalene, plus about 4 min of
+generation), so a ``time_budget_min`` under about 15 min is exceeded.
 
 About the packing range
 ~~~~~~~~~~~~~~~~~~~~~~~

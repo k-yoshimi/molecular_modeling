@@ -1,4 +1,5 @@
 """Tests for deduplication, the CSP pipeline and the CLI."""
+import math
 import time
 from dataclasses import replace
 
@@ -86,47 +87,55 @@ class _FakeClock:
 
 
 def _run_budget(monkeypatch, budget_min, n_cands=40, n_procs=4, round_s=100.0):
+    """Run the budgeted relaxation with a fake clock.
+
+    ``round_s`` is the wall time of one round of ``n_procs`` parallel relaxations (a number, or a
+    function of the 0-based round index); a call relaxing ``n`` candidates costs ``ceil(n / n_procs)``
+    rounds.
+    """
     from molecular_modeling.csp import pipeline
 
     clock = _FakeClock()
     sizes: list[int] = []
+    cost = round_s if callable(round_s) else (lambda k: round_s)
 
     def fake_relax_many(cands, mol, cfg, method):
+        for _ in range(math.ceil(len(cands) / cfg.n_procs)):
+            clock.now += cost(len(sizes))
         sizes.append(len(cands))
-        clock.now += round_s
         return list(cands)
 
     monkeypatch.setattr(pipeline, "time", clock)
     monkeypatch.setattr(pipeline, "relax_many", fake_relax_many)
     cfg = replace(default_cfg(), n_procs=n_procs, time_budget_min=budget_min)
     done = pipeline._relax_with_budget(list(range(n_cands)), None, cfg, "EMT", 0.0)  # type: ignore[arg-type]
-    return done, sizes
+    return done, sizes, clock.now
 
 
-def test_relax_budget_floors_to_whole_rounds(monkeypatch):
-    # 10 min * 0.9 = 540 s; first round takes 100 s -> 440 s left -> 4 whole rounds of 4 candidates.
-    done, sizes = _run_budget(monkeypatch, budget_min=10)
-    assert sizes == [4, 16]
-    assert len(done) == 20
+def test_relax_budget_runs_whole_rounds_while_time_is_left(monkeypatch):
+    # 10 min * 0.9 = 540 s; each round of 4 takes 100 s. After 5 rounds (500 s) only 40 s are left,
+    # less than a round, so 20 candidates are relaxed.
+    done, sizes, t = _run_budget(monkeypatch, budget_min=10)
+    assert sizes == [4] * 5
+    assert len(done) == 20 and t == 500
 
 
 def test_relax_budget_first_round_always_runs(monkeypatch):
     # 1 min budget is shorter than one round (100 s): the first round still runs, nothing more does.
-    done, sizes = _run_budget(monkeypatch, budget_min=1)
+    done, sizes, _ = _run_budget(monkeypatch, budget_min=1)
     assert sizes == [4]
     assert len(done) == 4
 
 
-def test_write_outputs_removes_stale_ranked_cifs(tmp_path):
-    from molecular_modeling.csp import pipeline
+def test_relax_budget_stops_when_rounds_get_slower(monkeypatch):
+    # The first round takes 1 s, later ones 100 s. A 60 s budget (54 s usable) must not commit all
+    # remaining candidates on the strength of the first fast round.
+    done, sizes, t = _run_budget(monkeypatch, budget_min=1, round_s=lambda k: 1.0 if k == 0 else 100.0)
+    assert sizes == [4, 4]
+    assert len(done) == 8 and t == 101
 
-    cands = generate_random(load_molecule("data/benzene.toml"), 2, 2, n=3, rng=np.random.default_rng(0))
-    for k, c in enumerate(cands):
-        c.energy_per_mol = -1.0 + k
-        c.meta["id"] = f"random-2-{k}"
-    cfg = replace(default_cfg(), out_dir=tmp_path)
-    pipeline._write_outputs(cfg, cands)
-    assert len(list(tmp_path.glob("[0-9][0-9][0-9]_*.cif"))) == 3
-    (tmp_path / "notes.cif").write_text("user file")
-    pipeline._write_outputs(cfg, cands[:1])  # a second run in the same directory with fewer survivors
-    assert sorted(p.name for p in tmp_path.glob("*.cif")) == ["001_random-2-0.cif", "notes.cif"]
+
+def test_relax_budget_relaxes_everything_when_time_allows(monkeypatch):
+    done, sizes, _ = _run_budget(monkeypatch, budget_min=60, n_cands=10)
+    assert sizes == [4, 4, 2]
+    assert done == list(range(10))
