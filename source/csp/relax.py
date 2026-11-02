@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 
@@ -121,10 +121,78 @@ def _failed(cand: Candidate, exc: BaseException) -> Candidate:
     return cand
 
 
+def _run_parallel(
+    jobs: list[tuple], keys: list[int], workers: int, results: list[Candidate | None]
+) -> list[int]:
+    """Run ``jobs[k]`` for ``k`` in ``keys`` on one pool; fill ``results`` and return unresolved keys.
+
+    Unresolved are jobs whose result was lost because the pool broke (a worker died), whether they
+    had been submitted or not; which of the submitted ones crashed is unknown at this point.
+    """
+    unresolved: list[int] = []
+    futures: dict[int, Future] = {}
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as ex:
+        for n, k in enumerate(keys):
+            try:
+                futures[k] = ex.submit(_worker, jobs[k])
+            except BrokenProcessPool:  # a worker already died; the rest is never submitted
+                unresolved.extend(keys[n:])
+                break
+        for k, fut in futures.items():
+            try:
+                results[k] = fut.result()
+            except BrokenProcessPool:
+                unresolved.append(k)
+            except Exception as exc:  # noqa: BLE001 - e.g. result unpickling errors
+                results[k] = _failed(jobs[k][0], exc)
+    return sorted(unresolved)
+
+
+def _run_isolated(jobs: list[tuple], keys: list[int], results: list[Candidate | None]) -> None:
+    """Run jobs one at a time in a single worker process, so a crash is pinned on the job that caused it.
+
+    A job is blamed only if it was running when its worker died. If a fresh pool cannot accept a job,
+    that job fails with a message saying so, and the others are still tried.
+    """
+    queue = list(keys)
+    ex: ProcessPoolExecutor | None = None
+    fresh = False
+    try:
+        while queue:
+            k = queue[0]
+            if ex is None:
+                ex = ProcessPoolExecutor(max_workers=1, initializer=_init_worker)
+                fresh = True
+            try:
+                fut = ex.submit(_worker, jobs[k])
+            except BrokenProcessPool as exc:
+                ex.shutdown(wait=True)
+                ex = None
+                if fresh:  # a new pool that cannot take a job: give up on this job only
+                    results[k] = _failed(jobs[k][0], RuntimeError(f"worker process could not be started: {exc}"))
+                    queue.pop(0)
+                continue
+            fresh = False
+            queue.pop(0)
+            try:
+                results[k] = fut.result()
+            except BrokenProcessPool:
+                results[k] = _failed(jobs[k][0], RuntimeError("worker process died"))
+                ex.shutdown(wait=True)
+                ex = None
+            except Exception as exc:  # noqa: BLE001 - e.g. result unpickling errors
+                results[k] = _failed(jobs[k][0], exc)
+    finally:
+        if ex is not None:
+            ex.shutdown(wait=True)
+
+
 def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     """Relax candidates in parallel with ``cfg.n_procs`` processes; results keep the input order.
 
-    ``meta["pyxtal"]`` is dropped before sending to workers (it may not be picklable).
+    ``meta["pyxtal"]`` is dropped before sending to workers (it may not be picklable). If a worker
+    process dies, the jobs whose results were lost (submitted or not) are re-run one at a time in a
+    single worker, so only the job that crashes its worker is marked ``"failed"``.
     """
     if not cands:
         return []
@@ -133,23 +201,8 @@ def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: s
         meta = {k: v for k, v in c.meta.items() if k != "pyxtal"}
         jobs.append((replace(c, meta=meta), ref_mol, method, cfg.relax_fmax, cfg.relax_steps, cfg.max_mol_rmsd))
     results: list[Candidate | None] = [None] * len(jobs)
-    pending = list(range(len(jobs)))
-    workers = cfg.n_procs
-    while pending:
-        broken: list[int] = []
-        with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as ex:
-            futures = {k: ex.submit(_worker, jobs[k]) for k in pending}
-            for k, fut in futures.items():
-                try:
-                    results[k] = fut.result()
-                except BrokenProcessPool:
-                    broken.append(k)
-                except Exception as exc:  # noqa: BLE001 - e.g. result unpickling errors
-                    results[k] = _failed(jobs[k][0], exc)
-        if workers == 1 and broken:
-            # with a single worker the first unresolved job in submission order is the one that crashed
-            results[broken[0]] = _failed(jobs[broken[0]][0], RuntimeError("worker process died"))
-            broken = broken[1:]
-        pending = broken
-        workers = 1  # re-run unresolved jobs one process at a time to isolate the crashing one
+    keys = list(range(len(jobs)))
+    if cfg.n_procs > 1:
+        keys = _run_parallel(jobs, keys, cfg.n_procs, results)
+    _run_isolated(jobs, keys, results)
     return [r for r in results if r is not None]

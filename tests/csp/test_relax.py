@@ -118,3 +118,72 @@ def test_relax_many_survives_failure():
     assert out[1].status != "failed"
     failed = next(c for c in out if c.status == "failed")
     assert "error" in failed.meta
+
+
+class _ControlledPool:
+    """In-process stand-in for ``ProcessPoolExecutor`` in which chosen jobs "kill their worker".
+
+    Jobs run synchronously at submission. A job whose ``meta["tag"]`` is in ``crash`` breaks the
+    pool: its future fails with ``BrokenProcessPool`` and every later ``submit`` raises it, as a real
+    pool does once a worker has died.
+    """
+
+    crash: set[int] = set()
+    submitted: list[list[int]] = []
+
+    def __init__(self, max_workers=None, initializer=None):
+        self.broken = False
+        self.log: list[int] = []
+        _ControlledPool.submitted.append(self.log)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def shutdown(self, wait=True):
+        pass
+
+    def submit(self, fn, job):
+        from concurrent.futures import Future
+        from concurrent.futures.process import BrokenProcessPool
+
+        if self.broken:
+            raise BrokenProcessPool("A child process terminated abruptly")
+        cand = job[0]
+        self.log.append(cand.meta["tag"])
+        fut: Future = Future()
+        if cand.meta["tag"] in self.crash:
+            self.broken = True
+            fut.set_exception(BrokenProcessPool("A child process terminated abruptly"))
+        else:
+            cand.status = "relaxed"
+            fut.set_result(cand)
+        return fut
+
+
+@pytest.mark.parametrize(("n_procs", "crash"), [(4, {1}), (4, {1, 2}), (1, {0, 1, 3}), (3, {2, 3, 4})])
+def test_relax_many_recovers_from_broken_pool_at_submit(monkeypatch, n_procs, crash):
+    from molecular_modeling.csp import relax as relax_mod
+
+    _ControlledPool.crash = set(crash)
+    _ControlledPool.submitted = []
+    monkeypatch.setattr(relax_mod, "ProcessPoolExecutor", _ControlledPool)
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=n_procs)
+    out = relax_many(_emt_cands(6), mol, cfg, method="EMT")
+    assert [c.meta["tag"] for c in out] == list(range(6))
+    for c in out:
+        if c.meta["tag"] in crash:
+            assert c.status == "failed" and "died" in c.meta["error"]
+        else:
+            assert c.status == "relaxed", c.meta.get("error")
+
+
+def test_relax_many_survives_consecutive_worker_crashes():
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    out = relax_many(_emt_cands(5, gold={1, 2}), mol, cfg, method="EMT-CRASH-ON-AU")
+    assert [c.meta["tag"] for c in out] == [0, 1, 2, 3, 4]
+    assert [c.status for c in out] == ["relaxed", "failed", "failed", "relaxed", "relaxed"]
