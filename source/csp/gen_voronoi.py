@@ -4,6 +4,7 @@ Each molecule's own shape (the convex hull of points on its atoms' van der Waals
 rotated to best fill its Voronoi cell, the cell built from the molecular centres of the crystal.
 Only rotations are applied to atoms; the shape is scaled for the overlap comparison only.
 """
+
 from __future__ import annotations
 
 import copy
@@ -194,17 +195,18 @@ def _euler_grid(*axes: np.ndarray) -> np.ndarray:
     return np.column_stack([g.ravel() for g in grids])
 
 
-def _long_axis(pos: np.ndarray, symbols: list[str]) -> np.ndarray:
-    """Unit vector along which the molecule is most elongated.
+def _plane_normal(pos: np.ndarray, symbols: list[str]) -> np.ndarray:
+    """Unit vector along which the molecule is thinnest (the normal of a planar molecule).
 
-    The principal axis with the largest eigenvalue of the gyration tensor of the heavy atoms
-    (all atoms if there are fewer than two heavy atoms).
+    The principal axis with the smallest eigenvalue of the gyration tensor of the heavy atoms (all
+    atoms if there are fewer than two heavy atoms). A 180° turn about it swaps the two ends of an
+    elongated molecule and keeps its plane.
     """
     heavy = np.array([s != "H" for s in symbols])
     p = pos[heavy] if heavy.sum() >= 2 else pos
     p = p - p.mean(axis=0)
     _, vecs = np.linalg.eigh(p.T @ p)
-    return vecs[:, -1]
+    return vecs[:, 0]
 
 
 def _site_representatives(cand: Candidate, n_mol: int) -> list[int]:
@@ -236,8 +238,10 @@ def orient_candidate(cand: Candidate, grid_num: tuple[int, int, int] = (9, 9, 9)
     rotated independently about its own centroid.
 
     Two candidates are returned: Δ, and Δ followed by a 180° rotation of each optimised
-    molecule about its long axis (the most elongated principal axis of the heavy-atom gyration
-    tensor). Both have ``origin = "voronoi"`` and ``meta["voronoi_iou"]`` (mean over optimised
+    molecule about its centroid and the axis normal to its plane (the principal axis of the
+    heavy-atom gyration tensor with the smallest extent). That turn exchanges the two ends of an
+    elongated molecule (head and tail, e.g. the O and S ends) and keeps the molecular plane, which
+    the shape/cell IoU cannot tell apart. Both have ``origin = "voronoi"`` and ``meta["voronoi_iou"]`` (mean over optimised
     molecules), ``meta["voronoi_iou_per_site"]``, ``meta["voronoi_variant"]`` (``"best"`` or
     ``"flip"``) and ``meta["parent_origin"]``. The input candidate is not modified.
     """
@@ -259,7 +263,7 @@ def orient_candidate(cand: Candidate, grid_num: tuple[int, int, int] = (9, 9, 9)
         shape = molecule_shape_points(Atoms(mol_syms, positions=rel))
         verts = site_voronoi_vertices(cell, coms, k)
         rot, iou = best_orientation(shape, verts, grid_num)
-        axis = _long_axis(rot.apply(rel), mol_syms)
+        axis = _plane_normal(rot.apply(rel), mol_syms)
         flip = Rotation.from_rotvec(np.pi * axis) * rot
         rots["best"].append(rot)
         rots["flip"].append(flip)

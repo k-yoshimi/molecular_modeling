@@ -163,3 +163,48 @@ def test_generate_voronoi_concatenates():
     # the C2 rod ends up along the long cell axis
     d = out[0].atoms.positions[1] - out[0].atoms.positions[0]
     assert abs(d[2]) / np.linalg.norm(d) > 0.95
+
+
+# Planar zigzag O-C-C-C-C-S: a 180° turn about the plane normal maps every atom onto the position of its
+# partner at the other end (O <-> S), so the swapped variant puts O where S was and vice versa.
+OS_ROD = Atoms(
+    "OCCCCS",
+    positions=[[-3.0, 0.5, 0], [-1.7, -0.2, 0], [-0.5, 0.5, 0], [0.5, -0.5, 0], [1.7, 0.2, 0], [3.0, -0.5, 0]],
+)
+
+
+@pytest.mark.parametrize("with_pyxtal", [False, True])
+def test_second_variant_swaps_head_and_tail(with_pyxtal):
+    if with_pyxtal:
+        from molecular_modeling.csp.gen_random import generate_random
+
+        skel = generate_random(OS_ROD, 2, 2, n=1, rng=np.random.default_rng(0))[0]
+    else:
+        atoms = Atoms(
+            OS_ROD.symbols, positions=OS_ROD.positions + [4.0, 4.5, 5.0], cell=np.diag([8.0, 9.0, 10.0]), pbc=True
+        )
+        atoms.set_array("mol_id", np.zeros(6, dtype=int))
+        skel = Candidate(atoms=atoms, origin="seed:x", space_group=1)
+    best, swapped = orient_candidate(skel)
+    assert swapped.meta["voronoi_variant"] == "flip"
+    ids = best.atoms.arrays["mol_id"]
+    for k in sorted(set(ids)):
+        sel = np.nonzero(ids == k)[0]
+        cell = np.asarray(best.atoms.cell)
+        p_best = best.atoms.positions[sel]
+        p_swap = swapped.atoms.positions[sel]
+        # rejoin across the boundary along the bonds (the rod is longer than half the cell)
+        from ase.geometry import find_mic
+        from molecular_modeling.molecule_unwrap import unwrap_molecule
+
+        syms = list(OS_ROD.symbols)
+        p_best = unwrap_molecule(p_best, syms, cell)
+        p_swap = unwrap_molecule(p_swap, syms, cell)
+        c_best, c_swap = p_best.mean(axis=0), p_swap.mean(axis=0)
+        np.testing.assert_allclose(find_mic(c_swap - c_best, cell)[1], 0.0, atol=1e-6)  # same centroid
+        # O of the swapped variant sits where S was, and S where O was; the molecular plane is kept
+        np.testing.assert_allclose(p_swap[0] - c_swap, p_best[5] - c_best, atol=1e-3)
+        np.testing.assert_allclose(p_swap[5] - c_swap, p_best[0] - c_best, atol=1e-3)
+        # rigid: all pair distances preserved
+        d = lambda p: np.linalg.norm(p[:, None] - p[None], axis=2)  # noqa: E731
+        np.testing.assert_allclose(d(p_swap), d(OS_ROD.positions), atol=1e-6)

@@ -204,8 +204,10 @@ taken from a parent structure. In CSP the Voronoi cell is used to choose the **i
 - Find the orientation that maximises the IoU between the cell and **the molecule's own shape** (the
   convex hull of its atoms inflated by vdW radii). For the comparison only, the shape is scaled to the
   cell volume. Atomic coordinates are not scaled; the molecule is only rotated as a rigid body.
-- For elongated, nearly symmetric molecules head and tail are hard to tell apart, so both the best
-  orientation and that orientation turned by 180° about the long axis become candidates.
+- For elongated, nearly symmetric molecules the shape cannot tell head from tail, so both the best
+  orientation and that orientation turned by 180° about the axis normal to the molecular plane (through
+  the centroid) become candidates. That turn exchanges the two ends (for OS-2SMe, the O end and the S
+  end) and keeps the molecular plane. In ``candidates.csv`` both variants have origin ``voronoi``.
 - The space-group symmetry is kept: the orientation is chosen for the asymmetric-unit molecules, and the
   others follow from the symmetry operations.
 
@@ -367,9 +369,10 @@ Relaxation takes almost all of the time.
 
 - Generation and prescreening: 6 space groups × 150 = 900 candidates. Per space group these are
   90 random crystals and 60 Voronoi candidates; the Voronoi candidates come from 30 PyXtal skeletons,
-  each giving 2 orientations (best and turned 180°, head/tail). PyXtal builds 6 × (90 + 30) = 720
-  crystals (about 30 s), the Voronoi orientation takes 6 × 30 skeletons × 0.7 s (about 2 min), LJ
-  ranking about 20 s: about 3-4 min. Seed candidates, if any, come on top.
+  each giving 2 orientations (the best one, and that one turned 180° about the plane normal to swap
+  head and tail). PyXtal builds 6 × (90 + 30) = 720 crystals (about 30 s), the Voronoi orientation
+  takes 6 × 30 skeletons × 0.7 s (about 2 min), LJ ranking about 20 s: about 3-4 min. Seed candidates,
+  if any, come on top.
 - One relaxation round (8 candidates at once): 60 steps × 10.9 s = about 11 min.
 - The remaining 54 - 4 = 50 min allows 4 rounds, about 44 min, i.e. 8 × 4 = **32 candidates**
   (``n_prescreen_keep = 32``).
