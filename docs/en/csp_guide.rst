@@ -83,14 +83,17 @@ Input file (input/csp.toml)
        otherwise); use ``informed`` mode for Z' = 2 (the cost grows)
    * - ``n_candidates_per_sg``
      - ``150``
-     - Candidates generated per space group
+     - Candidates requested per space group (random + Voronoi). This is a maximum: PyXtal gives up
+       on a space group after 5 × the requested number of attempts, and a Voronoi variant that
+       breaks a molecule apart is skipped, so fewer can result. Shortfalls are logged in ``run.log``
    * - ``generators``
      - ``{random=0.6, voronoi=0.4}``
      - Relative weights of the generators (finite, non-negative; names ``random``, ``voronoi``,
        ``seed``). The table is merged over the default: a name you leave out keeps its default weight,
        so ``generators = {seed = 0}`` only switches seeds off. Write 0 to switch a generator off.
        ``random`` and ``voronoi`` share ``n_candidates_per_sg`` in this ratio. ``seed`` is only an
-       on/off switch: when seeds are given it defaults to 0.5 (on), and ``seed = 0`` ignores them; each
+       on/off switch: when seeds are given it defaults to 0.5 (on), any positive value turns them on and
+       ``seed = 0`` ignores them; each
        seed always gives one candidate per substitution choice. At least one generator must be on
    * - ``seed_structures``
      - omitted
@@ -101,7 +104,8 @@ Input file (input/csp.toml)
        (molecules × molecular vdW volume / cell volume)
    * - ``overlap_factor``
      - ``0.7``
-     - Reject candidates with an interatomic distance below this factor × the sum of vdW radii
+     - Reject candidates in which atoms of different molecules (including a molecule and its own
+       periodic images) are closer than this factor × the sum of their vdW radii
    * - ``n_prescreen_keep``
      - ``32``
      - Candidates kept after prescreening, i.e. relaxed with GFN2-xTB
@@ -123,7 +127,8 @@ Input file (input/csp.toml)
      - Wall-clock target in minutes; see "Timings and defaults"
    * - ``rng``
      - ``1``
-     - Random seed (same value, same candidates)
+     - Random seed. The same value gives the same candidates only with the same input files, settings
+       and software versions (PyXtal, NumPy, ...)
    * - ``out_dir``
      - ``"csp_out"``
      - Output directory
@@ -207,7 +212,8 @@ Two modes
    ``z_prime`` is set to 1 (with a warning if the file says otherwise). ``seed_structures`` are still
    used if given, because a seed is a related crystal (e.g. the parent compound before O→S substitution),
    not the experimental structure of the target. For a prediction from the molecule alone, leave
-   ``seed_structures`` out, or switch seeds off with ``generators = {random = 0.6, voronoi = 0.4, seed = 0}``.
+   ``seed_structures`` out, or switch seeds off with ``generators = {seed = 0}`` (the other weights keep
+   their defaults).
 
 ``informed``
    You give the space groups (required), ``z`` and ``z_prime`` known from experiment. The search
@@ -306,7 +312,11 @@ Reading the output
    per space group. 85 have no overlap and all of them are inside the packing range; because
    ``n_prescreen_keep = 150`` is larger, all 85 are kept. The first round (``n_procs`` = 2 candidates,
    74 s) already used most of the 3-minute budget, so the other 83 were not relaxed. Generation takes
-   23 s mostly because of the Voronoi orientation search. Timings vary by a few seconds between runs.
+   23 s mostly because of the Voronoi orientation search. The relaxation counts depend on how long the
+   first round took, so they are observations of this timed run rather than fixed results; timings vary by
+   a few seconds between runs. The log was reproduced with identical counts using Python 3.13.12,
+   pyxtal 1.1.5, tblite 0.8.0, ase 3.29.0, numpy 2.5.4, scipy 1.18.1, pymatgen 2026.10.24 and
+   spglib 2.8.0.
 
    ``rejected_deformed`` counts candidates in which a molecule deformed beyond ``max_mol_rmsd`` or
    became covalently bonded to another molecule or to its own periodic image during relaxation;
@@ -388,7 +398,9 @@ GFN2-xTB cost grows faster than the cube of the atom count (a cubic law would gi
 cost roughly 40 times more per step than 24 atoms in these measurements.
 Relaxation takes almost all of the time.
 
-**Why these defaults** (fit within 90 % of ``time_budget_min = 60``, i.e. 54 min):
+**Why these defaults** (fit within 90 % of ``time_budget_min = 60``, i.e. 54 min). The arithmetic
+assumes that every requested candidate is generated; shortfalls (see ``n_candidates_per_sg``) only make
+the run shorter:
 
 - Generation and prescreening: 6 space groups × 150 = 900 candidates. Per space group these are
   90 random crystals and 60 Voronoi candidates; the Voronoi candidates come from 30 PyXtal skeletons,
