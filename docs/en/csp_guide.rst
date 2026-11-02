@@ -399,8 +399,10 @@ cost roughly 40 times more per step than 24 atoms in these measurements.
 Relaxation takes almost all of the time.
 
 **Why these defaults** (fit within 90 % of ``time_budget_min = 60``, i.e. 54 min). The arithmetic
-assumes that every requested candidate is generated; shortfalls (see ``n_candidates_per_sg``) only make
-the run shorter:
+assumes that every requested candidate is generated. A shortfall (see ``n_candidates_per_sg``) leaves
+fewer candidates for screening, but it need not shorten the run: PyXtal keeps retrying up to 5 × the
+requested number of attempts, which can make generation take longer, and as long as at least
+``n_prescreen_keep`` candidates pass prescreening the relaxation time is unchanged:
 
 - Generation and prescreening: 6 space groups × 150 = 900 candidates. Per space group these are
   90 random crystals and 60 Voronoi candidates; the Voronoi candidates come from 30 PyXtal skeletons,
