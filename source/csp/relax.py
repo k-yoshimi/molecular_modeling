@@ -13,6 +13,7 @@ from ase.filters import FrechetCellFilter
 from ase.optimize import FIRE
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
+from molecular_modeling.csp.gen_seed import bond_components
 from molecular_modeling.csp.molecule import molecule_rmsd
 from molecular_modeling.csp.screen import crystal_density
 from molecular_modeling.molecule_unwrap import is_connected, unwrap_molecule
@@ -74,13 +75,25 @@ def max_deformation(atoms: Atoms, ref_mol: Atoms) -> float:
     return worst
 
 
+def molecules_bonded_together(atoms: Atoms) -> bool:
+    """True if the periodic bond graph does not split ``atoms`` into exactly its ``mol_id`` molecules.
+
+    This catches bonds formed between molecules (or between a molecule and a periodic image of
+    another), which a per-molecule shape check cannot see.
+    """
+    mol_id = atoms.arrays["mol_id"]
+    expected = {frozenset(np.nonzero(mol_id == m)[0].tolist()) for m in np.unique(mol_id)}
+    return {frozenset(c) for c in bond_components(atoms)} != expected
+
+
 def relax_candidate(
     cand: Candidate, ref_mol: Atoms, method: str, fmax: float, steps: int, max_mol_rmsd: float
 ) -> Candidate:
     """Relax positions and cell, then fill energy, density and deformation metadata.
 
     Sets ``status`` to ``"relaxed"``, ``"rejected_deformed"`` (a molecule deviates more than
-    ``max_mol_rmsd`` from the reference/its mirror image, or is broken) or ``"failed"``
+    ``max_mol_rmsd`` from the reference/its mirror image, or is broken, or molecules have bonded to
+    each other; the reason is in ``meta["reject_reason"]``) or ``"failed"``
     (exception text in ``meta["error"]``). Exceptions are never raised.
     The input candidate is mutated in place and returned.
     """
@@ -98,7 +111,12 @@ def relax_candidate(
         cand.density = crystal_density(atoms)
         cand.meta["max_mol_rmsd"] = dev
         cand.meta["converged"] = converged
-        cand.status = "relaxed" if dev <= max_mol_rmsd else "rejected_deformed"
+        cand.meta.pop("reject_reason", None)
+        if molecules_bonded_together(atoms):
+            cand.meta["reject_reason"] = "molecules bonded to each other"
+        elif not dev <= max_mol_rmsd:
+            cand.meta["reject_reason"] = f"molecule deformed (RMSD {dev:.3f} > {max_mol_rmsd} Å)"
+        cand.status = "rejected_deformed" if "reject_reason" in cand.meta else "relaxed"
     except Exception as exc:  # noqa: BLE001 - a single failure must not stop the run
         cand.status = "failed"
         cand.meta["error"] = f"{type(exc).__name__}: {exc}"

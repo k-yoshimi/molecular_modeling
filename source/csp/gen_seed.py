@@ -63,6 +63,31 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
     return np.array(atoms.get_cell()), split_molecules(atoms, source=str(cif))
 
 
+def bond_components(atoms: Atoms) -> list[list[int]]:
+    """Atom indices of the connected components of the periodic bond graph of ``atoms``.
+
+    Bonds use the minimum-image convention (same criterion as :func:`unwrap_molecule`). Each
+    component is sorted; components are ordered by their first atom.
+    """
+    bonded, _ = _bond_matrix(atoms.get_positions(), atoms.get_chemical_symbols(), np.array(atoms.get_cell()), True)
+    seen = np.zeros(len(atoms), dtype=bool)
+    comps: list[list[int]] = []
+    for start in range(len(atoms)):
+        if seen[start]:
+            continue
+        comp = [start]
+        seen[start] = True
+        stack = [start]
+        while stack:
+            i = stack.pop()
+            for j in np.nonzero(bonded[i] & ~seen)[0]:
+                seen[j] = True
+                comp.append(int(j))
+                stack.append(int(j))
+        comps.append(sorted(comp))
+    return comps
+
+
 def split_molecules(atoms: Atoms, source: str = "structure") -> list[Atoms]:
     """Split a periodic structure into whole molecules (bond-graph components, unwrapped across PBC).
 
@@ -76,23 +101,8 @@ def split_molecules(atoms: Atoms, source: str = "structure") -> list[Atoms]:
     cell = np.array(atoms.get_cell())
     symbols = atoms.get_chemical_symbols()
     pos = atoms.get_positions()
-    bonded, _ = _bond_matrix(pos, symbols, cell, True)
-
-    seen = np.zeros(len(atoms), dtype=bool)
     mols: list[Atoms] = []
-    for start in range(len(atoms)):
-        if seen[start]:
-            continue
-        comp = [start]
-        seen[start] = True
-        stack = [start]
-        while stack:
-            i = stack.pop()
-            for j in np.nonzero(bonded[i] & ~seen)[0]:
-                seen[j] = True
-                comp.append(int(j))
-                stack.append(int(j))
-        comp.sort()
+    for comp in bond_components(atoms):
         sym = [symbols[i] for i in comp]
         unwrapped = unwrap_molecule(pos[comp], sym, cell, True)
         if not is_connected(unwrapped, sym):

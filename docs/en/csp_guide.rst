@@ -214,7 +214,8 @@ Reading the output
    Here the first round (2 candidates, 74 s) already used most of the 3-minute budget, so no further
    candidate was relaxed. Generation takes 23 s mostly because of the Voronoi orientation search.
 
-   ``rejected_deformed`` counts molecules that deformed beyond ``max_mol_rmsd``; ``failed`` counts
+   ``rejected_deformed`` counts candidates in which a molecule deformed beyond ``max_mol_rmsd`` or
+   molecules became bonded to each other during relaxation; ``failed`` counts
    failed calculations. A line starting with ``time budget:`` means the number of relaxations was reduced
    to fit the time target.
 

@@ -187,3 +187,27 @@ def test_relax_many_survives_consecutive_worker_crashes():
     out = relax_many(_emt_cands(5, gold={1, 2}), mol, cfg, method="EMT-CRASH-ON-AU")
     assert [c.meta["tag"] for c in out] == [0, 1, 2, 3, 4]
     assert [c.status for c in out] == ["relaxed", "failed", "failed", "relaxed", "relaxed"]
+
+
+def _c2_pair(dy: float, cell: float = 10.0, shift=(3.0, 3.0, 3.0)) -> Candidate:
+    """Two C2 molecules (bond 1.4 Å) side by side, ``dy`` Å apart."""
+    pos = np.array([[0, 0, 0], [1.4, 0, 0], [0, dy, 0], [1.4, dy, 0]]) + shift
+    atoms = Atoms("C4", positions=pos, cell=[cell] * 3, pbc=True)
+    atoms.set_array("mol_id", np.array([0, 0, 1, 1]))
+    atoms.wrap()
+    return Candidate(atoms=atoms, origin="random", space_group=1)
+
+
+C2 = Atoms("C2", positions=[[0, 0, 0], [1.4, 0, 0]])
+
+
+@pytest.mark.parametrize("shift", [(3.0, 3.0, 3.0), (9.0, 9.5, 3.0)])  # second: bonds across the boundary
+def test_relax_candidate_rejects_bonded_molecules(shift):
+    out = relax_candidate(_c2_pair(1.4, shift=shift), C2, "EMT", fmax=0.05, steps=0, max_mol_rmsd=0.5)
+    assert out.status == "rejected_deformed"
+    assert "bond" in out.meta["reject_reason"]
+
+
+def test_relax_candidate_accepts_separate_molecules():
+    out = relax_candidate(_c2_pair(4.0), C2, "EMT", fmax=0.05, steps=0, max_mol_rmsd=0.5)
+    assert out.status == "relaxed" and "reject_reason" not in out.meta
