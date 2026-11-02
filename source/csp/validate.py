@@ -24,7 +24,7 @@ from scipy.spatial.transform import Rotation
 
 from .candidate import MAX_CIF
 from .gen_seed import read_seed_molecules, split_molecules
-from .molecule import _assign, _initial_rotations, _kabsch, match_and_align
+from .molecule import AlignResult, _assign, _initial_rotations, _kabsch, match_and_align
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,9 @@ N_SELF_STARTS = 48
 MAX_SELF_ROTATIONS = 120
 #: Two rotation matrices closer than this (Frobenius norm) are the same.
 SAME_ROT_TOL = 0.1
+#: Tolerance (Å) for finding symmetry-equivalent molecules; only one of each class is used as a cluster
+#: centre. Kept small: a structure that is only nearly symmetric simply gets more centres.
+CENTRE_SYMPREC = 0.01
 #: Structures whose molecular number densities (molecules per Å^3) differ by more than this factor are
 #: not compared. A 15-molecule cluster cannot detect a missing or extra molecule outside it, so a
 #: structure with far fewer or more molecules per volume could otherwise look identical. Relaxed and
@@ -65,7 +68,9 @@ class _Crystal:
     shifts: np.ndarray  # (n_mol, 3) Cartesian shift from the molecule's own coordinates to the wrapped centroid
     heavy_pos: list[np.ndarray]  # positions of fitted atoms (heavy atoms, or all if the molecule has none)
     heavy_sym: list[np.ndarray]
-    self_rotations: list[np.ndarray] | None = None  # (pseudo-)symmetry rotations of molecule 0, computed lazily
+    # (pseudo-)symmetry rotations of each centre molecule, computed lazily
+    self_rotations: dict[int, list[np.ndarray]] = field(default_factory=dict)
+    centres: list[int] | None = None  # one molecule per symmetry-equivalence class, computed lazily
 
 
 def _prepare(cell: np.ndarray, mols: list[Atoms]) -> _Crystal:
@@ -214,14 +219,99 @@ def _formula(sym: np.ndarray) -> str:
     return "".join(f"{e}{n}" for e, n in zip(els, counts))
 
 
-def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
-    a_idx, a_shift = _cluster(a, 0, n_mol)
+def _centres(c: _Crystal) -> list[int]:
+    """Indices of molecules that represent every symmetry-equivalence class of ``c`` (lowest index each).
+
+    Two molecules are equivalent if a space-group operation of the whole structure (found by spglib with
+    :data:`CENTRE_SYMPREC`) maps an atom of one onto an atom of the other; operations map whole molecules
+    onto whole molecules, so that suffices. If no symmetry is found every molecule is a centre.
+    """
+    if c.centres is not None:
+        return c.centres
+    import spglib
+
+    owner = np.concatenate([np.full(len(m), k) for k, m in enumerate(c.mols)])
+    pos = np.vstack([m.get_positions() for m in c.mols])
+    numbers = np.concatenate([m.get_atomic_numbers() for m in c.mols])
+    parent = list(range(len(c.mols)))
+
+    def find(k: int) -> int:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    ds = None
+    if np.linalg.det(c.cell) > 0:
+        ds = spglib.get_symmetry_dataset(
+            (c.cell, pos @ np.linalg.inv(c.cell), numbers),  # type: ignore[arg-type]
+            symprec=CENTRE_SYMPREC,
+        )
+    if ds is not None:
+        equiv = np.asarray(ds["equivalent_atoms"] if isinstance(ds, dict) else ds.equivalent_atoms)
+        for atom, rep in enumerate(equiv):
+            ra, rb = find(int(owner[atom])), find(int(owner[rep]))
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+    c.centres = sorted({find(k) for k in range(len(c.mols))})
+    return c.centres
+
+
+def _reference(a: _Crystal, ci: int) -> int:
+    """The first centre of ``a`` whose molecule has the same heavy-atom composition as molecule ``ci``."""
+    key = sorted(a.heavy_sym[ci])
+    return next(k for k in _centres(a) if sorted(a.heavy_sym[k]) == key)
+
+
+def _atoms_of(c: _Crystal, k: int) -> Atoms:
+    return Atoms(c.mols[k].get_chemical_symbols(), positions=c.mols[k].get_positions())
+
+
+_Pool = tuple[bool, int, np.ndarray, list[np.ndarray], list[np.ndarray], np.ndarray, Atoms]
+
+
+def _pools(b: _Crystal, n_mol: int) -> list[_Pool]:
+    """Clusters of ``b`` and of its mirror image around each symmetry-distinct molecule.
+
+    A molecule related to another by a symmetry operation of ``b`` has a congruent cluster (an improper
+    operation is covered by the mirror image), so one molecule per class is enough.
+    """
+    out: list[_Pool] = []
+    centres = _centres(b)
+    for mirror, bb in ((False, b), (True, _inverted(b))):
+        for j in centres:
+            b_idx, b_shift = _cluster(bb, j, POOL_FACTOR * n_mol)
+            b_raw = [bb.heavy_pos[k] + s for k, s in zip(b_idx, b_shift)]
+            b_com_raw = np.array([bb.mols[k].get_positions().mean(axis=0) + s for k, s in zip(b_idx, b_shift)])
+            b_sym = [bb.heavy_sym[k] for k in b_idx]
+            b_centre = Atoms(bb.mols[j].get_chemical_symbols(), positions=bb.mols[j].get_positions() + b_shift[0])
+            out.append((mirror, j, bb.heavy_sym[j], b_raw, b_sym, b_com_raw, b_centre))
+    return out
+
+
+def _compose(first: AlignResult, second: AlignResult) -> tuple[np.ndarray, np.ndarray]:
+    """Rotation and translation of ``x -> second(first(x))`` (column-vector convention ``R x + t``)."""
+    return second.rotation @ first.rotation, second.rotation @ first.translation + second.translation
+
+
+def _rmsd_from_centre(
+    a: _Crystal, ci: int, pools: list[_Pool], pool_al: list[AlignResult | str], n_mol: int
+) -> _Result:
+    """Best overlay of the cluster of ``a`` around molecule ``ci`` onto any cluster in ``pools``.
+
+    ``pool_al[k]`` aligns the centre molecule of pool ``k`` onto the reference molecule
+    ``_reference(a, ci)`` (or is the reason it cannot be aligned). Combined with one alignment of that
+    reference onto molecule ``ci``, it gives the centre overlay; the self-rotations of ``ci`` and the
+    cluster refinement then correct the small error the composition can carry.
+    """
+    a_idx, a_shift = _cluster(a, ci, n_mol)
     a_pos = [a.heavy_pos[k] + s for k, s in zip(a_idx, a_shift)]
     a_sym = [a.heavy_sym[k] for k in a_idx]
     a_com = np.array([a.mols[k].get_positions().mean(axis=0) + s for k, s in zip(a_idx, a_shift)])
-    a_centre = Atoms(a.mols[0].get_chemical_symbols(), positions=a.mols[0].get_positions() + a_shift[0])
-    if a.self_rotations is None:
-        a.self_rotations = _self_rotations(a.heavy_pos[0], a.heavy_sym[0])
+    a_centre = Atoms(a.mols[ci].get_chemical_symbols(), positions=a.mols[ci].get_positions() + a_shift[0])
+    if ci not in a.self_rotations:
+        a.self_rotations[ci] = _self_rotations(a.heavy_pos[ci], a.heavy_sym[ci])
+    self_rots = a.self_rotations[ci]
     pivot = a_pos[0].mean(axis=0)  # the self-rotations act about the centroid of the fitted centre atoms
 
     def key(res: tuple[np.ndarray, np.ndarray, np.ndarray, int]) -> tuple[bool, float]:
@@ -229,46 +319,42 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
         rmsd = float(np.sqrt(np.mean(np.sum((tgt - mob) ** 2, axis=1))))
         return _n_matched(com_dist, n_extra) < n_mol, rmsd
 
-    pools = []
     hyps: list[tuple[tuple[bool, float], int, np.ndarray, np.ndarray]] = []
     notes: set[str] = set()
-    for mirror, bb in ((False, b), (True, _inverted(b))):
-        for j in range(len(bb.mols)):
-            if sorted(bb.heavy_sym[j]) != sorted(a.heavy_sym[0]):
-                notes.add(
-                    f"molecule compositions differ ({_formula(a.heavy_sym[0])} vs {_formula(bb.heavy_sym[j])},"
-                    " heavy atoms)"
-                )
+    ref = _reference(a, ci)
+    try:
+        ref_to_centre = match_and_align(_atoms_of(a, ref), a_centre, heavy_only=True)
+    except ValueError as exc:
+        return _Result(math.inf, 0, note=f"centre molecules cannot be aligned ({exc})")
+    for pi, (_mirror, _j, centre_sym, b_raw, b_sym, b_com_raw, _b_centre) in enumerate(pools):
+        if sorted(centre_sym) != sorted(a.heavy_sym[ci]):
+            notes.add(
+                f"molecule compositions differ ({_formula(a.heavy_sym[ci])} vs {_formula(centre_sym)}, heavy atoms)"
+            )
+            continue
+        al = pool_al[pi]
+        if isinstance(al, str):
+            notes.add(al)
+            continue
+        rot0, trans0 = _compose(al, ref_to_centre)
+        # every (pseudo-)symmetry-equivalent overlay of the centre molecule is a separate hypothesis
+        for s in self_rots:
+            rot = s @ rot0
+            trans = s @ (trans0 - pivot) + pivot
+            cur = _match_clusters(
+                a_pos, a_sym, a_com, [p @ rot.T + trans for p in b_raw], b_sym, b_com_raw @ rot.T + trans
+            )
+            if cur is None:
+                notes.add("cluster molecules have different compositions")
                 continue
-            b_idx, b_shift = _cluster(bb, j, POOL_FACTOR * n_mol)
-            b_raw = [bb.heavy_pos[k] + s for k, s in zip(b_idx, b_shift)]
-            b_com_raw = np.array([bb.mols[k].get_positions().mean(axis=0) + s for k, s in zip(b_idx, b_shift)])
-            b_sym = [bb.heavy_sym[k] for k in b_idx]
-            b_centre = Atoms(bb.mols[j].get_chemical_symbols(), positions=bb.mols[j].get_positions() + b_shift[0])
-            try:
-                al = match_and_align(b_centre, a_centre, heavy_only=True)
-            except ValueError as exc:
-                notes.add(f"centre molecules cannot be aligned ({exc})")
-                continue
-            pools.append((mirror, b_raw, b_sym, b_com_raw))
-            # every (pseudo-)symmetry-equivalent overlay of the centre molecule is a separate hypothesis
-            for s in a.self_rotations:
-                rot = s @ al.rotation
-                trans = s @ (al.translation - pivot) + pivot
-                cur = _match_clusters(
-                    a_pos, a_sym, a_com, [p @ rot.T + trans for p in b_raw], b_sym, b_com_raw @ rot.T + trans
-                )
-                if cur is None:
-                    notes.add("cluster molecules have different compositions")
-                    continue
-                hyps.append((key(cur), len(pools) - 1, rot, trans))
+            hyps.append((key(cur), pi, rot, trans))
     if not hyps:
         return _Result(math.inf, 0, note="; ".join(sorted(notes)) or "no molecules to compare")
 
     hyps.sort(key=lambda h: h[0])
     best: tuple[tuple[bool, float], _Result] | None = None
     for _k, pi, rot, trans in hyps[:N_KEEP_REFINE]:
-        mirror, b_raw, b_sym, b_com_raw = pools[pi]
+        mirror, _j, _cs, b_raw, b_sym, b_com_raw, _bc = pools[pi]
         res = None
         for it in range(N_REFINE + 1):
             cur = _match_clusters(
@@ -288,6 +374,41 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
             best = (k, _Result(k[1], _n_matched(res[2], res[3]), mirror))
     assert best is not None
     return best[1]
+
+
+def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
+    """Cluster comparison with ``a`` as reference, centred on every symmetry-distinct molecule of ``a``.
+
+    For each centre the best overlay onto ``b`` is found; the worst centre counts (fewest matched
+    molecules, then largest RMSD), so an extra or missing molecule anywhere in ``a``'s cell is seen
+    whatever the molecule order. A centre that cannot be compared makes the whole result not comparable.
+    """
+    if not a.mols:
+        return _Result(math.inf, 0, note="no molecules to compare")
+    pools = _pools(b, n_mol)
+    # align each pool centre once onto the reference molecule of its composition
+    pool_al: dict[int, list[AlignResult | str]] = {}
+    worst: tuple[tuple[bool, float], _Result] | None = None
+    for ci in _centres(a):
+        ref = _reference(a, ci)
+        if ref not in pool_al:
+            pool_al[ref] = []
+            for _m, _j, centre_sym, _r, _s, _c, b_centre in pools:
+                if sorted(centre_sym) != sorted(a.heavy_sym[ref]):
+                    pool_al[ref].append("molecule compositions differ")
+                    continue
+                try:
+                    pool_al[ref].append(match_and_align(b_centre, _atoms_of(a, ref), heavy_only=True))
+                except ValueError as exc:
+                    pool_al[ref].append(f"centre molecules cannot be aligned ({exc})")
+        res = _rmsd_from_centre(a, ci, pools, pool_al[ref], n_mol)
+        if res.note:
+            return res
+        k = (res.n_matched < n_mol, res.rmsd)
+        if worst is None or k > worst[0]:
+            worst = (k, res)
+    assert worst is not None
+    return worst[1]
 
 
 def _density(c: _Crystal) -> float:
@@ -319,19 +440,21 @@ def _compare(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
 def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int]:
     """COMPACK-style cluster RMSD between two periodic molecular crystals.
 
-    A cluster of ``n_mol`` molecules nearest (by centroid, periodic images included) to molecule 0 of
-    ``a`` is compared with clusters built around every molecule of ``b`` (and of the mirror image of
-    ``b``). The centre molecules are superposed with :func:`match_and_align` (heavy atoms, proper
-    rotation), and that overlay is combined with every (pseudo-)symmetry rotation of ``a``'s centre
-    molecule, because a symmetric molecule can be overlaid in several ways of which only one fits the
-    rest of the cluster. For each overlay the cluster molecules are paired by centroid distance and their
-    atoms by a per-element assignment on the overlaid positions, so atom and molecule order do not
-    matter. The best overlays are refined by a Kabsch fit over all matched heavy atoms. The cell choice
-    of either structure does not matter.
+    A cluster of ``n_mol`` molecules nearest (by centroid, periodic images included) to a centre
+    molecule of ``a`` is compared with clusters built around the molecules of ``b`` (and of the mirror
+    image of ``b``). The centre molecules are superposed (heavy atoms, proper rotation), and that overlay
+    is combined with every (pseudo-)symmetry rotation of ``a``'s centre molecule, because a symmetric
+    molecule can be overlaid in several ways of which only one fits the rest of the cluster. For each
+    overlay the cluster molecules are paired by centroid distance and their atoms by a per-element
+    assignment on the overlaid positions, so atom and molecule order do not matter. The best overlays
+    are refined by a Kabsch fit over all matched heavy atoms. The cell choice of either structure does
+    not matter.
 
-    The comparison is made both ways (clusters around a molecule of ``a`` and around a molecule of
-    ``b``) and the worse result is returned, so that extra or missing molecules in either structure
-    prevent a match. Structures whose molecular densities differ by more than
+    Every symmetry-distinct molecule of ``a`` is used as a centre in turn and the worst centre counts;
+    clusters of ``b`` are built around its symmetry-distinct molecules (equivalent ones give congruent
+    clusters). The comparison is then repeated with the roles of ``a`` and ``b`` exchanged and the worse
+    result is returned, so that an extra or missing molecule anywhere in either cell prevents a match,
+    whatever the molecule order. Structures whose molecular densities differ by more than
     :data:`MAX_DENSITY_RATIO` are not compared.
 
     Returns

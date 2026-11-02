@@ -443,3 +443,51 @@ def test_validate_run_rejects_partial_and_density_mismatch(tmp_path, make, rever
 def test_rmsd_cluster_same_lattice_in_supercell_still_matches():
     rmsd, n = rmsd_cluster(_cno_lattice(), _cno_crystal(False))
     assert rmsd < 1e-6 and n == 15
+
+
+def _extra_not_first() -> Atoms:
+    """``_cno_one_extra`` reordered so that molecule 0 is a lattice molecule far from the extra one."""
+    b = _cno_one_extra()
+    return b[np.r_[78:81, 0:78, 81:84]]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_extra_molecule_found_whatever_the_order(reverse):
+    a, b = _cno_lattice(), _extra_not_first()
+    if reverse:
+        a, b = b, a
+    rmsd, n = rmsd_cluster(a, b)
+    assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_validate_run_extra_molecule_found_whatever_the_order(tmp_path, reverse):
+    exp_atoms, cand = _cno_lattice(), _extra_not_first()
+    if reverse:
+        exp_atoms, cand = cand, exp_atoms
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+
+
+def test_validate_run_flip_path_finds_reordered_extra_molecule(tmp_path):
+    simple = _cno_lattice()
+    simple.set_chemical_symbols(["C", "S", "O"] * 27)
+    cand = _extra_not_first()
+    cand.set_chemical_symbols(["C", "O", "S"] * 28)  # flipped, with one extra molecule
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, simple)
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.best_rank is None and entry.flip_match_rank is None
+
+
+def test_rmsd_cluster_independent_of_molecule_order_with_extra_molecule():
+    a, b = _cno_lattice(), _cno_one_extra()
+    rng = np.random.default_rng(7)
+    for _ in range(3):
+        order = np.concatenate([np.arange(3 * m, 3 * m + 3) for m in rng.permutation(28)])
+        rmsd, n = rmsd_cluster(a, b[order])
+        assert not (rmsd < 0.8 and n == 15), (rmsd, n)
