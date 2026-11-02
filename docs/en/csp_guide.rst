@@ -33,6 +33,9 @@ Workflow
    molecular-modeling-csp input/csp.toml     # predict (default config: input/csp.toml)
    python -m molecular_modeling.csp.validate csp_out exp1.cif exp2.cif   # compare with experiment
 
+``exp1.cif`` and ``exp2.cif`` stand for experimental CIF files that you supply; none ship with the
+repository.
+
 A run goes through these stages:
 
 1. **Generation**: PyXtal builds crystals for each space group (random). A share of them gets its
@@ -83,10 +86,12 @@ Input file (input/csp.toml)
      - Candidates generated per space group
    * - ``generators``
      - ``{random=0.6, voronoi=0.4}``
-     - Relative weights of the generators (non-negative; names ``random``, ``voronoi``, ``seed``).
+     - Relative weights of the generators (finite, non-negative; names ``random``, ``voronoi``,
+       ``seed``). The table is merged over the default: a name you leave out keeps its default weight,
+       so ``generators = {seed = 0}`` only switches seeds off. Write 0 to switch a generator off.
        ``random`` and ``voronoi`` share ``n_candidates_per_sg`` in this ratio. ``seed`` is only an
        on/off switch: when seeds are given it defaults to 0.5 (on), and ``seed = 0`` ignores them; each
-       seed always gives one candidate per substitution choice
+       seed always gives one candidate per substitution choice. At least one generator must be on
    * - ``seed_structures``
      - omitted
      - List of seed CIFs (``[[seed_structures]]``), see below
@@ -153,10 +158,24 @@ An informed search gives what is known from experiment, here with a seed CIF:
 ``input/csp.toml`` in the repository is a commented example that lists every key.
 
 The molecule file ``data/<name>.toml`` has the same format as the molecule definitions used by the rest of
-the toolkit (see :doc:`toml_reference`, "Molecule Definition"). CSP reads only ``symbols``, ``positions``
-and, when ``use_fractional = true``, ``lattice_vectors`` (to convert the positions); other keys such as
-``center_of_mass`` are not used. An ``.xyz`` file holding one molecule works as well. The molecule is
-shifted so that its plain (unweighted) centroid is at the origin.
+the toolkit (see :doc:`toml_reference`, "Molecule Definition"); ``data/benzene.toml`` and
+``data/naphthalene.toml`` ship with the repository. CSP needs only the element symbols and the Cartesian
+coordinates (Å), for example (an O=C=O molecule):
+
+.. code-block:: toml
+
+   symbols = ["O", "C", "O"]
+   positions = [[-1.16, 0.0, 0.0],
+                [ 0.00, 0.0, 0.0],
+                [ 1.16, 0.0, 0.0]]
+
+CSP reads only ``symbols``, ``positions`` and, when ``use_fractional = true``, ``lattice_vectors`` (to
+convert the positions); other keys such as ``center_of_mass`` are not used. An ``.xyz`` file holding one
+molecule works as well. The molecule is shifted so that its plain (unweighted) centroid is at the origin.
+
+**Supported elements**: H, C, N, O, F, S, Cl, Se, Br and I. The rigid Lennard-Jones prescreen has UFF
+parameters only for these; a molecule with any other element is rejected with an error before
+generation starts.
 
 Seed CIFs (seed_structures)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -188,7 +207,7 @@ Two modes
    ``z_prime`` is set to 1 (with a warning if the file says otherwise). ``seed_structures`` are still
    used if given, because a seed is a related crystal (e.g. the parent compound before O→S substitution),
    not the experimental structure of the target. For a prediction from the molecule alone, leave
-   ``seed_structures`` out (or set ``seed = 0`` in ``generators``).
+   ``seed_structures`` out, or switch seeds off with ``generators = {random = 0.6, voronoi = 0.4, seed = 0}``.
 
 ``informed``
    You give the space groups (required), ``z`` and ``z_prime`` known from experiment. The search
@@ -233,7 +252,8 @@ Reading the output
       * - ``rank``
         - Rank (1 = most stable)
       * - ``id``
-        - Candidate identifier (``<origin>-<space group>-<serial>``)
+        - Candidate identifier ``<origin>-<space group>-<serial>``, with ``:`` and ``/`` in the origin
+          replaced by ``_``; e.g. ``random-14-3``, ``voronoi-2-17``, ``seed_parent-1-0``
       * - ``energy_per_mol_eV``
         - GFN2-xTB energy per molecule (eV)
       * - ``rel_energy_kJmol``
@@ -245,7 +265,8 @@ Reading the output
       * - ``space_group_out``
         - Space group re-detected by spglib after relaxation (0 = detection failed)
       * - ``origin``
-        - Generator (``random`` / ``voronoi`` / seed name)
+        - Generator: ``random``, ``voronoi`` or ``seed:<name>`` (``<name>`` = seed CIF file name without
+          extension, e.g. ``seed:parent``)
       * - ``max_mol_rmsd``
         - Deformation of the molecules after relaxation (heavy-atom RMSD, Å)
       * - ``status``
@@ -312,6 +333,8 @@ structure as the reference and the worse result counts, so extra or missing mole
 structure prevent a match. Structures whose molecular densities (molecules per volume) differ by more
 than a factor of 1.2 are listed as not comparable; the same polymorph after relaxation differs by only a
 few percent.
+
+The report uses these terms (written below exactly as they appear in ``validation.md``):
 
 ``success``
    yes if a match exists within the top ``n_top`` (default 20).

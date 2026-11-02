@@ -15,7 +15,7 @@ max_mol_rmsd = 0.5               # max heavy-atom RMSD of molecule after relaxat
 time_budget_min = 60             # wall-clock budget (minutes)
 rng = 1                          # random seed
 out_dir = "csp_out"              # output directory
-# generators = { random = 0.6, voronoi = 0.4 }   # relative weights; "seed" added with seed_structures
+# generators = { random = 0.6, voronoi = 0.4 }   # relative weights; names left out keep these defaults; "seed" (0 = off) added with seed_structures
 
 # [[seed_structures]]            # optional seed crystals (used in both modes)
 # cif = "seed.cif"               # parent CIF
