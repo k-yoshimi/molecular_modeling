@@ -539,3 +539,65 @@ def test_rmsd_cluster_nearly_identical_conformers_share_reference():
     for x, y in ((a, a), (a, b), (b, a)):
         rmsd, n = rmsd_cluster(x, y)
         assert rmsd < 1e-6 and n == 15, (rmsd, n)
+
+
+def _chain(n: int, seed: int) -> np.ndarray:
+    """Random C_n chain (1.45 Å bonds), centred on the origin."""
+    d = np.random.default_rng(seed).normal(size=(n, 3))
+    p = np.cumsum(d / np.linalg.norm(d, axis=1)[:, None] * 1.45, axis=0)
+    return p - p.mean(axis=0)
+
+
+def _conformer_at(first: np.ndarray, target: float) -> np.ndarray:
+    """A second conformer of ``first`` whose heavy-atom RMSD to it (after superposition) is ``target`` Å."""
+    from molecular_modeling.csp.molecule import match_and_align
+
+    n = len(first)
+    shift = np.random.default_rng(99).normal(size=(n, 3))
+    sym = "C" * n
+
+    def rmsd(t: float) -> float:
+        return match_and_align(Atoms(sym, positions=first + t * shift), Atoms(sym, positions=first)).rmsd
+
+    lo, hi = 0.0, 1.0
+    while rmsd(hi) < target:
+        hi *= 2
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if rmsd(mid) < target else (lo, mid)
+    out = first + (lo + hi) / 2 * shift
+    assert abs(rmsd((lo + hi) / 2) - target) < 1e-6
+    return out - out.mean(axis=0)
+
+
+def _conformer_pair_crystal(n: int, target: float) -> Atoms:
+    first = _chain(n, 8)
+    second = _conformer_at(first, target)
+    pos = np.vstack([first + [10, 10, 10], second + [28, 27, 26]])
+    a = Atoms("C" * (2 * n), positions=pos, cell=np.eye(3) * 40, pbc=True)
+    a.set_array("mol_id", np.repeat([0, 1], n))
+    return a
+
+
+@pytest.mark.parametrize("n", [8, 10])
+@pytest.mark.parametrize("target", [0.2999, 0.3001])
+def test_rmsd_cluster_conformer_tolerance_boundary(n, target):
+    a = _conformer_pair_crystal(n, target)
+    c = validate_mod._prepare(np.array(a.get_cell()), split_molecules(a))
+    assert len(c.mols) == 2 and len(validate_mod._centres(c)) == 2
+    # just inside the tolerance the two conformers share a reference, just outside each has its own
+    assert validate_mod._reference(c, 1) == (0 if target < validate_mod.CONFORMER_TOL else 1)
+    b = a[np.r_[n : 2 * n, 0:n]]
+    for x, y in ((a, a), (a, b), (b, a), (b, b)):
+        rmsd, n_matched = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n_matched == 15, (rmsd, n_matched)
+
+
+@pytest.mark.parametrize("target", [0.2999, 0.3001])
+def test_validate_run_conformer_tolerance_boundary(tmp_path, target):
+    a = _conformer_pair_crystal(10, target)
+    _fake_out_dir(tmp_path, [("random-1-0", "random", a[np.r_[10:20, 0:10]])])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1 and entry.best_rmsd is not None and entry.best_rmsd < 1e-3
