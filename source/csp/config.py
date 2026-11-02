@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SPACE_GROUPS: list[int] = [14, 2, 19, 15, 4, 61]
 DEFAULT_GENERATORS: dict[str, float] = {"random": 0.6, "voronoi": 0.4}
@@ -64,14 +68,16 @@ class CSPConfig:
 def load_csp_config(path: str | Path) -> CSPConfig:
     """Load a :class:`CSPConfig` from a TOML file.
 
-    In ``blind`` mode ``space_groups`` is replaced by the default list and ``z``
-    is ignored. In ``informed`` mode ``space_groups`` is required.
+    In ``blind`` mode ``space_groups`` is replaced by the default list, ``z`` is ignored and
+    ``z_prime`` is set to 1 (with a warning if the file says otherwise); ``seed_structures`` are
+    still used, since a seed is a related (parent) crystal, not the target's experimental structure.
+    In ``informed`` mode ``space_groups`` is required.
 
     Raises
     ------
     ValueError
         On unknown keys, bad mode, ``informed`` mode without ``space_groups``, or unknown generator
-        names / negative generator weights.
+        names / negative or non-finite generator weights.
     """
     with open(path, "rb") as f:
         raw: dict[str, Any] = tomllib.load(f)
@@ -96,8 +102,16 @@ def load_csp_config(path: str | Path) -> CSPConfig:
         kwargs["packing_range"] = (float(lo), float(hi))
 
     if mode == "blind":
+        # blind uses no information about the target crystal: default space groups, Z' = 1
         kwargs["space_groups"] = list(DEFAULT_SPACE_GROUPS)
         kwargs["z"] = None
+        if "z" in raw:
+            logger.warning("blind mode: 'z' is ignored (Z is the general-position multiplicity)")
+        if int(raw.get("z_prime", 1)) != 1:
+            logger.warning(
+                "blind mode: z_prime = %s is ignored and set to 1; use informed mode for Z' > 1", raw["z_prime"]
+            )
+        kwargs["z_prime"] = 1
     else:
         if "space_groups" not in raw:
             raise ValueError("informed mode requires 'space_groups'")
@@ -118,8 +132,8 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     if bad_names:
         raise ValueError(f"unknown generators {bad_names}; use {', '.join(GENERATOR_NAMES)}")
     for name, w in generators.items():
-        if not isinstance(w, (int, float)) or isinstance(w, bool) or w < 0:
-            raise ValueError(f"generators: weight of {name!r} must be a non-negative number, got {w!r}")
+        if not isinstance(w, (int, float)) or isinstance(w, bool) or not math.isfinite(w) or w < 0:
+            raise ValueError(f"generators: weight of {name!r} must be a finite non-negative number, got {w!r}")
     if seeds and "seed" not in generators:
         generators["seed"] = SEED_GENERATOR_WEIGHT
     kwargs["generators"] = generators

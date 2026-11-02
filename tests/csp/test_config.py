@@ -93,3 +93,36 @@ def test_seed_weight_zero_kept(tmp_path):
 def test_bad_generator_weights_rejected(tmp_path, generators):
     with pytest.raises(ValueError, match="generators"):
         load_csp_config(_seed_toml(tmp_path, generators))
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+@pytest.mark.parametrize("name", ["seed", "random"])
+def test_non_finite_generator_weights_rejected(tmp_path, name, value):
+    other = "voronoi = 1.0" if name == "random" else "random = 1.0"
+    with pytest.raises(ValueError, match="generators"):
+        load_csp_config(_seed_toml(tmp_path, f"generators = {{{other}, {name} = {value}}}\n"))
+
+
+@pytest.mark.parametrize("value", [0, 0.0, 2, 0.25])
+def test_finite_generator_weights_accepted(tmp_path, value):
+    cfg = load_csp_config(_seed_toml(tmp_path, f"generators = {{random = 1.0, seed = {value}}}\n"))
+    assert cfg.generators["seed"] == value
+
+
+def test_blind_mode_forces_z_prime_one_and_keeps_seeds(tmp_path, caplog):
+    p = tmp_path / "csp.toml"
+    p.write_text(
+        'molecule = "data/benzene.toml"\nmode = "blind"\nz_prime = 2\n'
+        '[[seed_structures]]\ncif = "tests/csp/data/seed_benzene_p21c.cif"\n'
+    )
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.config"):
+        cfg = load_csp_config(p)
+    assert cfg.z_prime == 1 and cfg.z is None
+    assert "z_prime" in caplog.text
+    assert len(cfg.seed_structures) == 1  # seeds are a parent compound, not experimental data: kept
+
+
+def test_informed_mode_keeps_z_prime(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2]\nz_prime = 2\n')
+    assert load_csp_config(p).z_prime == 2
