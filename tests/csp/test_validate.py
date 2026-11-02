@@ -491,3 +491,51 @@ def test_rmsd_cluster_independent_of_molecule_order_with_extra_molecule():
         order = np.concatenate([np.arange(3 * m, 3 * m + 3) for m in rng.permutation(28)])
         rmsd, n = rmsd_cluster(a, b[order])
         assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+def _two_conformer_crystal() -> Atoms:
+    """Z' = 2 crystal of two different C8 chain conformers (same composition, different shapes)."""
+    rng = np.random.default_rng(8)
+    pos = []
+    for centre in ([10, 10, 10], [28, 27, 26]):
+        d = rng.normal(size=(8, 3))
+        p = np.cumsum(d / np.linalg.norm(d, axis=1)[:, None] * 1.45, axis=0)
+        pos.append(p - p.mean(axis=0) + centre)
+    a = Atoms("C16", positions=np.vstack(pos), cell=np.eye(3) * 40, pbc=True)
+    a.set_array("mol_id", np.repeat([0, 1], 8))
+    return a
+
+
+def test_rmsd_cluster_two_conformers_identical_crystal():
+    a = _two_conformer_crystal()
+    b = a[np.r_[8:16, 0:8]]
+    for x, y in ((a, a), (a, b), (b, a)):
+        rmsd, n = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n == 15, (rmsd, n)
+
+
+def test_validate_run_two_conformers_identical_crystal(tmp_path):
+    a = _two_conformer_crystal()
+    _fake_out_dir(tmp_path, [("random-1-0", "random", a[np.r_[8:16, 0:8]])])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1 and entry.best_rmsd is not None and entry.best_rmsd < 1e-3
+
+
+def test_rmsd_cluster_nearly_identical_conformers_share_reference():
+    # the second molecule differs from the first by ~0.25 Å RMSD, just inside the conformer tolerance, so the
+    # overlays are composed through the first molecule; identical crystals must still match exactly
+    a = _two_conformer_crystal()
+    pos = a.get_positions()
+    first = pos[:8] - pos[:8].mean(axis=0)
+    second = first.copy()
+    second[3] += [0.0, 0.0, 0.7]  # 0.7/sqrt(8) ≈ 0.25 Å RMSD
+    pos[8:] = second - second.mean(axis=0) + pos[8:].mean(axis=0)
+    a.set_positions(pos)
+    c = validate_mod._prepare(np.array(a.get_cell()), split_molecules(a))
+    assert validate_mod._reference(c, 1) == 0
+    b = a[np.r_[8:16, 0:8]]
+    for x, y in ((a, a), (a, b), (b, a)):
+        rmsd, n = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n == 15, (rmsd, n)

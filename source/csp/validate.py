@@ -47,6 +47,9 @@ N_SELF_STARTS = 48
 MAX_SELF_ROTATIONS = 120
 #: Two rotation matrices closer than this (Frobenius norm) are the same.
 SAME_ROT_TOL = 0.1
+#: Two molecules of one structure are the same conformer if their heavy-atom RMSD after superposition is
+#: below this (Å); overlays are composed only through a molecule of the same conformer.
+CONFORMER_TOL = 0.3
 #: Tolerance (Å) for finding symmetry-equivalent molecules; only one of each class is used as a cluster
 #: centre. Kept small: a structure that is only nearly symmetric simply gets more centres.
 CENTRE_SYMPREC = 0.01
@@ -71,6 +74,7 @@ class _Crystal:
     # (pseudo-)symmetry rotations of each centre molecule, computed lazily
     self_rotations: dict[int, list[np.ndarray]] = field(default_factory=dict)
     centres: list[int] | None = None  # one molecule per symmetry-equivalence class, computed lazily
+    references: dict[int, int] = field(default_factory=dict)  # centre -> reference molecule of its conformer
 
 
 def _prepare(cell: np.ndarray, mols: list[Atoms]) -> _Crystal:
@@ -258,9 +262,30 @@ def _centres(c: _Crystal) -> list[int]:
 
 
 def _reference(a: _Crystal, ci: int) -> int:
-    """The first centre of ``a`` whose molecule has the same heavy-atom composition as molecule ``ci``."""
+    """The first centre of ``a`` whose molecule is the same conformer as molecule ``ci``.
+
+    Same conformer = same heavy-atom composition and heavy-atom RMSD after superposition below
+    :data:`CONFORMER_TOL`. Overlays are composed through this reference (pool centre -> reference ->
+    centre), which is only valid if the reference and the centre have the same shape; a crystal with
+    two different conformers (Z' = 2) gets one reference per conformer.
+    """
+    if ci in a.references:
+        return a.references[ci]
     key = sorted(a.heavy_sym[ci])
-    return next(k for k in _centres(a) if sorted(a.heavy_sym[k]) == key)
+    ref = ci
+    for k in _centres(a):
+        if k == ci:
+            break
+        if sorted(a.heavy_sym[k]) != key:
+            continue
+        try:
+            if match_and_align(_atoms_of(a, k), _atoms_of(a, ci), heavy_only=True).rmsd < CONFORMER_TOL:
+                ref = k
+                break
+        except ValueError:
+            continue
+    a.references[ci] = ref
+    return ref
 
 
 def _atoms_of(c: _Crystal, k: int) -> Atoms:
@@ -386,7 +411,7 @@ def _rmsd_crystals(a: _Crystal, b: _Crystal, n_mol: int) -> _Result:
     if not a.mols:
         return _Result(math.inf, 0, note="no molecules to compare")
     pools = _pools(b, n_mol)
-    # align each pool centre once onto the reference molecule of its composition
+    # align each pool centre once onto the reference molecule of each conformer
     pool_al: dict[int, list[AlignResult | str]] = {}
     worst: tuple[tuple[bool, float], _Result] | None = None
     for ci in _centres(a):
