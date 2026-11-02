@@ -8,6 +8,7 @@ from ase.data import atomic_masses, chemical_symbols, vdw_radii
 from ase.neighborlist import neighbor_list
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
+from molecular_modeling.molecule_unwrap import is_connected, unwrap_molecule
 
 KCAL_PER_MOL_TO_EV = 0.0433641
 AMU_PER_A3_TO_G_PER_CM3 = 1.66054
@@ -32,13 +33,46 @@ def _mol_ids(atoms: Atoms) -> np.ndarray:
     return atoms.arrays["mol_id"]
 
 
+def _whole_molecules(atoms: Atoms) -> Atoms:
+    """Copy of ``atoms`` in which every ``mol_id`` molecule is unwrapped into one connected piece.
+
+    After this, two atoms of the same molecule at the same lattice shift (``S == 0`` in a neighbour
+    list) are the intramolecular pair, whether or not the input had the molecule wrapped across the
+    cell boundary.
+
+    Raises
+    ------
+    ValueError
+        If a molecule is not connected even after unwrapping.
+    """
+    out = atoms.copy()
+    mol = _mol_ids(atoms)
+    cell = np.asarray(atoms.cell)
+    symbols = atoms.get_chemical_symbols()
+    pos = atoms.get_positions()
+    for m in np.unique(mol):
+        idx = np.nonzero(mol == m)[0]
+        sym = [symbols[i] for i in idx]
+        whole = unwrap_molecule(pos[idx], sym, cell, atoms.pbc)
+        if not is_connected(whole, sym):
+            raise ValueError(f"molecule {m} is not connected")
+        pos[idx] = whole
+    out.set_positions(pos)
+    return out
+
+
 def has_intermolecular_overlap(atoms: Atoms, factor: float = 0.7) -> bool:
     """Return True if atoms of different molecules are closer than ``factor`` x (sum of vdW radii).
 
     A molecule and its own periodic image count as different molecules.
-    Periodic boundaries are respected. Radii come from ``ase.data.vdw_radii``
-    (1.7 A when undefined).
+    Periodic boundaries are respected, and the result does not depend on whether molecules are
+    wrapped into the cell. Radii come from ``ase.data.vdw_radii`` (1.7 A when undefined). A
+    molecule that is not one connected piece counts as an overlap (the candidate is unusable).
     """
+    try:
+        atoms = _whole_molecules(atoms)
+    except ValueError:
+        return True
     radii = vdw_radii[atoms.numbers].astype(float)
     radii = np.where(np.isnan(radii), DEFAULT_VDW_RADIUS, radii)
     # per-atom cutoff r_i * factor: the pair cutoff is then factor * (r_i + r_j)
@@ -67,6 +101,8 @@ def rigid_lj_energy(atoms: Atoms, cutoff: float = 10.0) -> float:
     ------
     KeyError
         If an element has no UFF parameters.
+    ValueError
+        If a molecule is not one connected piece.
     """
     x = np.empty(len(atoms))
     dep = np.empty(len(atoms))
@@ -75,6 +111,7 @@ def rigid_lj_energy(atoms: Atoms, cutoff: float = 10.0) -> float:
         if sym not in UFF_LJ:
             raise KeyError(f"no UFF Lennard-Jones parameters for element {sym!r}")
         x[k], dep[k] = UFF_LJ[sym]
+    atoms = _whole_molecules(atoms)
     i, j, s, d = neighbor_list("ijSd", atoms, cutoff)
     mol = _mol_ids(atoms)
     inter = (mol[i] != mol[j]) | np.any(s != 0, axis=1)

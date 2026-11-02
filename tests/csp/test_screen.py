@@ -125,3 +125,38 @@ def test_timing_benzene_z4(capsys):
     t2 = time.perf_counter() - t
     print(f"lj {t1:.4f}s overlap {t2:.4f}s")
     assert t1 < 1.0 and t2 < 1.0
+
+
+def _c2_box(x0: float) -> Atoms:
+    """One C2 molecule (bond 1.4 Å along x) starting at ``x0`` in a 10 Å cubic cell, then wrapped."""
+    a = Atoms("C2", positions=[[x0, 5, 5], [x0 + 1.4, 5, 5]], cell=[10, 10, 10], pbc=True)
+    a.set_array("mol_id", np.array([0, 0]))
+    a.wrap()
+    return a
+
+
+def test_screen_same_result_for_wrapped_molecule():
+    whole, split = _c2_box(4.0), _c2_box(9.4)
+    assert split.positions[1, 0] == pytest.approx(0.8)  # the bond crosses the cell boundary
+    assert not has_intermolecular_overlap(whole)
+    assert not has_intermolecular_overlap(split)
+    assert rigid_lj_energy(split) == pytest.approx(rigid_lj_energy(whole), abs=1e-9)
+
+
+def test_screen_crystal_invariant_under_wrapping():
+    c = generate_random(load_molecule("data/benzene.toml"), 14, 4, n=1, rng=np.random.default_rng(5))[0].atoms
+    wrapped = c.copy()
+    wrapped.translate([3.1, -2.2, 1.7])
+    wrapped.wrap()
+    unwrapped_pos = c.positions + [3.1, -2.2, 1.7]
+    assert np.abs(wrapped.positions - unwrapped_pos).max() > 1.0  # some molecules really are split
+    assert has_intermolecular_overlap(wrapped) == has_intermolecular_overlap(c)
+    assert rigid_lj_energy(wrapped) == pytest.approx(rigid_lj_energy(c), rel=1e-9)
+
+
+def test_screen_broken_molecule_rejected():
+    a = Atoms("C2", positions=[[2, 5, 5], [6, 5, 5]], cell=[10, 10, 10], pbc=True)  # 4 Å apart: not bonded
+    a.set_array("mol_id", np.array([0, 0]))
+    assert has_intermolecular_overlap(a)
+    with pytest.raises(ValueError, match="not connected"):
+        rigid_lj_energy(a)
