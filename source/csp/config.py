@@ -79,6 +79,81 @@ def _is_real(x: Any) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
+#: Keys of a ``[[seed_structures]]`` entry.
+SEED_KEYS = ("cif", "substitutions", "volume_scale")
+
+
+def _check_types(raw: dict[str, Any]) -> None:
+    """Raise ``ValueError`` naming the first top-level key whose value has the wrong type.
+
+    Numbers checked for range later (counts, tolerances) are left to :func:`_check_ranges`.
+    """
+
+    def need(ok: bool, key: str, what: str) -> None:
+        if not ok:
+            raise ValueError(f"{key} must be {what}, got {raw[key]!r}")
+
+    if "molecule" in raw:
+        need(isinstance(raw["molecule"], str) and raw["molecule"] != "", "molecule", "a file name (string)")
+    if "mode" in raw:
+        need(isinstance(raw["mode"], str), "mode", "'blind' or 'informed'")
+    if "out_dir" in raw:
+        need(isinstance(raw["out_dir"], str) and raw["out_dir"] != "", "out_dir", "a directory name (string)")
+    if "space_groups" in raw:
+        sg = raw["space_groups"]
+        need(isinstance(sg, list) and all(_is_int(g) for g in sg), "space_groups", "a list of integers")
+    if "z" in raw:
+        need(isinstance(raw["z"], dict), "z", "a table such as { 14 = 4 }")
+    if "generators" in raw:
+        need(isinstance(raw["generators"], dict), "generators", "a table such as { random = 0.6, voronoi = 0.4 }")
+    if "rng" in raw:
+        need(_is_int(raw["rng"]) and raw["rng"] >= 0, "rng", "a non-negative integer")
+    if "seed_structures" in raw:
+        ss = raw["seed_structures"]
+        need(
+            isinstance(ss, list) and all(isinstance(e, dict) for e in ss),
+            "seed_structures",
+            "[[seed_structures]] tables",
+        )
+
+
+def _seed_spec(entry: dict[str, Any], k: int) -> SeedSpec:
+    """Validate one ``[[seed_structures]]`` table and build its :class:`SeedSpec`.
+
+    The CIF file itself is checked when the run starts (before the output directory is touched).
+    """
+    where = f"seed_structures[{k}]"
+    unknown = sorted(set(entry) - set(SEED_KEYS))
+    if unknown:
+        raise ValueError(f"{where}: unknown key(s) {', '.join(unknown)}; use {', '.join(SEED_KEYS)}")
+    cif = entry.get("cif")
+    if not isinstance(cif, str) or not cif:
+        raise ValueError(f"{where}: 'cif' (the seed CIF file name, a string) is required, got {cif!r}")
+    vs = entry.get("volume_scale", "auto")
+    if not (vs == "auto" or (_is_real(vs) and vs > 0)):
+        raise ValueError(f'{where}: volume_scale must be "auto" or a positive number, got {vs!r}')
+    subs = entry.get("substitutions", [])
+    rules: list[tuple[str, str, int]] = []
+    ok = isinstance(subs, list)
+    for rule in subs if ok else []:
+        if not (
+            isinstance(rule, list)
+            and len(rule) == 3
+            and isinstance(rule[0], str)
+            and isinstance(rule[1], str)
+            and _is_int(rule[2])
+            and rule[2] >= 1
+        ):
+            ok = False
+            break
+        rules.append((rule[0], rule[1], rule[2]))
+    if not ok:
+        raise ValueError(
+            f"{where}: substitutions must be a list of [old element, new element, count >= 1], got {subs!r}"
+        )
+    return SeedSpec(cif=Path(cif), substitutions=rules, volume_scale=vs)
+
+
 def _check_ranges(cfg: CSPConfig) -> None:
     """Raise ``ValueError`` naming the first setting outside its allowed range."""
     lo, hi = cfg.packing_range
@@ -134,6 +209,7 @@ def load_csp_config(path: str | Path) -> CSPConfig:
         raise ValueError(f"unknown key(s) in {path}: {', '.join(unknown)}")
     if "molecule" not in raw:
         raise ValueError(f"'molecule' is required in {path}")
+    _check_types(raw)
 
     mode = raw.get("mode", "blind")
     if mode not in ("blind", "informed"):
@@ -167,6 +243,10 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     else:
         if "space_groups" not in raw:
             raise ValueError("informed mode requires 'space_groups'")
+        unique = list(dict.fromkeys(raw["space_groups"]))
+        if len(unique) != len(raw["space_groups"]):
+            warn(f"space_groups: repeated entries removed, using {unique}")
+        kwargs["space_groups"] = unique
         if "z" in raw:
             # values checked before conversion: int(1.9) and int(True) would silently give 1
             bad = {k: v for k, v in raw["z"].items() if not _is_int(v)}
@@ -176,17 +256,13 @@ def load_csp_config(path: str | Path) -> CSPConfig:
                 kwargs["z"] = {int(k): v for k, v in raw["z"].items()}
             except ValueError:
                 raise ValueError(f"z keys must be space group numbers, got {list(raw['z'])}") from None
+            unused = sorted(set(kwargs["z"]) - set(unique))
+            if unused:
+                warn(f"z is given for space group(s) {unused} that are not in space_groups; ignored")
         else:
             kwargs["z"] = None
 
-    seeds = [
-        SeedSpec(
-            cif=Path(s["cif"]),
-            substitutions=[(str(a), str(b), int(n)) for a, b, n in s.get("substitutions", [])],
-            volume_scale=s.get("volume_scale", "auto"),
-        )
-        for s in raw.get("seed_structures", [])
-    ]
+    seeds = [_seed_spec(s, k) for k, s in enumerate(raw.get("seed_structures", []))]
     kwargs["seed_structures"] = seeds
 
     # the file's table is merged over the defaults: a name left out keeps its default weight, so a

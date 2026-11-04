@@ -245,3 +245,81 @@ def test_integer_z_and_integer_packing_bound_still_load(tmp_path):
     )
     cfg = load_csp_config(p)
     assert cfg.z == {2: 4} and cfg.packing_range == (0.4, 1.0)
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        ('mode = "blind"\nspace_groups = 14', "space_groups"),
+        ('mode = "informed"\nspace_groups = 14', "space_groups"),
+        ('mode = "informed"\nspace_groups = ["14"]', "space_groups"),
+        ('generators = "random"', "generators"),
+        ("generators = [1, 2]", "generators"),
+        ('mode = "informed"\nspace_groups = [2]\nz = 4', "z"),
+        ("out_dir = 5", "out_dir"),
+        ("out_dir = true", "out_dir"),
+        ('rng = "abc"', "rng"),
+        ("rng = 1.5", "rng"),
+        ("rng = -1", "rng"),
+        ("rng = true", "rng"),
+        ('mode = ["blind"]', "mode"),
+        ("seed_structures = 5", "seed_structures"),
+        ("seed_structures = [5]", "seed_structures"),
+    ],
+)
+def test_wrong_types_rejected_naming_the_key(tmp_path, body, key):
+    p = tmp_path / "csp.toml"
+    p.write_text(f'molecule = "data/benzene.toml"\n{body}\n')
+    with pytest.raises(ValueError, match=key):
+        load_csp_config(p)
+
+
+def test_molecule_must_be_a_string(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text("molecule = 5\n")
+    with pytest.raises(ValueError, match="molecule"):
+        load_csp_config(p)
+
+
+def _seed_entry(tmp_path, lines: str) -> Path:
+    p = tmp_path / "csp.toml"
+    p.write_text(f'molecule = "data/benzene.toml"\n[[seed_structures]]\n{lines}\n')
+    return p
+
+
+@pytest.mark.parametrize(
+    ("lines", "key"),
+    [
+        ('cif = "a.cif"\nvolume_scal = 1.0', "volume_scal"),
+        ('cif = "a.cif"\nsubstitution = [["O", "S", 1]]', "substitution"),
+        ('substitutions = [["O", "S", 1]]', "cif"),
+        ("cif = 5", "cif"),
+        ('cif = "a.cif"\nvolume_scale = "big"', "volume_scale"),
+        ('cif = "a.cif"\nvolume_scale = nan', "volume_scale"),
+        ('cif = "a.cif"\nvolume_scale = -1.0', "volume_scale"),
+        ('cif = "a.cif"\nvolume_scale = true', "volume_scale"),
+        ('cif = "a.cif"\nsubstitutions = [["O", "S", 0]]', "substitutions"),
+        ('cif = "a.cif"\nsubstitutions = [["O", "S", -1]]', "substitutions"),
+        ('cif = "a.cif"\nsubstitutions = [["O", "S", 1.5]]', "substitutions"),
+        ('cif = "a.cif"\nsubstitutions = [["O", "S"]]', "substitutions"),
+        ('cif = "a.cif"\nsubstitutions = [[1, "S", 1]]', "substitutions"),
+        ('cif = "a.cif"\nsubstitutions = "O->S"', "substitutions"),
+    ],
+)
+def test_bad_seed_entries_rejected(tmp_path, lines, key):
+    with pytest.raises(ValueError, match=key):
+        load_csp_config(_seed_entry(tmp_path, lines))
+
+
+def test_good_seed_entry_with_number_volume_scale(tmp_path):
+    cfg = load_csp_config(_seed_entry(tmp_path, 'cif = "a.cif"\nvolume_scale = 1.2\nsubstitutions = [["O", "S", 2]]'))
+    assert cfg.seed_structures[0].volume_scale == 1.2
+
+
+def test_z_for_unused_space_group_and_duplicate_space_groups_warn(tmp_path, caplog):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2, 14, 2]\n[z]\n19 = 4\n')
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.config"):
+        cfg = load_csp_config(p)
+    assert cfg.space_groups == [2, 14]
+    assert "repeated" in caplog.text and "19" in caplog.text
