@@ -60,6 +60,21 @@ def test_site_voronoi_vertices_single_site_is_cell_box():
     assert ConvexHull(v).volume == pytest.approx(120.0)
 
 
+@pytest.mark.parametrize("n_sites", [1, 2])
+def test_site_voronoi_vertices_independent_of_skewed_basis(n_sites):
+    # the same lattice in a reduced and a strongly skewed basis must give the same cells
+    reduced = np.diag([10.0, 1.0, 10.0])
+    skewed = np.array([[10.0, 0.0, 0.0], [20.0, 1.0, 0.0], [0.0, 0.0, 10.0]])
+    frac = np.array([[0.1, 0.5, 0.1], [0.6, 0.2, 0.55]])[:n_sites]
+    coms = frac @ skewed  # Cartesian centres inside the skewed cell; same points for both bases
+    for k in range(n_sites):
+        v_red = ConvexHull(site_voronoi_vertices(reduced, coms, k)).volume
+        v_skew = ConvexHull(site_voronoi_vertices(skewed, coms, k)).volume
+        assert v_skew == pytest.approx(v_red)
+    if n_sites == 1:
+        assert v_red == pytest.approx(100.0)
+
+
 def test_convex_iou_identity_and_disjoint():
     cube = np.array(list(itertools.product([-1, 1], repeat=3)), float)
     assert convex_iou(cube, cube) == pytest.approx(1.0)

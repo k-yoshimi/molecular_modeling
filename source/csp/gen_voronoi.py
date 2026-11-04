@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 from ase import Atoms
+from ase.geometry import minkowski_reduce
 from molecular_modeling.voronoi_geom import _build_system_seeds_cart, _voronoi_cell_vertices_halfspaces_cart
 from scipy.optimize import linprog, minimize
 from scipy.spatial import ConvexHull, HalfspaceIntersection
@@ -73,7 +74,10 @@ def molecule_shape_points(mol: Atoms, n_sphere: int = 26) -> np.ndarray:
 def site_voronoi_vertices(cell: np.ndarray, coms: np.ndarray, index: int, rng: int = 1) -> np.ndarray:
     """Vertices of the Voronoi cell of molecular centre ``index`` (not clipped to the unit cell).
 
-    Seeds are all centres ``coms`` replicated over ``±rng`` lattice translations.
+    The lattice is first Minkowski-reduced and every centre is moved by a lattice vector to its image
+    nearest to ``coms[index]`` (in the reduced basis); the seeds are these centres replicated over
+    ``±rng`` translations of the reduced basis. Without the reduction a skewed but equivalent basis
+    would leave near neighbours out of the ``±rng`` block and give a far too large cell.
 
     Returns
     -------
@@ -82,9 +86,15 @@ def site_voronoi_vertices(cell: np.ndarray, coms: np.ndarray, index: int, rng: i
     """
     cell = np.asarray(cell, float)
     coms = np.asarray(coms, float)
-    seeds = _build_system_seeds_cart(cell, coms, rng=rng)
-    verts = _voronoi_cell_vertices_halfspaces_cart(coms[index], seeds)
-    return np.asarray(verts, float) - coms[index]
+    rcell, _ = minkowski_reduce(cell)
+    rcell = np.asarray(rcell, float)
+    centre = coms[index]
+    frac = (coms - centre) @ np.linalg.inv(rcell)
+    near = centre + (frac - np.round(frac)) @ rcell
+    near[index] = centre
+    seeds = _build_system_seeds_cart(rcell, near, rng=rng)
+    verts = _voronoi_cell_vertices_halfspaces_cart(centre, seeds)
+    return np.asarray(verts, float) - centre
 
 
 def _interior_point(halfspaces: np.ndarray) -> np.ndarray | None:
