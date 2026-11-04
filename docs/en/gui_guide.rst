@@ -24,6 +24,11 @@ Window Layout
 
 The GUI window consists of:
 
+.. image:: ../images/gui/gui_overview.png
+   :align: center
+   :width: 100%
+   :alt: GUI window overview
+
 1. **File panel (top)**: Icon button groups (described below)
 2. **3D viewport**: Molecular structure display (rotatable, translatable, zoomable) with XYZ axis indicator in bottom-left
 3. **Toolbar**: Translate / Rotate / Zoom buttons
@@ -49,6 +54,11 @@ File Panel (top)
 
 Icon buttons at the top of the window provide quick access to common operations.
 
+.. image:: ../images/gui/gui_file_panel.png
+   :align: center
+   :width: 80%
+   :alt: File panel (Input / Output / Edit / Pipeline)
+
 .. list-table::
    :header-rows: 1
    :widths: 20 80
@@ -68,6 +78,11 @@ Bottom Panel
 ~~~~~~~~~~~~
 
 Icon button groups below the 3D viewport.
+
+.. image:: ../images/gui/gui_bottom_panel.png
+   :align: center
+   :width: 80%
+   :alt: Bottom panel (Molecule Tools / Structure Tools / View Operations)
 
 - **Molecule Tools**: Select / Move / Rotate / Delete / Drag (drag mode)
 - **Structure Tools**: Add Molecule / Substitution / Supercell / Cell Parameters
@@ -204,6 +219,11 @@ Processing runs in a background thread so the GUI remains responsive.
 View Settings Menu
 ~~~~~~~~~~~~~~~~~~
 
+.. image:: ../images/gui/view_settings_menu.png
+   :align: center
+   :width: 40%
+   :alt: View Settings menu dropdown
+
 .. list-table::
    :header-rows: 1
    :widths: 40 60
@@ -253,6 +273,11 @@ View Toolbar
 The toolbar below the 3D viewport provides view controls.
 Each button supports press-and-hold for continuous operation.
 
+.. image:: ../images/gui/gui_toolbar.png
+   :align: center
+   :width: 80%
+   :alt: View Operations toolbar (Pan / Orbit / Zoom / BG)
+
 .. list-table::
    :header-rows: 1
    :widths: 20 30 50
@@ -291,11 +316,22 @@ Side Panel
 A side panel is displayed on the right side of the window for quick access to common view settings.
 The panel is scrollable — use the **mouse wheel** to scroll up/down when content overflows.
 
+.. image:: ../images/gui/gui_side_panel.png
+   :align: center
+   :width: 35%
+   :alt: Side panel (View Controls)
+
 - **Focus / Unfocus**: Buttons to enter/exit focus mode
 - **Color Mode**: Switch color mode via radio buttons (By Element / By Molecule / By Tag)
 - **Show Bonds**: Checkbox to toggle bond display (Ctrl+B)
 - **3D Spheres**: Enable/disable 3D shaded sphere rendering
 - **Element Controls** *(collapsible)*: Click the header to expand/collapse. Per-element row with [visibility checkbox][color swatch][size slider]. Global atom size scale slider (0.3–3.0) included
+
+.. image:: ../images/gui/gui_element_controls.png
+   :align: center
+   :width: 70%
+   :alt: Side panel with Element Controls expanded
+
 - **Molecule Controls** *(collapsible)*: Click the header to expand/collapse. Per-molecule-group row with [visibility checkbox][color swatch][select button]. **In focus mode**, checkboxes act as focus add/remove controls
 - **Atom List** *(collapsible, collapsed by default)*: Click the header to expand. Shows a table of all atoms with index (#), element, X/Y/Z coordinates, and molecule group ID. Click a row to select that atom in the 3D view
 - **Status info**: Real-time display of atom count, selection count, element breakdown, group count
@@ -306,6 +342,11 @@ Status Bar
 ----------
 
 The status bar at the bottom shows context-dependent information:
+
+.. image:: ../images/gui/gui_atom_selected.png
+   :align: center
+   :width: 100%
+   :alt: Status bar when atom is selected
 
 - **No atoms selected**: System overview — atom count, elements, molecule groups, cell size
   (e.g., ``48 atoms | (C, H) | 4 groups | Cell: 5.5x5.4x18.7 Å``)
@@ -388,6 +429,11 @@ Right-Click Context Menu
 
 Right-clicking in the 3D viewport shows a context menu with quick access to:
 
+.. image:: ../images/gui/gui_context_menu_closeup.png
+   :align: center
+   :width: 50%
+   :alt: Right-click context menu
+
 - **Select Molecule Group**: Select all atoms in the molecule group of the clicked atom
 - **Move...**: Open move dialog
 - **Rotate...**: Open rotate dialog
@@ -400,8 +446,8 @@ Screenshot
 Use **Ctrl+Shift+S** or the camera icon in the file panel to save the current 3D view as a PNG file.
 If Pillow is installed, the screenshot is saved as PNG; otherwise as EPS.
 
-Dialog Details
---------------
+MoleculeTools Menu Details
+--------------------------
 
 Focus Selection Dialog
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -462,8 +508,10 @@ Save Selection as Molecule Dialog
 
 1. Select atoms in the 3D viewport (Shift + click for multiple selection)
 2. Choose **MoleculeTools** → **Save Selection as Molecule...**
-3. Enter molecule name and number of molecules per unit cell
-4. Click **OK** to save as ``data/<name>.toml``
+3. Enter the **Molecule name** (one molecule is saved, so ``num_molecules = 1``)
+4. If needed, adjust the atoms in the **Selected Atoms** list with **Add Index** /
+   **Remove Selected**
+5. Click **OK** to save as ``data/<name>.toml``
 
 Global Element Substitution Dialog
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

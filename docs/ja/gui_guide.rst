@@ -23,6 +23,11 @@ Molecular Modeling GUI は ASE-GUI を拡張したグラフィカルインター
 
 GUI ウィンドウは以下の要素で構成されます:
 
+.. image:: ../images/gui/gui_overview.png
+   :align: center
+   :width: 100%
+   :alt: GUI ウィンドウ全体像
+
 1. **ファイルパネル（上部）**: アイコンボタン群（後述）
 2. **3D ビューポート**: 分子構造の表示（回転・並進・ズーム可能）。左下に XYZ 座標軸インジケータ表示
 3. **ツールバー**: Translate / Rotate / Zoom ボタン
@@ -48,6 +53,11 @@ GUI ウィンドウは以下の要素で構成されます:
 
 ウィンドウ上部のアイコンボタンからよく使う操作にすばやくアクセスできます。
 
+.. image:: ../images/gui/gui_file_panel.png
+   :align: center
+   :width: 80%
+   :alt: ファイルパネル（Input / Output / Edit / Pipeline）
+
 .. list-table::
    :header-rows: 1
    :widths: 20 80
@@ -67,6 +77,11 @@ GUI ウィンドウは以下の要素で構成されます:
 ~~~~~~~~~~~~
 
 3D ビューポートの下側に配置されたアイコンボタン群です。
+
+.. image:: ../images/gui/gui_bottom_panel.png
+   :align: center
+   :width: 80%
+   :alt: ボトムパネル（Molecule Tools / Structure Tools / View Operations）
 
 - **Molecule Tools**: Select（選択）/ Move（移動）/ Rotate（回転）/ Delete（削除）/ Drag（ドラッグモード）
 - **Structure Tools**: Add Molecule / Substitution / Supercell / Cell Parameters
@@ -203,6 +218,11 @@ Pipeline メニュー
 View Settings メニュー
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. image:: ../images/gui/view_settings_menu.png
+   :align: center
+   :width: 40%
+   :alt: View Settings メニュードロップダウン
+
 .. list-table::
    :header-rows: 1
    :widths: 40 60
@@ -252,6 +272,11 @@ Help メニュー
 3D ビューポートの下部にあるツールバーで、表示を操作できます。
 各ボタンは押し続けることで連続的に操作できます。
 
+.. image:: ../images/gui/gui_toolbar.png
+   :align: center
+   :width: 80%
+   :alt: View Operations ツールバー（Pan / Orbit / Zoom / BG）
+
 .. list-table::
    :header-rows: 1
    :widths: 20 30 50
@@ -290,11 +315,22 @@ Help メニュー
 ウィンドウ右側にサイドパネルが表示されます。よく使うビュー設定にすばやくアクセスできます。
 パネルは **マウスホイール** で上下スクロールが可能です。内容がウィンドウに収まらない場合もスクロールして操作できます。
 
+.. image:: ../images/gui/gui_side_panel.png
+   :align: center
+   :width: 35%
+   :alt: サイドパネル（View Controls）
+
 - **Focus / Unfocus**: フォーカスモードの開始/終了ボタン
 - **Color Mode**: 色分けモードをラジオボタンで切り替え（元素別 / 分子グループ別 / タグ別）
 - **Show Bonds**: ボンド（結合線）の表示/非表示チェックボックス (Ctrl+B)
 - **3D Spheres**: 3D シェーディング球体レンダリングの有効/無効
 - **Element Controls** *(折りたたみ可能)*: ヘッダーをクリックで展開/折りたたみ。元素ごとに [表示チェック][色スウォッチ][サイズスライダー] を一行で制御。全原子サイズスケールのスライダー（0.3〜3.0）も含む
+
+.. image:: ../images/gui/gui_element_controls.png
+   :align: center
+   :width: 70%
+   :alt: Element Controls 展開時のサイドパネル
+
 - **Molecule Controls** *(折りたたみ可能)*: ヘッダーをクリックで展開/折りたたみ。分子グループごとに [表示チェック][色スウォッチ][選択ボタン] を一行で制御。 **フォーカスモード中** はチェックボックスがフォーカス対象の追加/除去として機能
 - **Atom List** *(折りたたみ可能、デフォルトは折りたたみ)*: ヘッダーをクリックで展開。全原子のインデックス(#)、元素、X/Y/Z座標、分子グループIDを表示するテーブル。行をクリックすると3Dビューでその原子を選択
 - **ステータス情報**: 原子数、選択数、元素内訳、グループ数をリアルタイム表示
@@ -305,6 +341,11 @@ Help メニュー
 --------------
 
 画面下部のステータスバーには、選択状態に応じた情報が表示されます。
+
+.. image:: ../images/gui/gui_atom_selected.png
+   :align: center
+   :width: 100%
+   :alt: 原子選択時のステータスバー表示
 
 - **原子未選択時**: 全体情報 — 原子数、含有元素、分子グループ数、セルサイズ
   (例: ``48 atoms | (C, H) | 4 groups | Cell: 5.5x5.4x18.7 Å``)
@@ -387,6 +428,11 @@ ASE-GUI 標準のマウス操作に加え、右クリックコンテキストメ
 
 3D ビューポートで右クリックすると、以下の操作にすばやくアクセスできます:
 
+.. image:: ../images/gui/gui_context_menu_closeup.png
+   :align: center
+   :width: 50%
+   :alt: 右クリックコンテキストメニュー
+
 - **Select Molecule Group**: クリック位置の原子が属する分子グループ全体を選択
 - **Move...**: 移動ダイアログを表示
 - **Rotate...**: 回転ダイアログを表示
@@ -399,7 +445,7 @@ ASE-GUI 標準のマウス操作に加え、右クリックコンテキストメ
 **Ctrl+Shift+S** または ファイルパネルのカメラアイコンで、現在の 3D ビューを PNG ファイルとして保存できます。
 Pillow がインストールされている場合は PNG 形式、未インストールの場合は EPS 形式で保存されます。
 
-ダイアログ詳細
+MoleculeTools メニュー詳細
 --------------
 
 Focus Selection ダイアログ
@@ -460,8 +506,9 @@ Save Selection as Molecule ダイアログ
 
 1. 3D ビューポートで原子を選択（Shift + クリックで複数選択）
 2. **MoleculeTools** → **Save Selection as Molecule...** を選択
-3. 分子名と単位胞中の分子数を入力
-4. **OK** で ``data/<name>.toml`` として保存
+3. **Molecule name** に分子名を入力（保存するのは分子 1 個で、``num_molecules = 1`` になります）
+4. 必要なら **Selected Atoms** の一覧で **Add Index** / **Remove Selected** を使って原子を調整
+5. **OK** で ``data/<name>.toml`` として保存
 
 Global Element Substitution ダイアログ
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
