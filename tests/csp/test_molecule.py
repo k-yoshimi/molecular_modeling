@@ -86,3 +86,66 @@ def test_perm_maps_hydrogens_with_heavy_only():
     res = match_and_align(moved, mol, heavy_only=True)
     out = moved.positions[res.perm] @ res.rotation.T + res.translation
     np.testing.assert_allclose(out, mol.positions, atol=1e-5)
+
+
+BENZ_SYM = '["C", "C", "C", "C", "C", "C", "H", "H", "H", "H", "H", "H"]'
+
+
+def _benz_positions(n: int = 12) -> str:
+    from molecular_modeling.csp.molecule import load_molecule as _lm
+
+    pos = _lm("data/benzene.toml").positions[:n]
+    return "[" + ", ".join(f"[{x:.6f}, {y:.6f}, {z:.6f}]" for x, y, z in pos) + "]"
+
+
+@pytest.mark.parametrize(
+    ("content", "needle"),
+    [
+        ("this is not toml at all ===\n", "invalid TOML"),
+        (f"symbols = {BENZ_SYM}\n", "positions"),
+        (f"positions = {_benz_positions()}\n", "symbols"),
+        (f"symbols = {BENZ_SYM}\npositions = {_benz_positions(11)}\n", "12 symbols but 11 positions"),
+        (f"symbols = {BENZ_SYM.replace('C', 'c')}\npositions = {_benz_positions()}\n", "'c'"),
+        (
+            f"symbols = {BENZ_SYM.replace(chr(34) + 'C' + chr(34), chr(34) + 'Xx' + chr(34), 1)}\npositions = {_benz_positions()}\n",
+            "Xx",
+        ),
+        (f"symbols = {BENZ_SYM}\nuse_fractional = true\npositions = {_benz_positions()}\n", "lattice_vectors"),
+        ("symbols = []\npositions = []\n", "no atoms"),
+        ('symbols = ["C", "C"]\npositions = [[0, 0, 0], [0.1, 0, 0]]\n', "overlapping"),
+        ('symbols = ["C", "C"]\npositions = [[0, 0], [1.4, 0]]\n', "positions"),
+    ],
+)
+def test_load_molecule_toml_errors_name_the_problem(tmp_path, content, needle):
+    p = tmp_path / "mol.toml"
+    p.write_text(content)
+    with pytest.raises(ValueError) as info:
+        load_molecule(p)
+    assert needle in str(info.value) and "mol.toml" in str(info.value)
+
+
+def test_load_molecule_missing_file_names_it(tmp_path):
+    with pytest.raises(FileNotFoundError, match="nope.toml"):
+        load_molecule(tmp_path / "nope.toml")
+
+
+@pytest.mark.parametrize(
+    ("content", "needle"),
+    [
+        ("12\ncomment\nC 0 0 0\nC 1.4 0\nthis is garbage\n", "XYZ"),
+        ("2\nc\nC 0 0 0\nO 1.2 0 0\n2\nc\nC 0 0 0\nO 1.2 0 0\n", "2 frames"),
+        ("2\nc\nC 0 0 0\nC 0.2 0 0\n", "overlapping"),
+    ],
+)
+def test_load_molecule_xyz_errors(tmp_path, content, needle):
+    p = tmp_path / "mol.xyz"
+    p.write_text(content)
+    with pytest.raises(ValueError) as info:
+        load_molecule(p)
+    assert needle in str(info.value) and "mol.xyz" in str(info.value)
+
+
+def test_load_molecule_single_frame_xyz_still_loads(tmp_path):
+    p = tmp_path / "co.xyz"
+    p.write_text("2\nc\nC 0 0 0\nO 1.2 0 0\n")
+    assert load_molecule(p).get_chemical_symbols() == ["C", "O"]

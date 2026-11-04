@@ -1,12 +1,15 @@
 """Molecule loading and rigid-body alignment with atom matching."""
+
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from ase import Atoms
+from ase.data import atomic_numbers
 from ase.io import read
 from molecular_modeling.build_system_from_toml import expand_symbols
 from molecular_modeling.molecule_unwrap import is_connected
@@ -30,29 +33,100 @@ class AlignResult:
     rmsd: float
 
 
+#: Atoms of the input molecule closer than this (Å) are duplicates or overlapping.
+MIN_ATOM_DISTANCE = 0.5
+
+_TOKEN = re.compile(r"(?:[A-Z][a-z]?\d*)+")
+
+
+def _toml_atoms(path: Path) -> Atoms:
+    try:
+        with open(path, "rb") as f:
+            d = tomllib.load(f)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{path}: invalid TOML: {exc}") from None
+    for key in ("symbols", "positions"):
+        if key not in d:
+            raise ValueError(f"{path}: '{key}' is required")
+    tokens = d["symbols"]
+    if not isinstance(tokens, list) or not all(isinstance(t, str) for t in tokens):
+        raise ValueError(f"{path}: 'symbols' must be a list of element symbols, got {tokens!r}")
+    for t in tokens:
+        if not _TOKEN.fullmatch(t):
+            raise ValueError(f"{path}: symbol {t!r} is not an element symbol (write e.g. 'C', 'Cl' or 'C6H6')")
+    symbols = expand_symbols(tokens)
+    unknown = sorted({s for s in symbols if s not in atomic_numbers})
+    if unknown:
+        raise ValueError(f"{path}: unknown element(s) {unknown}")
+    try:
+        pos = np.asarray(d["positions"], dtype=float)
+    except (TypeError, ValueError):
+        raise ValueError(f"{path}: 'positions' must be a list of [x, y, z] coordinates") from None
+    if pos.size == 0:
+        pos = pos.reshape(0, 3)
+    if pos.ndim != 2 or pos.shape[1] != 3:
+        raise ValueError(f"{path}: 'positions' must be a list of [x, y, z] coordinates")
+    if len(symbols) != len(pos):
+        raise ValueError(f"{path}: {len(symbols)} symbols but {len(pos)} positions")
+    if d.get("use_fractional", False):
+        if "lattice_vectors" not in d:
+            raise ValueError(f"{path}: use_fractional = true needs 'lattice_vectors'")
+        lat = np.asarray(d["lattice_vectors"], dtype=float)
+        if lat.shape != (3, 3):
+            raise ValueError(f"{path}: 'lattice_vectors' must be three [x, y, z] vectors")
+        pos = pos @ lat
+    return Atoms(symbols=symbols, positions=pos)
+
+
+def _xyz_atoms(path: Path) -> Atoms:
+    try:
+        frames = read(str(path), index=":", format="xyz")
+    except Exception as exc:  # ASE raises many kinds of errors for malformed files
+        raise ValueError(f"{path}: cannot be read as XYZ: {type(exc).__name__}: {exc}") from None
+    frames = frames if isinstance(frames, list) else [frames]
+    if len(frames) != 1:
+        raise ValueError(f"{path}: holds {len(frames)} frames (structures); give a file with exactly one molecule")
+    return frames[0]
+
+
 def load_molecule(path: str | Path) -> Atoms:
-    """Load a molecule from ``.toml`` (``data/*.toml`` format) or ``.xyz``.
+    """Load a molecule from ``.toml`` (``data/*.toml`` format) or ``.xyz`` (exactly one frame).
 
     The simple (unweighted) centroid is moved to the origin.
 
     Raises
     ------
+    FileNotFoundError
+        If the file does not exist.
     ValueError
-        If the molecule is fragmented or the file type is unsupported.
+        If the file cannot be read or is unsupported, a required key is missing, symbols are not element
+        symbols, symbols and positions differ in number, the molecule is empty, two atoms are closer than
+        :data:`MIN_ATOM_DISTANCE`, or the molecule is fragmented. The message names the file.
     """
     path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"molecule file not found: {path}")
     suffix = path.suffix.lower()
     if suffix == ".toml":
-        with open(path, "rb") as f:
-            d = tomllib.load(f)
-        pos = np.asarray(d["positions"], dtype=float)
-        if d.get("use_fractional", False):
-            pos = pos @ np.asarray(d["lattice_vectors"], dtype=float)
-        atoms = Atoms(symbols=expand_symbols(list(d["symbols"])), positions=pos)
+        atoms = _toml_atoms(path)
     elif suffix == ".xyz":
-        atoms = read(str(path), format="xyz")  # type: ignore[assignment]
+        atoms = _xyz_atoms(path)
     else:
-        raise ValueError(f"unsupported molecule file type: {path}")
+        raise ValueError(f"unsupported molecule file type: {path} (use .toml or .xyz)")
+    if len(atoms) == 0:
+        raise ValueError(f"{path}: the molecule has no atoms")
+    pos = atoms.get_positions()
+    if not np.all(np.isfinite(pos)):
+        raise ValueError(f"{path}: positions must be finite numbers")
+    if len(atoms) > 1:
+        dist = np.linalg.norm(pos[:, None, :] - pos[None, :, :], axis=2)
+        np.fill_diagonal(dist, np.inf)
+        i, j = np.unravel_index(np.argmin(dist), dist.shape)
+        if dist[i, j] < MIN_ATOM_DISTANCE:
+            raise ValueError(
+                f"{path}: atoms {min(i, j)} and {max(i, j)} are only {dist[i, j]:.3f} Å apart "
+                "(duplicate or overlapping atoms)"
+            )
     atoms.set_pbc(False)
     atoms.positions -= atoms.positions.mean(axis=0)
     if not is_connected(atoms.get_positions(), atoms.get_chemical_symbols()):
