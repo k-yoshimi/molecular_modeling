@@ -124,6 +124,40 @@ ASE の I/O 機能を使って、以下のフォーマットで構造ファイ�
 - **VASP**: ``POSCAR``, ``INCAR``, ``KPOINTS``
 - **CIF**: ``structure.cif``
 
+molecule_unwrap.py
+~~~~~~~~~~~~~~~~~~
+
+周期境界で切れた分子をつなぎ直します（結合グラフの幅優先探索。結合の判定は自然共有結合半径の 1.2 倍）。
+原子の集まりがつながった 1 分子かどうかの判定と、結合している原子対の列挙も行います。
+GUI（Save Selection as Molecule）と CSP パッケージから使います。
+
+csp/ — 結晶構造予測
+~~~~~~~~~~~~~~~~~~~
+
+孤立分子 1 個から結晶の候補を作る別のパイプラインです
+（``molecular-modeling-csp`` → ``source/csp/cli.py`` → ``pipeline.run_csp``）。
+``csp`` extra（PyXtal、tblite、pymatgen）が必要です。:doc:`csp_guide` を参照してください。
+
+.. code-block:: text
+
+   input/csp.toml + 分子ファイル
+          |
+          v
+   候補生成 (gen_random, gen_voronoi, gen_seed) -> 事前ふるい (screen)
+          -> 緩和 (relax, GFN2-xTB) -> 重複除去 (dedupe)
+          -> csp_out/ (candidates.csv, NNN_<id>.cif, run.log)
+
+- ``config.py``: ``CSPConfig`` と ``load_csp_config``\ （TOML 設定、blind/informed モード、値の範囲チェック）
+- ``pipeline.py``: ``run_csp``\ （各段、時間の目安、依存ライブラリの確認、出力）。``cli.py``: コマンドラインの入口
+- ``molecule.py``: 分子の読み込み、体積、RMSD、剛体の重ね合わせ（``match_and_align``）
+- ``gen_random.py``・``gen_voronoi.py``・``gen_seed.py``: ランダム（PyXtal）、Voronoi による向き決め、置換元からの生成器
+- ``screen.py``: 重なりと充填率のチェック、剛体 Lennard-Jones による事前ふるい
+- ``relax.py``: 並列の緩和と、変形・結合のチェック
+- ``dedupe.py``: 同じ構造をまとめる
+- ``candidate.py``: 段の間で受け渡す ``Candidate``
+- ``deps.py``: ``csp`` extra が import できるかの確認
+- ``validate.py``: 実験 CIF との比較（``python -m molecular_modeling.csp.validate``）
+
 system.info メタデータ
 ----------------------
 
