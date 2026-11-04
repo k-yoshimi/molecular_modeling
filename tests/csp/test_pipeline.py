@@ -457,3 +457,35 @@ def test_run_log_summarises_failure_and_rejection_reasons(tmp_path, monkeypatch)
     assert "2 failed: InputError: Too close interatomic distances" in log
     assert "1 failed: RuntimeError: x" in log
     assert "1 rejected_deformed: molecule deformed (RMSD 0.900 > 0.5 Å)" in log
+
+
+@pytest.mark.parametrize(
+    ("content", "needle"),
+    [
+        (None, "no_such.toml"),  # missing config file
+        ("molecule = \n", "csp.toml"),  # TOML syntax error
+        ('molecule = "data/benzene.toml"\nbogus = 1\n', "bogus"),
+        ('molecule = "no_such_molecule.toml"\n', "no_such_molecule.toml"),
+    ],
+)
+def test_cli_reports_expected_errors_without_traceback(tmp_path, capsys, content, needle):
+    path = tmp_path / ("no_such.toml" if content is None else "csp.toml")
+    if content is not None:
+        path.write_text(content)
+    assert cli.main([str(path)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and needle in err
+    assert "Traceback" not in err
+
+
+def test_cli_keeps_traceback_for_unexpected_errors(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    def boom(*args, **kwargs):
+        raise ZeroDivisionError("bug")
+
+    monkeypatch.setattr(pipeline, "_generate", boom)
+    p = tmp_path / "csp.toml"
+    p.write_text(f'molecule = "data/benzene.toml"\nn_procs = 1\nout_dir = "{tmp_path / "out"}"\n')
+    with pytest.raises(ZeroDivisionError):
+        cli.main([str(p)])
