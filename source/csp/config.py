@@ -144,8 +144,11 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     if "out_dir" in kwargs:
         kwargs["out_dir"] = Path(kwargs["out_dir"])
     if "packing_range" in kwargs:
-        lo, hi = kwargs["packing_range"]
-        kwargs["packing_range"] = (float(lo), float(hi))
+        pr = kwargs["packing_range"]
+        # checked before conversion: float(True) would silently give 1.0
+        if not (isinstance(pr, list) and len(pr) == 2 and all(_is_real(x) for x in pr)):
+            raise ValueError(f"packing_range must be two finite numbers [lo, hi], got {pr!r}")
+        kwargs["packing_range"] = (float(pr[0]), float(pr[1]))
 
     if mode == "blind":
         # blind uses no information about the target crystal: default space groups, Z' = 1
@@ -164,7 +167,17 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     else:
         if "space_groups" not in raw:
             raise ValueError("informed mode requires 'space_groups'")
-        kwargs["z"] = {int(k): int(v) for k, v in raw["z"].items()} if "z" in raw else None
+        if "z" in raw:
+            # values checked before conversion: int(1.9) and int(True) would silently give 1
+            bad = {k: v for k, v in raw["z"].items() if not _is_int(v)}
+            if bad:
+                raise ValueError(f"z values must be integers, got {bad}")
+            try:
+                kwargs["z"] = {int(k): v for k, v in raw["z"].items()}
+            except ValueError:
+                raise ValueError(f"z keys must be space group numbers, got {list(raw['z'])}") from None
+        else:
+            kwargs["z"] = None
 
     seeds = [
         SeedSpec(

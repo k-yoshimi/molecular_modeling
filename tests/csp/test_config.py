@@ -218,3 +218,30 @@ def test_boundary_values_accepted(tmp_path):
     )
     cfg = load_csp_config(p)
     assert cfg.space_groups == [1, 230] and cfg.relax_steps == 0
+
+
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        ("[z]\n2 = 1.9", "z"),
+        ("[z]\n2 = true", "z"),
+        ('[z]\n2 = "4"', "z"),
+        ("packing_range = [0.4, true]", "packing_range"),
+        ('packing_range = [0.4, "0.8"]', "packing_range"),
+        ("packing_range = [0.4]", "packing_range"),
+    ],
+)
+def test_raw_values_validated_before_conversion(tmp_path, line, key):
+    p = tmp_path / "csp.toml"
+    p.write_text(f'molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2]\n{line}\n')
+    with pytest.raises(ValueError, match=key):
+        load_csp_config(p)
+
+
+def test_integer_z_and_integer_packing_bound_still_load(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text(
+        'molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [2]\npacking_range = [0.4, 1]\n[z]\n2 = 4\n'
+    )
+    cfg = load_csp_config(p)
+    assert cfg.z == {2: 4} and cfg.packing_range == (0.4, 1.0)
