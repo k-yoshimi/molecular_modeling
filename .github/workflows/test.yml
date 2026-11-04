@@ -64,7 +64,8 @@ jobs:
           fc-cache -fv
 
       - name: Install Python dependencies
-        run: pip install --break-system-packages -e ".[dev]"
+        # The image ships Debian-packaged Python modules (e.g. packaging) that pip cannot uninstall
+        run: pip install --break-system-packages --ignore-installed -e ".[dev]"
 
       - name: Build Japanese PDF
         run: SPHINX_LANG=ja make -C docs latexpdf-ja
