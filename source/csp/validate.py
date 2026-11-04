@@ -66,8 +66,8 @@ class _Crystal:
     """Whole molecules of a periodic structure, prepared for cluster building."""
 
     cell: np.ndarray
-    mols: list[Atoms]
-    coms: np.ndarray  # (n_mol, 3) centroids wrapped into the cell
+    mols: list[Atoms]  # fitted atoms only (heavy atoms, or all atoms of a molecule that has none)
+    coms: np.ndarray  # (n_mol, 3) centroids of the fitted atoms, wrapped into the cell
     shifts: np.ndarray  # (n_mol, 3) Cartesian shift from the molecule's own coordinates to the wrapped centroid
     heavy_pos: list[np.ndarray]  # positions of fitted atoms (heavy atoms, or all if the molecule has none)
     heavy_sym: list[np.ndarray]
@@ -78,17 +78,24 @@ class _Crystal:
 
 
 def _prepare(cell: np.ndarray, mols: list[Atoms]) -> _Crystal:
+    """Prepare whole molecules for comparison, keeping only the atoms that are fitted.
+
+    Hydrogens are dropped from every molecule that has heavy atoms (a molecule of hydrogens only keeps
+    them all), so the comparison, centroids and symmetry search do not depend on whether a structure
+    has hydrogens: experimental CIFs often have none.
+    """
     cell = np.asarray(cell, dtype=float)
-    raw = np.array([m.get_positions().mean(axis=0) for m in mols])
-    frac = raw @ np.linalg.inv(cell)
-    wrapped = (frac - np.floor(frac)) @ cell
-    heavy_pos, heavy_sym = [], []
+    heavy_pos, heavy_sym, fitted = [], [], []
     for m in mols:
         sym = np.array(m.get_chemical_symbols())
         keep = sym != "H" if np.any(sym != "H") else np.ones(len(sym), dtype=bool)
         heavy_pos.append(m.get_positions()[keep])
         heavy_sym.append(sym[keep])
-    return _Crystal(cell, mols, wrapped, wrapped - raw, heavy_pos, heavy_sym)
+        fitted.append(Atoms(list(sym[keep]), positions=heavy_pos[-1]))
+    raw = np.array([p.mean(axis=0) for p in heavy_pos]).reshape(-1, 3)
+    frac = raw @ np.linalg.inv(cell)
+    wrapped = (frac - np.floor(frac)) @ cell
+    return _Crystal(cell, fitted, wrapped, wrapped - raw, heavy_pos, heavy_sym)
 
 
 def _inverted(c: _Crystal) -> _Crystal:

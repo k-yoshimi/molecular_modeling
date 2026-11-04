@@ -601,3 +601,43 @@ def test_validate_run_conformer_tolerance_boundary(tmp_path, target):
     write(exp, a)
     entry = validate_run(tmp_path, [exp], flip=None).entries[0]
     assert entry.best_rank == 1 and entry.best_rmsd is not None and entry.best_rmsd < 1e-3
+
+
+def _without_h(atoms: Atoms) -> Atoms:
+    return atoms[[s != "H" for s in atoms.get_chemical_symbols()]]
+
+
+@pytest.mark.parametrize("h_side", ["a", "b"])
+def test_rmsd_cluster_hydrogens_on_one_side_only(h_side):
+    # experimental CIFs often have no H; the comparison uses heavy atoms, so H must not matter
+    full = _benzene(14, 4, 5)
+    a, b = (full, _without_h(full)) if h_side == "a" else (_without_h(full), full)
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+@pytest.mark.parametrize("exp_has_h", [False, True])
+def test_validate_run_hydrogens_on_one_side_only(tmp_path, exp_has_h):
+    full = _benzene(14, 4, 5)
+    cand, exp_atoms = (_without_h(full), full) if exp_has_h else (full, _without_h(full))
+    _fake_out_dir(tmp_path, [("random-14-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.comparisons[0].note is None
+    assert entry.best_rank == 1 and entry.comparisons[0].n_matched == 15
+
+
+# OSS_MOL with a hydrogen on N
+OSSH_MOL = OSS_MOL + Atoms("H", positions=[[-0.4, 0.2, 2.3]])
+
+
+def test_validate_run_flip_path_with_hydrogen_free_experiment(tmp_path):
+    with_h = generate_random(OSSH_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    flipped = _swap_first(with_h, "O", "S")
+    _fake_out_dir(tmp_path, [("random-2-0", "random", flipped), ("random-2-1", "random", with_h)])
+    exp = tmp_path / "exp.cif"
+    write(exp, _without_h(with_h))
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert all(c.note is None for c in entry.comparisons + entry.flip_comparisons)
+    assert entry.best_rank == 2 and entry.flip_match_rank == 1
