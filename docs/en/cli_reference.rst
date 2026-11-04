@@ -149,8 +149,10 @@ See :doc:`csp_guide`, "Validation against experiment", for how to read the repor
      - Skip the flip-match check (useful for molecules without O or S); cannot be combined with ``--flip``
 
 Input errors (bad options, unreadable CIFs, a missing or busy output directory, results of a run that
-did not finish) end with a usage message and exit code 2. Validation holds the output directory's lock
-file while it runs, so a CSP run cannot start in that directory meanwhile.
+did not finish, a lock file that cannot be created, more than one MPI process) end with a usage
+message and exit code 2. Validation holds the output directory's lock file while it runs, so a CSP run
+cannot start in that directory meanwhile; it therefore needs write access to the output directory and
+never reads it without the lock.
 
 The report is printed and written to ``<out_dir>/validation.md``.
 

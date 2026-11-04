@@ -37,7 +37,9 @@ Workflow
 
 ``exp1.cif`` and ``exp2.cif`` stand for experimental CIF files that you supply; none ship with the
 repository. Relative paths (the config file, and ``molecule``, ``cif`` and ``out_dir`` inside it) are
-resolved against the current directory, not against the directory of the config file. If the input is
+resolved against the current directory, not against the directory of the config file. Run both
+commands as a single process: under ``mpiexec`` with more than one process they stop with an error
+(use ``n_procs`` for parallel relaxation). If the input is
 wrong (bad settings, a missing or unreadable file, a missing package), the command prints
 ``error: <message>`` and exits with code 2.
 
@@ -193,7 +195,7 @@ coordinates (Å), for example (an O=C=O molecule):
 
 CSP reads only ``symbols``, ``positions`` and, when ``use_fractional = true``, ``lattice_vectors`` (to
 convert the positions); other keys such as ``center_of_mass`` are not used. An ``.xyz`` file holding one
-molecule (exactly one frame) works as well. Symbols must be element symbols with the usual
+molecule (exactly one frame; extended XYZ with a ``Properties=`` header is read by its columns) works as well. Symbols must be element symbols with the usual
 capitalisation (``C``, ``Cl``), and no two atoms may be closer than 0.5 Å; otherwise loading stops with a
 message naming the file. The molecule is shifted so that its plain (unweighted) centroid is at the origin.
 
@@ -326,8 +328,11 @@ Reusing ``out_dir``
    the directory until a run finishes. Do not start two runs with the same ``out_dir``: a running job
    holds the lock file ``.csp_run.lock``, and validation holds the same lock while it reads the results
    and writes ``validation.md``, so a run and a validation of the same directory cannot overlap; the
-   second one is refused. If a run was killed so hard that the lock file stayed behind, delete the lock
-   file **and rerun**: the marker keeps the partial results from being validated.
+   second one is refused. Validation therefore needs write access to ``out_dir``: if it cannot create
+   the lock file (for example a read-only copy of the results), it stops with an error instead of
+   reading without the lock; copy the directory somewhere writable first. If a run was killed so hard
+   that the lock file stayed behind, delete the lock file **and rerun**: the marker keeps the partial
+   results from being validated.
 
 ``run.log``
    How many candidates survived each stage and how long it took. Example from a real run with this
