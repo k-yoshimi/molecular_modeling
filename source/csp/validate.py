@@ -18,11 +18,12 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
+from ase.data import chemical_symbols
 from ase.io import read
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
 
-from .candidate import MAX_CIF
+from .candidate import LOCK_NAME, MAX_CIF
 from .deps import require
 from .gen_seed import read_seed_molecules, split_molecules
 from .molecule import AlignResult, _assign, _initial_rotations, _kabsch, match_and_align
@@ -631,6 +632,17 @@ def _load_cif(cif: Path) -> _Crystal | str:
         return f"cannot be read: {exc}"
 
 
+def _rank(text: str, csv_path: Path, line: int) -> int:
+    """Rank from a ``candidates.csv`` field (``"2"`` or an integral ``"2.0"``)."""
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        value = math.nan
+    if not (math.isfinite(value) and value == int(value) and value >= 1):
+        raise ValueError(f"{csv_path}, line {line}: rank must be a positive integer, got {text!r}")
+    return int(value)
+
+
 def _read_candidates(out_dir: Path) -> list[_Cand]:
     """Candidate CIFs in ``out_dir`` as (rank, id, origin, crystal or error message), ordered by rank.
 
@@ -641,6 +653,7 @@ def _read_candidates(out_dir: Path) -> list[_Cand]:
     """
     csv_path = out_dir / "candidates.csv"
     out: list[_Cand] = []
+
     if not csv_path.exists():
         for cif in sorted(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
             out.append((int(cif.stem[:3]), cif.stem[4:], "?", _load_cif(cif)))
@@ -648,9 +661,14 @@ def _read_candidates(out_dir: Path) -> list[_Cand]:
 
     seen_ranks: set[int] = set()
     seen_ids: set[str] = set()
-    with open(csv_path, newline="", encoding="utf-8") as fh:
-        for row in csv.DictReader(fh):
-            rank, cid = int(row["rank"]), row["id"]
+    # utf-8-sig: a CSV saved again by a spreadsheet may start with a byte-order mark (and use CRLF)
+    with open(csv_path, newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        missing = {"rank", "id", "origin"} - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"{csv_path}: missing column(s) {', '.join(sorted(missing))}")
+        for line, row in enumerate(reader, start=2):
+            rank, cid = _rank(row["rank"], csv_path, line), row["id"]
             if rank in seen_ranks or cid in seen_ids:
                 logger.warning("candidates.csv: duplicate row (rank %d, id %s) skipped", rank, cid)
                 continue
@@ -729,22 +747,34 @@ def validate_run(
         (``NNN_<id>.cif``). A ``candidates.csv`` without rows (a run that kept no candidate) is valid.
     """
     require(["pymatgen", "spglib"], purpose="validation")
+    if not (isinstance(n_top, int) and n_top >= 1):
+        raise ValueError(f"n_top must be a positive integer, got {n_top!r}")
+    if not (math.isfinite(rmsd_cut) and rmsd_cut > 0):
+        raise ValueError(f"rmsd_cut must be a positive finite number, got {rmsd_cut!r}")
     out_dir = Path(out_dir)
     if not out_dir.is_dir():
         raise FileNotFoundError(f"CSP output directory not found: {out_dir}")
+    if (out_dir / LOCK_NAME).exists():
+        raise FileExistsError(
+            f"a CSP run is still running in {out_dir} (lock file {LOCK_NAME}); validate after it finishes, "
+            "or delete the lock file if no run is active"
+        )
     if not (out_dir / "candidates.csv").exists() and not any(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
         raise FileNotFoundError(
             f"no candidates in {out_dir}: expected candidates.csv or NNN_<id>.cif files written by molecular-modeling-csp"
         )
+    # experimental structures are read before the candidates are compared, so a bad file stops early
+    exps = [(Path(p), *read_seed_molecules(Path(p), role="experimental")) for p in experimental]
+    names = [p.name for p, _c, _m in exps]
+    labels = [str(p) if names.count(p.name) > 1 else p.name for p, _c, _m in exps]
     cands = _read_candidates(out_dir)
     entries = []
-    for path in experimental:
-        cell, mols = read_seed_molecules(Path(path))
+    for (path, cell, mols), label in zip(exps, labels):
         exp = _prepare(cell, mols)
         comps = _compare_all(exp, cands, N_CLUSTER)
         hit = _best_match(comps, rmsd_cut, N_CLUSTER)
         entry = ValidationEntry(
-            experimental=Path(path).name,
+            experimental=label,
             best_rank=hit.rank if hit else None,
             best_rmsd=hit.rmsd if hit else None,
             best_origin=hit.origin if hit else None,
@@ -759,7 +789,7 @@ def validate_run(
             missing = [el for el in flip if el not in present]
             if missing:
                 entry.flip_skipped = f"no {', '.join(missing)} in the experimental structure"
-                logger.warning("%s: flip check skipped: %s", Path(path).name, entry.flip_skipped)
+                logger.warning("%s: flip check skipped: %s", label, entry.flip_skipped)
             else:
                 emap = {flip[1]: flip[0]}
                 entry.flip_comparisons = _compare_all(_with_symbols_mapped(exp, emap), cands, N_CLUSTER, emap)
@@ -778,6 +808,19 @@ def validate_run(
     )
 
 
+def _parse_flip(text: str) -> tuple[str, str]:
+    """Two distinct element symbols from ``"O,S"`` (case is normalised: ``"o, s"`` gives ``("O", "S")``)."""
+    parts = [p.strip().capitalize() for p in text.split(",")]
+    if len(parts) != 2:
+        raise ValueError(f"--flip takes two comma-separated elements, e.g. O,S; got {text!r}")
+    unknown = [p for p in parts if p not in chemical_symbols or p == "X"]
+    if unknown:
+        raise ValueError(f"--flip: not element symbols: {', '.join(unknown)}")
+    if parts[0] == parts[1]:
+        raise ValueError(f"--flip needs two different elements, got {text!r}")
+    return parts[0], parts[1]
+
+
 def main(argv: list[str] | None = None) -> int:
     """Command line entry point; prints the Markdown report and writes ``<out_dir>/validation.md``."""
     parser = argparse.ArgumentParser(
@@ -788,20 +831,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("experimental", type=Path, nargs="+", help="experimental CIF file(s)")
     parser.add_argument("--n-top", type=int, default=20, help="success if a match is within this rank (default 20)")
     parser.add_argument("--rmsd-cut", type=float, default=0.8, help="RMSD15 threshold in Å (default 0.8)")
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
         "--flip", default="O,S", help="two elements treated as one for the flip-match check (default O,S)"
     )
-    parser.add_argument("--no-flip", action="store_true", help="skip the flipped-match check")
+    group.add_argument("--no-flip", action="store_true", help="skip the flipped-match check")
     args = parser.parse_args(argv)
+    if args.n_top < 1:
+        parser.error(f"--n-top must be at least 1, got {args.n_top}")
+    if not (math.isfinite(args.rmsd_cut) and args.rmsd_cut > 0):
+        parser.error(f"--rmsd-cut must be a positive number, got {args.rmsd_cut}")
     flip: tuple[str, str] | None = None
     if not args.no_flip:
-        parts = [p.strip() for p in args.flip.split(",")]
-        if len(parts) != 2:
-            parser.error("--flip takes two comma-separated elements, e.g. O,S")
-        flip = (parts[0], parts[1])
+        try:
+            flip = _parse_flip(args.flip)
+        except ValueError as exc:
+            parser.error(str(exc))
     try:
         report = validate_run(args.out_dir, args.experimental, n_top=args.n_top, rmsd_cut=args.rmsd_cut, flip=flip)
-    except (FileNotFoundError, ImportError) as exc:
+    except (ValueError, OSError, ImportError) as exc:
         parser.error(str(exc))
     md = report.to_markdown()
     print(md, end="")

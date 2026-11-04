@@ -22,24 +22,33 @@ SYMPREC = 0.1
 MATCH_TOL = 0.3
 
 
-def _check_occupancies(atoms: Atoms, cif: Path) -> None:
-    """Raise ValueError if any site of the CIF has an occupancy below 1."""
+#: What to do about a disordered CIF, by the role of the file.
+_DISORDER_ADVICE = {
+    "seed": "remove disorder (e.g. in VESTA) and save as P1 before using it as a seed",
+    "experimental": "keep only the major component of the disorder and save the experimental structure as an "
+    "ordered P1 CIF (e.g. in VESTA) before comparing",
+}
+
+
+def _check_occupancies(atoms: Atoms, cif: Path, role: str = "seed") -> None:
+    """Raise ValueError if any site of the CIF has an occupancy other than 1 or mixed species."""
     occ = atoms.info.get("occupancy")
     if not occ:
         return
     labels = atoms.info.get("_atom_site_label")
     for site, species in occ.items():
         total = sum(species.values())
-        if total < 1.0 - 1e-6 or len(species) > 1:
+        if abs(total - 1.0) > 1e-6 or len(species) > 1:
             idx = int(site)
             label = labels[idx] if labels is not None and idx < len(labels) else site
+            kind = "partial occupancy" if total < 1.0 else "occupancy"
             raise ValueError(
-                f"{cif}: site {label} has partial occupancy {dict(species)}; "
-                "remove disorder (e.g. in VESTA) and save as P1 before using it as a seed"
+                f"{cif}: site {label} has {kind} {dict(species)} (every site must be fully occupied by one "
+                f"element); {_DISORDER_ADVICE[role]}"
             )
 
 
-def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
+def read_seed_molecules(cif: Path, role: str = "seed") -> tuple[np.ndarray, list[Atoms]]:
     """Read a seed CIF and split it into whole molecules.
 
     Molecules are the connected components of the bond graph under periodic boundary
@@ -53,14 +62,23 @@ def read_seed_molecules(cif: Path) -> tuple[np.ndarray, list[Atoms]]:
 
     Raises
     ------
+    FileNotFoundError
+        If the file does not exist.
     ValueError
-        If any site has an occupancy below 1 (the message names the site label), or a
+        If the file cannot be read as a CIF, any site has an occupancy other than 1 (the message
+        names the site label and, by ``role`` ``"seed"`` or ``"experimental"``, what to do), or a
         molecule cannot be rejoined into one connected piece.
     """
     cif = Path(cif)
-    atoms = read(str(cif), format="cif", store_tags=True)
-    assert isinstance(atoms, Atoms)
-    _check_occupancies(atoms, cif)
+    if not cif.is_file():
+        raise FileNotFoundError(f"CIF file not found: {cif}")
+    try:
+        atoms = read(str(cif), format="cif", store_tags=True)
+    except Exception as exc:  # ASE raises many kinds of errors (or StopIteration) for malformed files
+        raise ValueError(f"{cif}: cannot be read as a CIF: {type(exc).__name__}: {exc}") from None
+    if not isinstance(atoms, Atoms) or len(atoms) == 0:
+        raise ValueError(f"{cif}: cannot be read as a CIF: no atoms found")
+    _check_occupancies(atoms, cif, role)
     return np.array(atoms.get_cell()), split_molecules(atoms, source=str(cif))
 
 

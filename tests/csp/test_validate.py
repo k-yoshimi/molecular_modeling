@@ -693,3 +693,113 @@ def test_validation_without_csp_extra_reports_install_hint(tmp_path, monkeypatch
     err = capsys.readouterr().err
     assert missing in err and 'pip install -e ".[csp]"' in err
     assert not (tmp_path / "validation.md").exists()
+
+
+def _out_and_exp(tmp_path):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    return a, exp
+
+
+@pytest.mark.parametrize("content", ["this is not a cif\nfoo bar\n", ""], ids=["garbage", "empty"])
+def test_unreadable_experimental_cif_named_in_error(tmp_path, capsys, content):
+    _out_and_exp(tmp_path)
+    bad = tmp_path / "bad_exp.cif"
+    bad.write_text(content)
+    with pytest.raises(ValueError, match="bad_exp.cif"):
+        validate_run(tmp_path, [bad], flip=None)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(bad)])
+    assert info.value.code == 2 and "bad_exp.cif" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("occ", ["0.5000", "1.5000"])
+def test_experimental_cif_with_wrong_occupancy_rejected_with_experimental_advice(tmp_path, occ):
+    _a, exp = _out_and_exp(tmp_path)
+    text = exp.read_text()
+    assert "  1.0000\n" in text
+    exp.write_text(text.replace("  1.0000\n", f"  {occ}\n", 1))
+    with pytest.raises(ValueError) as info:
+        validate_run(tmp_path, [exp], flip=None)
+    msg = str(info.value)
+    assert "exp.cif" in msg and "occupancy" in msg
+    assert "seed" not in msg and "experimental" in msg
+
+
+def test_seed_cif_with_occupancy_above_one_rejected(tmp_path):
+    from molecular_modeling.csp.gen_seed import read_seed_molecules
+
+    _a, exp = _out_and_exp(tmp_path)
+    exp.write_text(exp.read_text().replace("  1.0000\n", "  1.5000\n", 1))
+    with pytest.raises(ValueError, match="occupancy"):
+        read_seed_molecules(exp)
+
+
+def test_candidates_csv_with_bom_crlf_and_float_rank_is_read(tmp_path):
+    a, exp = _out_and_exp(tmp_path)
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()
+    rows[1] = rows[1].replace("1,", "1.0,", 1)
+    (tmp_path / "candidates.csv").write_bytes(("﻿" + "\r\n".join(rows) + "\r\n").encode("utf-8"))
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1
+
+
+def test_candidates_csv_with_bad_rank_gives_clear_error(tmp_path):
+    _a, exp = _out_and_exp(tmp_path)
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()
+    rows[1] = "first" + rows[1][1:]
+    (tmp_path / "candidates.csv").write_text("\n".join(rows) + "\n")
+    with pytest.raises(ValueError, match="candidates.csv.*rank"):
+        validate_run(tmp_path, [exp], flip=None)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--n-top", "0"],
+        ["--rmsd-cut", "0"],
+        ["--rmsd-cut", "nan"],
+        ["--rmsd-cut", "-1"],
+        ["--flip", "O,O"],
+        ["--flip", "O,Qq"],
+        ["--flip", "O"],
+        ["--flip", "O,S", "--no-flip"],
+    ],
+)
+def test_cli_rejects_bad_options(tmp_path, capsys, args):
+    _a, exp = _out_and_exp(tmp_path)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp), *args])
+    assert info.value.code == 2
+
+
+def test_cli_flip_elements_case_normalised(tmp_path, monkeypatch):
+    _a, exp = _out_and_exp(tmp_path)
+    seen = {}
+
+    def fake_validate(out_dir, experimental, n_top, rmsd_cut, flip):
+        seen["flip"] = flip
+        return ValidationReport(success=False, entries=[])
+
+    monkeypatch.setattr(validate_mod, "validate_run", fake_validate)
+    validate_mod.main([str(tmp_path), str(exp), "--flip", "o, s"])
+    assert seen["flip"] == ("O", "S")
+
+
+def test_experiments_with_the_same_file_name_are_labelled_by_path(tmp_path):
+    a, exp = _out_and_exp(tmp_path)
+    (tmp_path / "other").mkdir()
+    exp2 = tmp_path / "other" / "exp.cif"
+    write(exp2, a)
+    report = validate_run(tmp_path, [exp, exp2], flip=None)
+    labels = [e.experimental for e in report.entries]
+    assert len(set(labels)) == 2 and all(lab.endswith("exp.cif") for lab in labels)
+
+
+def test_validation_refuses_out_dir_of_running_job(tmp_path):
+    _a, exp = _out_and_exp(tmp_path)
+    (tmp_path / ".csp_run.lock").write_text("1\n")
+    with pytest.raises(FileExistsError, match="running"):
+        validate_run(tmp_path, [exp], flip=None)

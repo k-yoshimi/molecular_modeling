@@ -8,6 +8,8 @@ from ase import Atoms
 
 #: Number of top-ranked candidates written as CIF files (``001_<id>.cif`` ...).
 MAX_CIF = 50
+#: Lock file that marks an output directory as in use by a running CSP job.
+LOCK_NAME = ".csp_run.lock"
 
 
 @dataclass

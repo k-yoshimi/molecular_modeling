@@ -18,7 +18,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import write
 
-from .candidate import MAX_CIF, Candidate
+from .candidate import LOCK_NAME, MAX_CIF, Candidate
 from .config import SEED_GENERATOR_WEIGHT, CSPConfig, SeedSpec
 from .dedupe import deduplicate
 from .deps import require
@@ -205,8 +205,6 @@ def _relax_with_budget(
     return done
 
 
-#: Lock file that marks an output directory as in use by a run.
-LOCK_NAME = ".csp_run.lock"
 #: Directory (inside ``out_dir``) in which the results are written before they are moved into place.
 STAGING_NAME = ".csp_staging"
 
