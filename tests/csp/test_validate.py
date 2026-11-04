@@ -803,3 +803,37 @@ def test_validation_refuses_out_dir_of_running_job(tmp_path):
     (tmp_path / ".csp_run.lock").write_text("1\n")
     with pytest.raises(FileExistsError, match="in use by a CSP run"):
         validate_run(tmp_path, [exp], flip=None)
+
+
+def _deny_lock(monkeypatch):
+    import os
+
+    real_open = os.open
+
+    def deny(path, flags, *args):
+        if str(path).endswith(".csp_run.lock"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", deny)
+
+
+def test_validation_fails_closed_when_lock_cannot_be_created(tmp_path, monkeypatch, capsys):
+    _a, exp = _out_and_exp(tmp_path)
+    _deny_lock(monkeypatch)
+    with pytest.raises(OSError, match="lock file"):
+        validate_run(tmp_path, [exp], flip=None)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp), "--no-flip"])
+    assert info.value.code == 2 and "lock file" in capsys.readouterr().err
+    assert not (tmp_path / "validation.md").exists()
+
+
+def test_validation_rejects_mpi_runs(tmp_path, monkeypatch):
+    import ase.parallel
+
+    _a, exp = _out_and_exp(tmp_path)
+    monkeypatch.setattr(ase.parallel.world, "size", 2)
+    with pytest.raises(ValueError, match="MPI"):
+        validate_run(tmp_path, [exp], flip=None)
+    assert not (tmp_path / ".csp_run.lock").exists()

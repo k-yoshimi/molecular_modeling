@@ -14,7 +14,7 @@ import csv
 import logging
 import math
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,7 +29,7 @@ from .candidate import MAX_CIF
 from .deps import require
 from .gen_seed import read_seed_molecules, split_molecules
 from .molecule import AlignResult, _assign, _initial_rotations, _kabsch, match_and_align
-from .outdir import INCOMPLETE_NAME, hold_lock, is_incomplete
+from .outdir import INCOMPLETE_NAME, check_single_process, hold_lock, is_incomplete
 
 logger = logging.getLogger(__name__)
 
@@ -713,6 +713,7 @@ def _best_match(comps: list[Comparison], rmsd_cut: float, n_mol: int) -> Compari
 
 
 def _check_args(out_dir: Path, n_top: int, rmsd_cut: float) -> None:
+    check_single_process()
     require(["pymatgen", "spglib"], purpose="validation")
     if not (isinstance(n_top, int) and n_top >= 1):
         raise ValueError(f"n_top must be a positive integer, got {n_top!r}")
@@ -761,9 +762,12 @@ def validate_run(
     FileExistsError
         If a CSP run or another validation holds the directory (lock file ``.csp_run.lock``). The lock
         is held for the whole validation, so a run cannot replace the results meanwhile.
+    OSError
+        If the lock file cannot be created (e.g. a read-only directory); validation never reads
+        without the lock.
     ValueError
-        For bad arguments or unreadable files, and if the last run into ``out_dir`` did not finish (the
-        marker ``.csp_incomplete`` is present).
+        For bad arguments or unreadable files, if the last run into ``out_dir`` did not finish (the
+        marker ``.csp_incomplete`` is present), or under MPI with more than one process.
     """
     out_dir = Path(out_dir)
     _check_args(out_dir, n_top, rmsd_cut)
@@ -775,13 +779,10 @@ def validate_run(
 def _validation_lock(out_dir: Path) -> Iterator[None]:
     """Hold the output directory's lock while validating, so that no CSP run can change it meanwhile.
 
-    A directory that cannot be written (e.g. shared read-only results) is validated without the lock.
+    Fails closed: if the lock cannot be created (e.g. a read-only directory) an ``OSError`` is raised
+    rather than reading without it.
     """
-    with ExitStack() as stack:
-        try:
-            stack.enter_context(hold_lock(out_dir, "validation"))
-        except PermissionError:
-            logger.warning("%s is read-only: validating without the lock", out_dir)
+    with hold_lock(out_dir, "validation"):
         yield
 
 

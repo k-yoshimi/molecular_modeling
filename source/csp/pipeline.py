@@ -26,7 +26,7 @@ from .gen_random import default_z, generate_random
 from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
 from .molecule import load_molecule, molecule_volume
-from .outdir import INCOMPLETE_NAME, hold_lock, mark_incomplete
+from .outdir import INCOMPLETE_NAME, check_single_process, hold_lock, mark_incomplete
 from .relax import METHODS, relax_many
 from .screen import check_supported_elements, prescreen
 
@@ -364,7 +364,7 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     ImportError
         Before anything is written, if a package of the ``csp`` extra needed for ``method`` is missing.
     ValueError, FileNotFoundError
-        Before anything is written, for an unknown ``method``, an unreadable or unsupported molecule, or
+        Before anything is written: under MPI with more than one process, for an unknown ``method``, an unreadable or unsupported molecule, or
         a seed structure that cannot be read or used.
     FileExistsError
         If another run holds ``out_dir`` (lock file ``.csp_run.lock``).
@@ -375,6 +375,7 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     are deleted when the run starts. If the run stops with an error or is interrupted, the error is
     written to ``run.log`` and no results are left, so validation cannot mistake old results for new ones.
     """
+    check_single_process()
     check_dependencies(method)
     # everything that can fail on bad input is checked before out_dir is touched, so a failed rerun
     # leaves the previous (complete) results and their run.log as they were

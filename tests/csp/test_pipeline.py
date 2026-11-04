@@ -651,3 +651,17 @@ def test_cli_validation_holds_lock_while_writing_report(tmp_path, monkeypatch):
     monkeypatch.setattr(validate_mod.ValidationReport, "to_markdown", md_with_lock_check)
     assert validate_mod.main([str(tmp_path), str(exp), "--no-flip"]) == 0
     assert not (tmp_path / ".csp_run.lock").exists()
+
+
+def test_run_csp_rejects_mpi_runs(tmp_path, monkeypatch):
+    import ase.parallel
+    from molecular_modeling.csp import pipeline
+
+    def no_load(*a, **k):
+        raise AssertionError("no file may be read")
+
+    monkeypatch.setattr(ase.parallel.world, "size", 2)
+    monkeypatch.setattr(pipeline, "load_molecule", no_load)
+    with pytest.raises(ValueError, match="MPI"):
+        run_csp(replace(default_cfg(), out_dir=tmp_path / "out"), method="EMT")
+    assert not (tmp_path / "out").exists()
