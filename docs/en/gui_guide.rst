@@ -26,6 +26,7 @@ The GUI window consists of:
 
 .. image:: ../images/gui/gui_overview.png
    :align: center
+   :width: 100%
    :alt: GUI window overview
 
 1. **File panel (top)**: Icon button groups (described below)
@@ -55,6 +56,7 @@ Icon buttons at the top of the window provide quick access to common operations.
 
 .. image:: ../images/gui/gui_file_panel.png
    :align: center
+   :width: 80%
    :alt: File panel (Input / Output / Edit / Pipeline)
 
 .. list-table::
@@ -79,6 +81,7 @@ Icon button groups below the 3D viewport.
 
 .. image:: ../images/gui/gui_bottom_panel.png
    :align: center
+   :width: 80%
    :alt: Bottom panel (Molecule Tools / Structure Tools / View Operations)
 
 - **Molecule Tools**: Select / Move / Rotate / Delete / Drag (drag mode)
@@ -218,6 +221,7 @@ View Settings Menu
 
 .. image:: ../images/gui/view_settings_menu.png
    :align: center
+   :width: 40%
    :alt: View Settings menu dropdown
 
 .. list-table::
@@ -271,6 +275,7 @@ Each button supports press-and-hold for continuous operation.
 
 .. image:: ../images/gui/gui_toolbar.png
    :align: center
+   :width: 80%
    :alt: View Operations toolbar (Pan / Orbit / Zoom / BG)
 
 .. list-table::
@@ -313,6 +318,7 @@ The panel is scrollable — use the **mouse wheel** to scroll up/down when conte
 
 .. image:: ../images/gui/gui_side_panel.png
    :align: center
+   :width: 35%
    :alt: Side panel (View Controls)
 
 - **Focus / Unfocus**: Buttons to enter/exit focus mode
@@ -323,6 +329,7 @@ The panel is scrollable — use the **mouse wheel** to scroll up/down when conte
 
 .. image:: ../images/gui/gui_element_controls.png
    :align: center
+   :width: 70%
    :alt: Side panel with Element Controls expanded
 
 - **Molecule Controls** *(collapsible)*: Click the header to expand/collapse. Per-molecule-group row with [visibility checkbox][color swatch][select button]. **In focus mode**, checkboxes act as focus add/remove controls
@@ -338,6 +345,7 @@ The status bar at the bottom shows context-dependent information:
 
 .. image:: ../images/gui/gui_atom_selected.png
    :align: center
+   :width: 100%
    :alt: Status bar when atom is selected
 
 - **No atoms selected**: System overview — atom count, elements, molecule groups, cell size
@@ -423,6 +431,7 @@ Right-clicking in the 3D viewport shows a context menu with quick access to:
 
 .. image:: ../images/gui/gui_context_menu_closeup.png
    :align: center
+   :width: 50%
    :alt: Right-click context menu
 
 - **Select Molecule Group**: Select all atoms in the molecule group of the clicked atom
@@ -499,8 +508,10 @@ Save Selection as Molecule Dialog
 
 1. Select atoms in the 3D viewport (Shift + click for multiple selection)
 2. Choose **MoleculeTools** → **Save Selection as Molecule...**
-3. Enter molecule name and number of molecules per unit cell
-4. Click **OK** to save as ``data/<name>.toml``
+3. Enter the **Molecule name** (one molecule is saved, so ``num_molecules = 1``)
+4. If needed, adjust the atoms in the **Selected Atoms** list with **Add Index** /
+   **Remove Selected**
+5. Click **OK** to save as ``data/<name>.toml``
 
 Global Element Substitution Dialog
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

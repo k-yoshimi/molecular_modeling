@@ -25,6 +25,7 @@ GUI ウィンドウは以下の要素で構成されます:
 
 .. image:: ../images/gui/gui_overview.png
    :align: center
+   :width: 100%
    :alt: GUI ウィンドウ全体像
 
 1. **ファイルパネル（上部）**: アイコンボタン群（後述）
@@ -54,6 +55,7 @@ GUI ウィンドウは以下の要素で構成されます:
 
 .. image:: ../images/gui/gui_file_panel.png
    :align: center
+   :width: 80%
    :alt: ファイルパネル（Input / Output / Edit / Pipeline）
 
 .. list-table::
@@ -78,6 +80,7 @@ GUI ウィンドウは以下の要素で構成されます:
 
 .. image:: ../images/gui/gui_bottom_panel.png
    :align: center
+   :width: 80%
    :alt: ボトムパネル（Molecule Tools / Structure Tools / View Operations）
 
 - **Molecule Tools**: Select（選択）/ Move（移動）/ Rotate（回転）/ Delete（削除）/ Drag（ドラッグモード）
@@ -217,6 +220,7 @@ View Settings メニュー
 
 .. image:: ../images/gui/view_settings_menu.png
    :align: center
+   :width: 40%
    :alt: View Settings メニュードロップダウン
 
 .. list-table::
@@ -270,6 +274,7 @@ Help メニュー
 
 .. image:: ../images/gui/gui_toolbar.png
    :align: center
+   :width: 80%
    :alt: View Operations ツールバー（Pan / Orbit / Zoom / BG）
 
 .. list-table::
@@ -312,6 +317,7 @@ Help メニュー
 
 .. image:: ../images/gui/gui_side_panel.png
    :align: center
+   :width: 35%
    :alt: サイドパネル（View Controls）
 
 - **Focus / Unfocus**: フォーカスモードの開始/終了ボタン
@@ -322,6 +328,7 @@ Help メニュー
 
 .. image:: ../images/gui/gui_element_controls.png
    :align: center
+   :width: 70%
    :alt: Element Controls 展開時のサイドパネル
 
 - **Molecule Controls** *(折りたたみ可能)*: ヘッダーをクリックで展開/折りたたみ。分子グループごとに [表示チェック][色スウォッチ][選択ボタン] を一行で制御。 **フォーカスモード中** はチェックボックスがフォーカス対象の追加/除去として機能
@@ -337,6 +344,7 @@ Help メニュー
 
 .. image:: ../images/gui/gui_atom_selected.png
    :align: center
+   :width: 100%
    :alt: 原子選択時のステータスバー表示
 
 - **原子未選択時**: 全体情報 — 原子数、含有元素、分子グループ数、セルサイズ
@@ -422,6 +430,7 @@ ASE-GUI 標準のマウス操作に加え、右クリックコンテキストメ
 
 .. image:: ../images/gui/gui_context_menu_closeup.png
    :align: center
+   :width: 50%
    :alt: 右クリックコンテキストメニュー
 
 - **Select Molecule Group**: クリック位置の原子が属する分子グループ全体を選択
@@ -497,8 +506,9 @@ Save Selection as Molecule ダイアログ
 
 1. 3D ビューポートで原子を選択（Shift + クリックで複数選択）
 2. **MoleculeTools** → **Save Selection as Molecule...** を選択
-3. 分子名と単位胞中の分子数を入力
-4. **OK** で ``data/<name>.toml`` として保存
+3. **Molecule name** に分子名を入力（保存するのは分子 1 個で、``num_molecules = 1`` になります）
+4. 必要なら **Selected Atoms** の一覧で **Add Index** / **Remove Selected** を使って原子を調整
+5. **OK** で ``data/<name>.toml`` として保存
 
 Global Element Substitution ダイアログ
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
