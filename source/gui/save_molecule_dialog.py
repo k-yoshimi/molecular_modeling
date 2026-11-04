@@ -13,9 +13,20 @@ from typing import Callable, List, Optional
 
 import numpy as np
 from ase import Atoms
-from molecular_modeling.molecule_unwrap import extract_molecule
+from molecular_modeling.molecule_unwrap import extract_molecule, is_connected
 
 from .base_dialog import BaseDialog, LabeledEntry
+
+
+def selection_is_one_molecule(atoms: Atoms, indices: List[int]) -> bool:
+    """
+    Return True if the selected atoms form one connected molecule.
+
+    The selection is first rejoined across periodic boundaries, so a molecule
+    split by the cell boundary still counts as one molecule.
+    """
+    symbols, positions, _com = extract_molecule(atoms, indices)
+    return is_connected(positions, symbols)
 
 
 def _format_toml(
@@ -317,6 +328,15 @@ class SaveMoleculeDialog(BaseDialog):
                 "Molecule name must contain only letters, digits, hyphens, and underscores.",
             )
             return False
+
+        if not selection_is_one_molecule(self.atoms, self.selected_indices):
+            if not self.ask_yes_no(
+                "Not One Molecule",
+                "The selected atoms do not form one connected molecule "
+                "(several molecules, or a molecule with atoms missing).\n"
+                "A molecule file should hold exactly one whole molecule. Save anyway?",
+            ):
+                return False
 
         # Check if file already exists
         data_dir = Path(__file__).resolve().parent.parent.parent / "data"

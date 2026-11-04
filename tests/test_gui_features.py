@@ -2762,3 +2762,31 @@ class TestAtomList:
         assert len(gui.get_atom_list_data()) == 5
         gui.undo()
         assert len(gui.get_atom_list_data()) == 6
+
+
+class TestSaveMoleculeSelectionCheck:
+    """The save-as-molecule dialog warns when the selection is not one connected molecule."""
+
+    @staticmethod
+    def _two_co():
+        # two CO molecules; the first is split across the cell boundary
+        return Atoms(
+            "COCO",
+            positions=[[9.4, 5, 5], [0.7, 5, 5], [3, 3, 3], [4.2, 3, 3]],
+            cell=np.diag([10.0] * 3),
+            pbc=True,
+        )
+
+    def test_whole_molecule_across_boundary_is_one_molecule(self):
+        pytest.importorskip("tkinter")
+        from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule
+
+        assert selection_is_one_molecule(self._two_co(), [0, 1])
+        assert selection_is_one_molecule(self._two_co(), [2])
+
+    def test_two_molecules_or_partial_selection_is_not(self):
+        pytest.importorskip("tkinter")
+        from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule
+
+        assert not selection_is_one_molecule(self._two_co(), [0, 1, 2, 3])
+        assert not selection_is_one_molecule(self._two_co(), [0, 2])
