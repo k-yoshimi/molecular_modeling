@@ -491,13 +491,16 @@ def rmsd_cluster(a: Atoms, b: Atoms, n_mol: int = N_CLUSTER) -> tuple[float, int
 
     Returns
     -------
-    (rmsd, n_matched)
-        Heavy-atom RMSD (Å) over the matched cluster and the number of molecules of ``a``'s cluster
-        whose centroid lies within 2.0 Å of its partner, less the number of molecules of ``b`` that are
-        left without a partner although they lie inside the cluster (so a denser ``b`` that contains
-        all of ``a``'s molecules is not a match), for the best overlay (fully matched clusters first,
-        then lowest RMSD), taking the worse of the two directions. ``(inf, 0)`` if the structures
-        cannot be compared (the reason, e.g. different densities, is logged as a warning).
+    rmsd : float
+        Heavy-atom RMSD (Å) over the matched cluster.
+    n_matched : int
+        The number of molecules of ``a``'s cluster whose centroid lies within 2.0 Å of its partner,
+        less the number of molecules of ``b`` that are left without a partner although they lie inside
+        the cluster (so a denser ``b`` that contains all of ``a``'s molecules is not a match).
+
+    Both are for the best overlay (fully matched clusters first, then lowest RMSD), taking the worse
+    of the two directions. ``(inf, 0)`` if the structures cannot be compared (the reason, e.g.
+    different densities, is logged as a warning).
     """
     ca = _prepare(np.array(a.get_cell()), split_molecules(a, "a"))
     cb = _prepare(np.array(b.get_cell()), split_molecules(b, "b"))
