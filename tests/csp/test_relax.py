@@ -229,3 +229,64 @@ def test_relax_candidate_accepts_wrapped_molecule():
     out = relax_candidate(_c2_pair(5.0, shift=(9.0, 2.0, 3.0)), C2, "EMT", fmax=0.05, steps=0, max_mol_rmsd=0.5)
     assert np.ptp(out.atoms.positions[:2, 0]) > 5  # really wrapped
     assert out.status == "relaxed" and "reject_reason" not in out.meta
+
+
+class _MoveTo:
+    """Stand-in for FIRE that moves the atoms to ``target`` positions in one "step"."""
+
+    target: np.ndarray = np.zeros((0, 3))
+
+    def __init__(self, filt, logfile=None):
+        self.atoms = filt.atoms
+
+    def run(self, fmax, steps):
+        self.atoms.positions = _MoveTo.target
+        return True
+
+
+def _relax_to(monkeypatch, symbols, before, after, ref=None, max_mol_rmsd=0.5):
+    from molecular_modeling.csp import relax as relax_mod
+
+    monkeypatch.setattr(relax_mod, "FIRE", _MoveTo)
+    shift = np.array([5.0, 5.0, 5.0])
+    _MoveTo.target = np.asarray(after, float) + shift
+    atoms = Atoms(symbols, positions=np.asarray(before, float) + shift, cell=[15.0] * 3, pbc=True)
+    atoms.set_array("mol_id", np.zeros(len(atoms), dtype=int))
+    ref_mol = Atoms(symbols, positions=before) if ref is None else ref
+    return relax_candidate(
+        Candidate(atoms=atoms, origin="random", space_group=1), ref_mol, "EMT", 0.05, 5, max_mol_rmsd
+    )
+
+
+C3_OPEN = [(-1.4, 0, 0), (0, 0, 0), (0, 1.4, 0)]  # two C-C bonds (ends 1.98 Å apart)
+C3_CLOSED = [(-1.25, 0, 0), (0, 0, 0), (0, 1.25, 0)]  # ends 1.77 Å apart: a third bond
+
+
+def test_relax_candidate_rejects_added_intramolecular_bond(monkeypatch):
+    out = _relax_to(monkeypatch, "C3", C3_OPEN, C3_CLOSED)
+    assert out.meta["max_mol_rmsd"] < 0.5  # small shape change: only the bond check catches it
+    assert out.status == "rejected_deformed"
+    assert "bond" in out.meta["reject_reason"]
+
+
+def test_relax_candidate_rejects_removed_intramolecular_bond(monkeypatch):
+    out = _relax_to(monkeypatch, "C3", C3_CLOSED, C3_OPEN)
+    assert out.meta["max_mol_rmsd"] < 0.5
+    assert out.status == "rejected_deformed"
+    assert "bond" in out.meta["reject_reason"]
+
+
+def test_relax_candidate_rejects_hydrogen_transfer(monkeypatch):
+    # H moves from the first C to the second: heavy-atom RMSD is 0, the molecule stays connected
+    before = [(0, 0, 0), (1.4, 0, 0), (-1.0, 0, 0)]
+    after = [(0, 0, 0), (1.4, 0, 0), (2.4, 0, 0)]
+    out = _relax_to(monkeypatch, "C2H", before, after)
+    assert out.meta["max_mol_rmsd"] < 1e-6
+    assert out.status == "rejected_deformed"
+    assert "bond" in out.meta["reject_reason"]
+
+
+def test_relax_candidate_keeps_unchanged_bonds(monkeypatch):
+    moved = [(-1.45, 0.02, 0), (0, 0, 0), (0.01, 1.42, 0)]  # same two bonds, slightly moved
+    out = _relax_to(monkeypatch, "C3", C3_OPEN, moved)
+    assert out.status == "relaxed" and "reject_reason" not in out.meta

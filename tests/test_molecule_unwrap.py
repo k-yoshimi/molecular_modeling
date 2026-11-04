@@ -1,6 +1,6 @@
 import numpy as np
 from ase import Atoms
-from molecular_modeling.molecule_unwrap import extract_molecule, is_connected, unwrap_molecule
+from molecular_modeling.molecule_unwrap import bond_pairs, extract_molecule, is_connected, unwrap_molecule
 
 
 def test_unwrap_rejoins_molecule_split_across_boundary():
@@ -35,3 +35,9 @@ def test_single_atom_and_non_periodic_axis():
     pos = np.array([[9.4, 5.0, 1.0], [0.9, 5.0, 1.0]])
     out = unwrap_molecule(pos, ["C", "C"], cell, pbc=[False, True, True])
     assert not np.isclose(np.linalg.norm(out[1] - out[0]), 1.5)
+
+
+def test_bond_pairs_lists_each_bond_once():
+    pos = np.array([[-1.4, 0, 0], [0, 0, 0], [0, 1.4, 0]])
+    assert bond_pairs(pos, ["C", "C", "C"]) == {(0, 1), (1, 2)}
+    assert bond_pairs(pos[:1], ["C"]) == set()

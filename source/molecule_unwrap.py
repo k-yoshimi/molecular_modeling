@@ -91,6 +91,15 @@ def extract_molecule(atoms: Atoms, indices: Sequence[int]) -> tuple[list[str], n
     return symbols, unwrapped - com, com
 
 
+def bond_pairs(positions: np.ndarray, symbols: list[str]) -> set[tuple[int, int]]:
+    """Bonded atom pairs ``(i, j)`` with ``i < j`` (no periodic boundaries; 1.2 x natural covalent radii)."""
+    if len(positions) <= 1:
+        return set()
+    bonded, _ = _bond_matrix(np.asarray(positions, dtype=float), symbols, None, False)
+    i, j = np.nonzero(np.triu(bonded, k=1))
+    return {(int(a), int(b)) for a, b in zip(i, j)}
+
+
 def is_connected(positions: np.ndarray, symbols: list[str]) -> bool:
     """Return True if the bond graph (no periodic boundaries) is a single connected component."""
     n = len(positions)

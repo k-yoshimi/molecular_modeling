@@ -17,7 +17,7 @@ from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
 from molecular_modeling.csp.molecule import molecule_rmsd
 from molecular_modeling.csp.screen import crystal_density, whole_molecules
-from molecular_modeling.molecule_unwrap import is_connected, unwrap_molecule
+from molecular_modeling.molecule_unwrap import bond_pairs, is_connected, unwrap_molecule
 
 
 def make_calculator(method: str = "GFN2-xTB") -> Calculator:
@@ -96,19 +96,45 @@ def molecules_bonded_together(atoms: Atoms) -> bool:
     return bool(np.any((mol[i] != mol[j]) | np.any(shift != 0, axis=1)))
 
 
+def intramolecular_bonds(atoms: Atoms) -> dict[int, set[tuple[int, int]]]:
+    """Bonded atom pairs of every ``mol_id`` molecule, after unwrapping it across the cell boundary.
+
+    Pairs are indices into the molecule's own atoms (in the order they appear in ``atoms``) and use the
+    same criterion as the molecule split (1.2 x natural covalent radii).
+    """
+    mol_id = atoms.arrays["mol_id"]
+    cell = np.asarray(atoms.cell)
+    out: dict[int, set[tuple[int, int]]] = {}
+    for m in np.unique(mol_id):
+        idx = np.nonzero(mol_id == m)[0]
+        syms = [atoms.symbols[i] for i in idx]
+        pos = unwrap_molecule(atoms.positions[idx], syms, cell, atoms.pbc)
+        out[int(m)] = bond_pairs(pos, syms)
+    return out
+
+
+def _bond_changes(before: dict[int, set[tuple[int, int]]], after: dict[int, set[tuple[int, int]]]) -> tuple[int, int]:
+    """Numbers of intramolecular bonds added and removed between two :func:`intramolecular_bonds` results."""
+    added = sum(len(after.get(m, set()) - b) for m, b in before.items())
+    removed = sum(len(b - after.get(m, set())) for m, b in before.items())
+    return added, removed
+
+
 def relax_candidate(
     cand: Candidate, ref_mol: Atoms, method: str, fmax: float, steps: int, max_mol_rmsd: float
 ) -> Candidate:
     """Relax positions and cell, then fill energy, density and deformation metadata.
 
     Sets ``status`` to ``"relaxed"``, ``"rejected_deformed"`` (a molecule deviates more than
-    ``max_mol_rmsd`` from the reference/its mirror image, or is broken, or molecules have bonded to
+    ``max_mol_rmsd`` from the reference/its mirror image, or is broken, or has gained or lost a bond
+    within itself (e.g. a ring closed or a hydrogen moved to another atom), or molecules have bonded to
     each other or to their own periodic images; the reason is in ``meta["reject_reason"]``) or ``"failed"``
     (exception text in ``meta["error"]``). Exceptions are never raised.
     The input candidate is mutated in place and returned.
     """
     try:
         atoms = cand.atoms.copy()
+        bonds_before = intramolecular_bonds(atoms)
         atoms.calc = make_calculator(method)
         opt = FIRE(FrechetCellFilter(atoms), logfile=None)
         converged = bool(opt.run(fmax=fmax, steps=steps))
@@ -126,8 +152,11 @@ def relax_candidate(
             bonded = molecules_bonded_together(atoms)
         except ValueError:  # a broken molecule; max_deformation reports it as infinite deformation
             bonded = False
+        added, removed = _bond_changes(bonds_before, intramolecular_bonds(atoms))
         if bonded:
             cand.meta["reject_reason"] = "molecules bonded to each other or to their own periodic images"
+        elif added or removed:
+            cand.meta["reject_reason"] = f"intramolecular bonds changed ({added} added, {removed} removed)"
         elif not dev <= max_mol_rmsd:
             cand.meta["reject_reason"] = f"molecule deformed (RMSD {dev:.3f} > {max_mol_rmsd} Å)"
         cand.status = "rejected_deformed" if "reject_reason" in cand.meta else "relaxed"
