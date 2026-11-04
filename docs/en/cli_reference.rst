@@ -116,6 +116,7 @@ python -m molecular_modeling.csp.validate — Compare with Experiment
 -------------------------------------------------------------------
 
 Compares the candidate CIFs of a CSP run with experimental CIFs (cluster RMSD of 15 molecules).
+Also needs the ``csp`` extra (pymatgen, spglib); without it the command stops with the install hint.
 See :doc:`csp_guide`, "Validation against experiment", for how to read the report.
 
 .. code-block:: bash

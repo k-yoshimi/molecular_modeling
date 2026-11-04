@@ -667,3 +667,29 @@ def test_cli_fails_clearly_for_out_dir_without_candidates(tmp_path, capsys):
 def test_validate_run_raises_for_missing_out_dir(tmp_path):
     with pytest.raises(FileNotFoundError, match="no_such_dir"):
         validate_run(tmp_path / "no_such_dir", [tmp_path / "exp.cif"])
+
+
+@pytest.mark.parametrize("missing", ["pymatgen", "spglib"])
+def test_validation_without_csp_extra_reports_install_hint(tmp_path, monkeypatch, capsys, missing):
+    import importlib
+
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    real = importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == missing:
+            raise ModuleNotFoundError(f"No module named '{missing}'")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    with pytest.raises(ImportError, match=rf"{missing}.*pip install -e"):
+        validate_run(tmp_path, [exp])
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp)])
+    assert info.value.code != 0
+    err = capsys.readouterr().err
+    assert missing in err and 'pip install -e ".[csp]"' in err
+    assert not (tmp_path / "validation.md").exists()

@@ -271,7 +271,7 @@ def test_run_csp_reports_missing_dependency_before_generation(tmp_path, monkeypa
     def no_generation(*args, **kwargs):
         raise AssertionError("generation must not start")
 
-    monkeypatch.setattr(pipeline.importlib, "import_module", fake_import)
+    monkeypatch.setattr(importlib, "import_module", fake_import)
     monkeypatch.setattr(pipeline, "_generate", no_generation)
     cfg = replace(default_cfg(), out_dir=tmp_path / "out")
     with pytest.raises(ImportError, match=r"tblite.*pip install -e \"\.\[csp\]\""):
@@ -279,3 +279,48 @@ def test_run_csp_reports_missing_dependency_before_generation(tmp_path, monkeypa
     # the test calculator does not need tblite
     monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
     assert run_csp(cfg, method="EMT") == []
+
+
+def test_run_csp_reports_unusable_tblite_backend_before_output(tmp_path, monkeypatch):
+    # the root tblite package imports, but its ASE calculator (compiled backend) does not
+    import importlib
+
+    from molecular_modeling.csp import pipeline
+
+    real = importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == "tblite.ase":
+            raise ImportError("libtblite.so: cannot open shared object file")
+        return real(name, *args, **kwargs)
+
+    def no_generation(*args, **kwargs):
+        raise AssertionError("generation must not start")
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr(pipeline, "_generate", no_generation)
+    out = tmp_path / "out"
+    with pytest.raises(ImportError, match=r"tblite\.ase.*pip install -e"):
+        run_csp(replace(default_cfg(), out_dir=out))
+    assert not out.exists()
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    assert run_csp(replace(default_cfg(), out_dir=out), method="EMT") == []
+
+
+def test_run_csp_reports_tblite_without_calculator_class(tmp_path, monkeypatch):
+    import importlib
+    import types
+
+    from molecular_modeling.csp import pipeline
+
+    real = importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == "tblite.ase":
+            return types.ModuleType("tblite.ase")  # no TBLite class
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    with pytest.raises(ImportError, match="TBLite"):
+        run_csp(replace(default_cfg(), out_dir=tmp_path / "out"))

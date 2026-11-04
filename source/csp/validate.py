@@ -23,6 +23,7 @@ from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
 
 from .candidate import MAX_CIF
+from .deps import require
 from .gen_seed import read_seed_molecules, split_molecules
 from .molecule import AlignResult, _assign, _initial_rotations, _kabsch, match_and_align
 
@@ -721,10 +722,13 @@ def validate_run(
 
     Raises
     ------
+    ImportError
+        If pymatgen or spglib (from the ``csp`` extra) cannot be imported.
     FileNotFoundError
         If ``out_dir`` is not a directory, or holds neither ``candidates.csv`` nor candidate CIFs
         (``NNN_<id>.cif``). A ``candidates.csv`` without rows (a run that kept no candidate) is valid.
     """
+    require(["pymatgen", "spglib"], purpose="validation")
     out_dir = Path(out_dir)
     if not out_dir.is_dir():
         raise FileNotFoundError(f"CSP output directory not found: {out_dir}")
@@ -797,7 +801,7 @@ def main(argv: list[str] | None = None) -> int:
         flip = (parts[0], parts[1])
     try:
         report = validate_run(args.out_dir, args.experimental, n_top=args.n_top, rmsd_cut=args.rmsd_cut, flip=flip)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ImportError) as exc:
         parser.error(str(exc))
     md = report.to_markdown()
     print(md, end="")

@@ -115,6 +115,7 @@ python -m molecular_modeling.csp.validate — 実験構造との比較
 ------------------------------------------------------------
 
 CSP の実行結果の候補 CIF を実験 CIF と比べます（15 分子クラスターの RMSD）。
+これにも ``csp`` extra（pymatgen、spglib）が必要で、ないときはインストール方法を示して止まります。
 報告の読み方は :doc:`csp_guide` の「答え合わせ」を参照してください。
 
 .. code-block:: bash

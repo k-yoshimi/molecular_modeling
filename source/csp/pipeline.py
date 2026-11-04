@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import importlib
 import logging
 import math
 import time
@@ -20,6 +19,7 @@ from ase.io import write
 from .candidate import MAX_CIF, Candidate
 from .config import SEED_GENERATOR_WEIGHT, CSPConfig
 from .dedupe import deduplicate
+from .deps import require
 from .gen_random import default_z, generate_random
 from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
@@ -41,19 +41,13 @@ REQUIRED_PACKAGES = ("pyxtal", "pymatgen", "spglib")
 
 
 def check_dependencies(method: str = "GFN2-xTB") -> None:
-    """Raise ``ImportError`` naming every missing package of the ``csp`` extra needed for ``method``."""
-    names = list(REQUIRED_PACKAGES) + (["tblite"] if method.startswith("GFN") else [])
-    missing = []
-    for name in names:
-        try:
-            importlib.import_module(name)
-        except ImportError:
-            missing.append(name)
-    if missing:
-        raise ImportError(
-            f"crystal structure prediction needs {', '.join(missing)}, which cannot be imported; "
-            'install the CSP dependencies with: pip install -e ".[csp]"'
-        )
+    """Raise ``ImportError`` naming every missing package of the ``csp`` extra needed for ``method``.
+
+    For the GFN methods ``tblite.ase`` (which loads the compiled tblite library) must import and provide
+    ``TBLite``; importing the root ``tblite`` package alone does not prove the calculator works.
+    """
+    names = list(REQUIRED_PACKAGES) + (["tblite", "tblite.ase"] if method.startswith("GFN") else [])
+    require(names, {"tblite.ase": "TBLite"}, purpose="crystal structure prediction")
 
 
 @contextmanager
