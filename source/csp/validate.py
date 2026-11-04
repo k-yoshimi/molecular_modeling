@@ -715,8 +715,20 @@ def validate_run(
     Returns
     -------
     ValidationReport
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``out_dir`` is not a directory, or holds neither ``candidates.csv`` nor candidate CIFs
+        (``NNN_<id>.cif``). A ``candidates.csv`` without rows (a run that kept no candidate) is valid.
     """
     out_dir = Path(out_dir)
+    if not out_dir.is_dir():
+        raise FileNotFoundError(f"CSP output directory not found: {out_dir}")
+    if not (out_dir / "candidates.csv").exists() and not any(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
+        raise FileNotFoundError(
+            f"no candidates in {out_dir}: expected candidates.csv or NNN_<id>.cif files written by molecular-modeling-csp"
+        )
     cands = _read_candidates(out_dir)
     entries = []
     for path in experimental:
@@ -780,7 +792,10 @@ def main(argv: list[str] | None = None) -> int:
         if len(parts) != 2:
             parser.error("--flip takes two comma-separated elements, e.g. O,S")
         flip = (parts[0], parts[1])
-    report = validate_run(args.out_dir, args.experimental, n_top=args.n_top, rmsd_cut=args.rmsd_cut, flip=flip)
+    try:
+        report = validate_run(args.out_dir, args.experimental, n_top=args.n_top, rmsd_cut=args.rmsd_cut, flip=flip)
+    except FileNotFoundError as exc:
+        parser.error(str(exc))
     md = report.to_markdown()
     print(md, end="")
     (args.out_dir / "validation.md").write_text(md, encoding="utf-8")

@@ -641,3 +641,29 @@ def test_validate_run_flip_path_with_hydrogen_free_experiment(tmp_path):
     entry = validate_run(tmp_path, [exp]).entries[0]
     assert all(c.note is None for c in entry.comparisons + entry.flip_comparisons)
     assert entry.best_rank == 2 and entry.flip_match_rank == 1
+
+
+def test_cli_fails_clearly_for_missing_out_dir(tmp_path, capsys):
+    exp = tmp_path / "exp.cif"
+    write(exp, _benzene(14, 4, 5))
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path / "no_such_dir"), str(exp)])
+    assert info.value.code != 0
+    assert "no_such_dir" in capsys.readouterr().err
+
+
+def test_cli_fails_clearly_for_out_dir_without_candidates(tmp_path, capsys):
+    out = tmp_path / "empty"
+    out.mkdir()
+    exp = tmp_path / "exp.cif"
+    write(exp, _benzene(14, 4, 5))
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(out), str(exp)])
+    assert info.value.code != 0
+    assert "candidates.csv" in capsys.readouterr().err
+    assert not (out / "validation.md").exists()
+
+
+def test_validate_run_raises_for_missing_out_dir(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no_such_dir"):
+        validate_run(tmp_path / "no_such_dir", [tmp_path / "exp.cif"])
