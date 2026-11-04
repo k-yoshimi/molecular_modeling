@@ -149,3 +149,14 @@ def test_load_molecule_single_frame_xyz_still_loads(tmp_path):
     p = tmp_path / "co.xyz"
     p.write_text("2\nc\nC 0 0 0\nO 1.2 0 0\n")
     assert load_molecule(p).get_chemical_symbols() == ["C", "O"]
+
+
+def test_load_molecule_extended_xyz_single_frame(tmp_path):
+    from ase.io import write as ase_write
+
+    p = tmp_path / "co_ext.xyz"
+    ase_write(p, Atoms("CO", positions=[[0, 0, 0], [1.2, 0, 0]]), format="extxyz")
+    assert "Properties=" in p.read_text()
+    mol = load_molecule(p)
+    assert mol.get_chemical_symbols() == ["C", "O"]
+    np.testing.assert_allclose(np.linalg.norm(mol.positions[1] - mol.positions[0]), 1.2)

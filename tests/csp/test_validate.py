@@ -783,7 +783,7 @@ def test_cli_flip_elements_case_normalised(tmp_path, monkeypatch):
         seen["flip"] = flip
         return ValidationReport(success=False, entries=[])
 
-    monkeypatch.setattr(validate_mod, "validate_run", fake_validate)
+    monkeypatch.setattr(validate_mod, "_validate_locked", fake_validate)
     validate_mod.main([str(tmp_path), str(exp), "--flip", "o, s"])
     assert seen["flip"] == ("O", "S")
 
@@ -801,5 +801,5 @@ def test_experiments_with_the_same_file_name_are_labelled_by_path(tmp_path):
 def test_validation_refuses_out_dir_of_running_job(tmp_path):
     _a, exp = _out_and_exp(tmp_path)
     (tmp_path / ".csp_run.lock").write_text("1\n")
-    with pytest.raises(FileExistsError, match="running"):
+    with pytest.raises(FileExistsError, match="in use by a CSP run"):
         validate_run(tmp_path, [exp], flip=None)

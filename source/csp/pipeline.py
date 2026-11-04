@@ -18,7 +18,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import write
 
-from .candidate import LOCK_NAME, MAX_CIF, Candidate
+from .candidate import MAX_CIF, Candidate
 from .config import SEED_GENERATOR_WEIGHT, CSPConfig, SeedSpec
 from .dedupe import deduplicate
 from .deps import require
@@ -26,6 +26,7 @@ from .gen_random import default_z, generate_random
 from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
 from .molecule import load_molecule, molecule_volume
+from .outdir import INCOMPLETE_NAME, hold_lock, mark_incomplete
 from .relax import METHODS, relax_many
 from .screen import check_supported_elements, prescreen
 
@@ -217,40 +218,34 @@ STAGING_NAME = ".csp_staging"
 
 
 def _remove_results(out_dir: Path) -> None:
-    """Delete the results of an earlier run: ``candidates.csv``, ranked CIFs and ``validation.md``."""
-    for old in [*out_dir.glob("[0-9][0-9][0-9]_*.cif"), out_dir / "candidates.csv", out_dir / "validation.md"]:
+    """Delete the results of an earlier run: ``candidates.csv`` first, then ranked CIFs and ``validation.md``.
+
+    Callers mark the directory incomplete before calling this, so a partly cleaned directory is never
+    taken for a finished run; deleting the CSV first also keeps it from listing CIFs that are gone.
+    """
+    (out_dir / "candidates.csv").unlink(missing_ok=True)
+    for old in [*out_dir.glob("[0-9][0-9][0-9]_*.cif"), out_dir / "validation.md"]:
         old.unlink(missing_ok=True)
     shutil.rmtree(out_dir / STAGING_NAME, ignore_errors=True)
 
 
-@contextmanager
-def _run_lock(out_dir: Path) -> Iterator[None]:
-    """Hold ``out_dir/.csp_run.lock`` for the duration of a run; refuse if another run holds it."""
-    lock = out_dir / LOCK_NAME
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        raise FileExistsError(
-            f"{out_dir} is in use by another CSP run (lock file {lock}); "
-            "use another out_dir, or delete the lock file if no run is active"
-        ) from None
-    try:
-        os.write(fd, f"{os.getpid()}\n".encode())
-        os.close(fd)
-        yield
-    finally:
-        lock.unlink(missing_ok=True)
+def _mark_complete(out_dir: Path) -> None:
+    """Remove the incomplete marker: the very last step of publishing a run's results."""
+    (out_dir / INCOMPLETE_NAME).unlink(missing_ok=True)
 
 
 def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
     """Write ``candidates.csv`` and CIFs of the top :data:`MAX_CIF` candidates.
 
-    Results of an earlier run (ranked CIFs ``NNN_<id>.cif``, ``candidates.csv``, ``validation.md``)
-    are removed first, so the directory only holds files of this run. Everything is written into a
-    staging directory first; the CIFs are then moved into place and ``candidates.csv`` comes last, so
-    an interrupted write never leaves a CSV that lists a complete set.
+    The directory is marked incomplete (:data:`~molecular_modeling.csp.outdir.INCOMPLETE_NAME`)
+    first; then results of an earlier run (``candidates.csv``, ranked CIFs ``NNN_<id>.cif``,
+    ``validation.md``) are removed, so the directory only holds files of this run. Everything is
+    written into a staging directory; the CIFs are then moved into place, ``candidates.csv`` comes
+    next, and the marker is removed last. If any step fails, the marker stays and validation refuses
+    the directory.
     """
     out_dir = Path(cfg.out_dir)
+    mark_incomplete(out_dir)
     _remove_results(out_dir)
     stage = out_dir / STAGING_NAME
     stage.mkdir()
@@ -286,6 +281,7 @@ def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
         os.replace(cif, out_dir / cif.name)
     os.replace(stage / "candidates.csv", out_dir / "candidates.csv")
     stage.rmdir()
+    _mark_complete(out_dir)
 
 
 def _log_reasons(relaxed: list[Candidate]) -> None:
@@ -389,15 +385,21 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
 
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    with _run_lock(out_dir), _run_log(out_dir / "run.log") as file_log:
-        _remove_results(out_dir)
+    with hold_lock(out_dir, "molecular-modeling-csp"), _run_log(out_dir / "run.log") as file_log:
         # warnings from loading the config were logged before run.log existed: repeat them in the file only
         for msg in cfg.config_warnings:
             file_log.handle(logger.makeRecord(logger.name, logging.WARNING, __file__, 0, "config: %s", (msg,), None))
         try:
+            mark_incomplete(out_dir)  # before anything of the earlier results is changed
+            _remove_results(out_dir)
             ranked = _run_stages(cfg, mol, rng, seeded, method, out_dir)
         except BaseException as exc:
-            logger.error("run stopped (%s: %s); no results were written", type(exc).__name__, exc)
+            logger.error(
+                "run stopped (%s: %s); the results are incomplete (marked by %s): rerun",
+                type(exc).__name__,
+                exc,
+                INCOMPLETE_NAME,
+            )
             shutil.rmtree(out_dir / STAGING_NAME, ignore_errors=True)
             raise
     return ranked

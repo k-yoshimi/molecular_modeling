@@ -377,7 +377,8 @@ def test_interrupted_run_leaves_no_results_that_look_complete(tmp_path, monkeypa
     assert not (out / "validation.md").exists()
     log = (out / "run.log").read_text()
     assert "KeyboardInterrupt" in log and "old log" not in log
-    assert not list(out.glob(".csp*"))  # lock and staging files are cleaned up
+    # lock and staging files are cleaned up; the marker stays so that the directory is known to be incomplete
+    assert sorted(p.name for p in out.glob(".csp*")) == [".csp_incomplete"]
 
 
 def test_failed_run_logs_the_error(tmp_path, monkeypatch):
@@ -498,3 +499,155 @@ def test_voronoi_share_filled_for_symmetric_molecule():
     cfg = replace(default_cfg(), space_groups=[2], n_candidates_per_sg=10, generators={"random": 0.6, "voronoi": 0.4})
     cands = pipeline._generate(cfg, load_molecule("data/benzene.toml"), np.random.default_rng(1))
     assert sum(c.origin == "voronoi" for c in cands) == 4
+
+
+def _three_ranked():
+    cands = generate_random(load_molecule("data/benzene.toml"), 2, 2, n=3, rng=np.random.default_rng(0))
+    for k, c in enumerate(cands):
+        c.energy_per_mol, c.status = -1.0 + k, "relaxed"
+        c.meta["id"] = f"random-2-{k}"
+    return cands
+
+
+def _exp_for(tmp_path, atoms):
+    exp = tmp_path / "exp.cif"
+    write(exp, atoms)
+    return exp
+
+
+@pytest.mark.parametrize("exc", [OSError, KeyboardInterrupt])
+@pytest.mark.parametrize("fail_at", [2, 4], ids=["after_first_cif_move", "csv_move"])
+def test_interrupted_publication_is_never_validated(tmp_path, monkeypatch, exc, fail_at):
+    import os
+
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.validate import validate_run
+
+    cands = _three_ranked()
+    cfg = replace(default_cfg(), out_dir=tmp_path)
+    exp = _exp_for(tmp_path, cands[0].atoms)
+    real = os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] == fail_at:  # 3 CIF moves, then the CSV move (call 4)
+            raise exc("disk trouble")
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    with pytest.raises(exc):
+        pipeline._write_outputs(cfg, cands)
+    monkeypatch.setattr(os, "replace", real)
+    assert (tmp_path / ".csp_incomplete").exists()
+    with pytest.raises(ValueError, match="incomplete"):
+        validate_run(tmp_path, [exp], flip=None)
+
+
+def test_marker_removed_only_as_the_last_step(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.validate import validate_run
+
+    cands = _three_ranked()
+    cfg = replace(default_cfg(), out_dir=tmp_path)
+    exp = _exp_for(tmp_path, cands[0].atoms)
+
+    def interrupted(out_dir):
+        assert (out_dir / "candidates.csv").exists()  # the CSV is in place before the marker goes
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline, "_mark_complete", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        pipeline._write_outputs(cfg, cands)
+    with pytest.raises(ValueError, match="incomplete"):
+        validate_run(tmp_path, [exp], flip=None)
+
+
+def test_interrupted_initial_cleanup_is_logged_and_marked(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    out = tmp_path / "out"
+    _old_results(out)
+    real = pipeline._remove_results
+
+    def partial_cleanup(out_dir):
+        (out_dir / "candidates.csv").unlink()
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline, "_remove_results", partial_cleanup)
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    with pytest.raises(KeyboardInterrupt):
+        run_csp(replace(default_cfg(), out_dir=out), method="EMT")
+    assert (out / ".csp_incomplete").exists()
+    assert "KeyboardInterrupt" in (out / "run.log").read_text()
+    assert real is not partial_cleanup  # the real cleanup was replaced
+
+
+def test_old_csv_invalidated_before_cifs_are_deleted(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    out = tmp_path / "out"
+    _old_results(out)
+    order = []
+    real_unlink = type(out).unlink
+
+    def spy(self, *a, **k):
+        order.append(self.name)
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(type(out), "unlink", spy)
+    pipeline._remove_results(out)
+    assert order.index("candidates.csv") < order.index("001_random-2-0.cif")
+
+
+def test_stale_lock_deleted_by_hand_still_refused_by_validation(tmp_path):
+    from molecular_modeling.csp.validate import validate_run
+
+    out = tmp_path / "out"
+    _old_results(out)
+    (out / ".csp_incomplete").write_text("")  # a killed run left the marker; the user removed only the lock
+    with pytest.raises(ValueError, match="incomplete"):
+        validate_run(out, [tmp_path / "exp.cif"], flip=None)
+
+
+def test_run_cannot_start_while_validation_holds_the_lock(tmp_path, monkeypatch):
+    from molecular_modeling.csp import validate as validate_mod
+
+    cands = _three_ranked()
+    cfg = replace(default_cfg(), out_dir=tmp_path)
+    from molecular_modeling.csp import pipeline
+
+    pipeline._write_outputs(cfg, cands)
+    exp = _exp_for(tmp_path, cands[0].atoms)
+    real_read = validate_mod._read_candidates
+    seen = {}
+
+    def read_and_try_a_run(out_dir):
+        monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+        with pytest.raises(FileExistsError):
+            run_csp(cfg, method="EMT")
+        seen["blocked"] = True
+        return real_read(out_dir)
+
+    monkeypatch.setattr(validate_mod, "_read_candidates", read_and_try_a_run)
+    report = validate_mod.validate_run(tmp_path, [exp], flip=None)
+    assert seen["blocked"] and report.entries[0].best_rank == 1
+    assert not (tmp_path / ".csp_run.lock").exists()  # validation released its lock
+
+
+def test_cli_validation_holds_lock_while_writing_report(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp import validate as validate_mod
+
+    cands = _three_ranked()
+    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), cands)
+    exp = _exp_for(tmp_path, cands[0].atoms)
+    real_md = validate_mod.ValidationReport.to_markdown
+
+    def md_with_lock_check(self):
+        assert (tmp_path / ".csp_run.lock").exists()
+        return real_md(self)
+
+    monkeypatch.setattr(validate_mod.ValidationReport, "to_markdown", md_with_lock_check)
+    assert validate_mod.main([str(tmp_path), str(exp), "--no-flip"]) == 0
+    assert not (tmp_path / ".csp_run.lock").exists()

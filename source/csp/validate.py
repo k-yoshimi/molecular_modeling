@@ -13,6 +13,8 @@ import argparse
 import csv
 import logging
 import math
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,10 +25,11 @@ from ase.io import read
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.transform import Rotation
 
-from .candidate import LOCK_NAME, MAX_CIF
+from .candidate import MAX_CIF
 from .deps import require
 from .gen_seed import read_seed_molecules, split_molecules
 from .molecule import AlignResult, _assign, _initial_rotations, _kabsch, match_and_align
+from .outdir import INCOMPLETE_NAME, hold_lock, is_incomplete
 
 logger = logging.getLogger(__name__)
 
@@ -709,6 +712,16 @@ def _best_match(comps: list[Comparison], rmsd_cut: float, n_mol: int) -> Compari
     return min(hits, key=lambda c: c.rank) if hits else None
 
 
+def _check_args(out_dir: Path, n_top: int, rmsd_cut: float) -> None:
+    require(["pymatgen", "spglib"], purpose="validation")
+    if not (isinstance(n_top, int) and n_top >= 1):
+        raise ValueError(f"n_top must be a positive integer, got {n_top!r}")
+    if not (math.isfinite(rmsd_cut) and rmsd_cut > 0):
+        raise ValueError(f"rmsd_cut must be a positive finite number, got {rmsd_cut!r}")
+    if not Path(out_dir).is_dir():
+        raise FileNotFoundError(f"CSP output directory not found: {out_dir}")
+
+
 def validate_run(
     out_dir: Path,
     experimental: list[Path],
@@ -745,19 +758,45 @@ def validate_run(
     FileNotFoundError
         If ``out_dir`` is not a directory, or holds neither ``candidates.csv`` nor candidate CIFs
         (``NNN_<id>.cif``). A ``candidates.csv`` without rows (a run that kept no candidate) is valid.
+    FileExistsError
+        If a CSP run or another validation holds the directory (lock file ``.csp_run.lock``). The lock
+        is held for the whole validation, so a run cannot replace the results meanwhile.
+    ValueError
+        For bad arguments or unreadable files, and if the last run into ``out_dir`` did not finish (the
+        marker ``.csp_incomplete`` is present).
     """
-    require(["pymatgen", "spglib"], purpose="validation")
-    if not (isinstance(n_top, int) and n_top >= 1):
-        raise ValueError(f"n_top must be a positive integer, got {n_top!r}")
-    if not (math.isfinite(rmsd_cut) and rmsd_cut > 0):
-        raise ValueError(f"rmsd_cut must be a positive finite number, got {rmsd_cut!r}")
     out_dir = Path(out_dir)
-    if not out_dir.is_dir():
-        raise FileNotFoundError(f"CSP output directory not found: {out_dir}")
-    if (out_dir / LOCK_NAME).exists():
-        raise FileExistsError(
-            f"a CSP run is still running in {out_dir} (lock file {LOCK_NAME}); validate after it finishes, "
-            "or delete the lock file if no run is active"
+    _check_args(out_dir, n_top, rmsd_cut)
+    with _validation_lock(out_dir):
+        return _validate_locked(out_dir, experimental, n_top, rmsd_cut, flip)
+
+
+@contextmanager
+def _validation_lock(out_dir: Path) -> Iterator[None]:
+    """Hold the output directory's lock while validating, so that no CSP run can change it meanwhile.
+
+    A directory that cannot be written (e.g. shared read-only results) is validated without the lock.
+    """
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(hold_lock(out_dir, "validation"))
+        except PermissionError:
+            logger.warning("%s is read-only: validating without the lock", out_dir)
+        yield
+
+
+def _validate_locked(
+    out_dir: Path,
+    experimental: list[Path],
+    n_top: int,
+    rmsd_cut: float,
+    flip: tuple[str, str] | None,
+) -> ValidationReport:
+    """:func:`validate_run` once the arguments are checked and the lock is held."""
+    if is_incomplete(out_dir):
+        raise ValueError(
+            f"results in {out_dir} are incomplete: the last CSP run did not finish (marker {INCOMPLETE_NAME}); "
+            "rerun molecular-modeling-csp"
         )
     if not (out_dir / "candidates.csv").exists() and not any(out_dir.glob("[0-9][0-9][0-9]_*.cif")):
         raise FileNotFoundError(
@@ -848,12 +887,15 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             parser.error(str(exc))
     try:
-        report = validate_run(args.out_dir, args.experimental, n_top=args.n_top, rmsd_cut=args.rmsd_cut, flip=flip)
+        _check_args(args.out_dir, args.n_top, args.rmsd_cut)
+        # the lock is held until validation.md is written, so no run can replace the results meanwhile
+        with _validation_lock(args.out_dir):
+            report = _validate_locked(args.out_dir, args.experimental, args.n_top, args.rmsd_cut, flip)
+            md = report.to_markdown()
+            (args.out_dir / "validation.md").write_text(md, encoding="utf-8")
     except (ValueError, OSError, ImportError) as exc:
         parser.error(str(exc))
-    md = report.to_markdown()
     print(md, end="")
-    (args.out_dir / "validation.md").write_text(md, encoding="utf-8")
     return 0
 
 
