@@ -19,6 +19,9 @@ from molecular_modeling.csp.molecule import molecule_rmsd
 from molecular_modeling.csp.screen import crystal_density, whole_molecules
 from molecular_modeling.molecule_unwrap import bond_pairs, is_connected, unwrap_molecule
 
+#: Calculator names accepted by :func:`make_calculator` (``EMT`` variants are for tests).
+METHODS = ("GFN2-xTB", "GFN1-xTB", "EMT", "EMT-CRASH-ON-AU")
+
 
 def make_calculator(method: str = "GFN2-xTB") -> Calculator:
     """Return an ASE calculator for ``method`` (``"GFN2-xTB"``, ``"GFN1-xTB"``, or ``"EMT"`` for tests).

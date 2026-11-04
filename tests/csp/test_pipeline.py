@@ -324,3 +324,136 @@ def test_run_csp_reports_tblite_without_calculator_class(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
     with pytest.raises(ImportError, match="TBLite"):
         run_csp(replace(default_cfg(), out_dir=tmp_path / "out"))
+
+
+def _old_results(out):
+    """Fill ``out`` with the outputs of an earlier, finished run."""
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "candidates.csv").write_text(CSV_HEADER + "\n1,random-2-0,-1.0,0.0,1.0,2,2,random,0.0,relaxed\n")
+    (out / "001_random-2-0.cif").write_text("old")
+    (out / "validation.md").write_text("# CSP validation\nSUCCESS (old)\n")
+    (out / "run.log").write_text("old log\n")
+
+
+def test_rerun_with_bad_molecule_leaves_previous_results_untouched(tmp_path):
+    out = tmp_path / "out"
+    _old_results(out)
+    cfg = replace(default_cfg(), molecule=tmp_path / "typo.toml", out_dir=out)
+    with pytest.raises(FileNotFoundError):
+        run_csp(cfg, method="EMT")
+    # the run never started: the earlier, complete results and their log are still consistent
+    assert (out / "run.log").read_text() == "old log\n"
+    assert (out / "candidates.csv").exists() and (out / "001_random-2-0.cif").exists()
+
+
+def test_rerun_with_bad_seed_fails_before_touching_out_dir(tmp_path):
+    from molecular_modeling.csp.config import SeedSpec
+
+    out = tmp_path / "out"
+    _old_results(out)
+    bad = tmp_path / "bad.cif"
+    bad.write_text("this is not a CIF\n")
+    cfg = replace(default_cfg(), seed_structures=[SeedSpec(cif=bad)], out_dir=out)
+    with pytest.raises(ValueError, match="bad.cif"):
+        run_csp(cfg, method="EMT")
+    assert (out / "run.log").read_text() == "old log\n"
+
+
+def test_interrupted_run_leaves_no_results_that_look_complete(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    out = tmp_path / "out"
+    _old_results(out)
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    monkeypatch.setattr(pipeline, "_relax_with_budget", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run_csp(replace(default_cfg(), out_dir=out), method="EMT")
+    assert not (out / "candidates.csv").exists()
+    assert not list(out.glob("[0-9][0-9][0-9]_*.cif"))
+    assert not (out / "validation.md").exists()
+    log = (out / "run.log").read_text()
+    assert "KeyboardInterrupt" in log and "old log" not in log
+    assert not list(out.glob(".csp*"))  # lock and staging files are cleaned up
+
+
+def test_failed_run_logs_the_error(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("generator exploded")
+
+    monkeypatch.setattr(pipeline, "_generate", boom)
+    out = tmp_path / "out"
+    with pytest.raises(RuntimeError):
+        run_csp(replace(default_cfg(), out_dir=out), method="EMT")
+    assert "generator exploded" in (out / "run.log").read_text()
+
+
+def test_successful_rerun_removes_stale_validation_report(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    out = tmp_path / "out"
+    _old_results(out)
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    assert run_csp(replace(default_cfg(), out_dir=out), method="EMT") == []
+    assert not (out / "validation.md").exists()
+    assert not list(out.glob("[0-9][0-9][0-9]_*.cif"))
+    assert (out / "candidates.csv").read_text().splitlines() == [CSV_HEADER]
+
+
+def test_second_run_into_busy_out_dir_is_refused(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / ".csp_run.lock").write_text("12345\n")
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    with pytest.raises(FileExistsError, match="lock"):
+        run_csp(replace(default_cfg(), out_dir=out), method="EMT")
+    assert (out / ".csp_run.lock").exists()
+
+
+def test_unknown_method_rejected_before_anything_runs(tmp_path):
+    with pytest.raises(ValueError, match="GFN-FF"):
+        run_csp(replace(default_cfg(), out_dir=tmp_path / "out"), method="GFN-FF")
+    assert not (tmp_path / "out").exists()
+
+
+def test_run_log_summarises_failure_and_rejection_reasons(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.candidate import Candidate
+
+    def fake_relax(cands, mol, cfg, method, t_start):
+        out = []
+        for k, msg in enumerate(
+            [
+                "InputError: Too close interatomic distances",
+                "InputError: Too close interatomic distances",
+                "RuntimeError: x",
+            ]
+        ):
+            out.append(
+                Candidate(atoms=mol.copy(), origin="random", space_group=2, status="failed", meta={"error": msg})
+            )
+        out.append(
+            Candidate(
+                atoms=mol.copy(),
+                origin="random",
+                space_group=2,
+                status="rejected_deformed",
+                meta={"reject_reason": "molecule deformed (RMSD 0.900 > 0.5 Å)"},
+            )
+        )
+        return out
+
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    monkeypatch.setattr(pipeline, "_relax_with_budget", fake_relax)
+    run_csp(replace(default_cfg(), out_dir=tmp_path), method="EMT")
+    log = (tmp_path / "run.log").read_text()
+    assert "2 failed: InputError: Too close interatomic distances" in log
+    assert "1 failed: RuntimeError: x" in log
+    assert "1 rejected_deformed: molecule deformed (RMSD 0.900 > 0.5 Å)" in log
