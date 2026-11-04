@@ -2782,7 +2782,8 @@ class TestSaveMoleculeSelectionCheck:
         from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule
 
         assert selection_is_one_molecule(self._two_co(), [0, 1])
-        assert selection_is_one_molecule(self._two_co(), [2])
+        assert selection_is_one_molecule(self._two_co(), [2, 3])
+        assert not selection_is_one_molecule(self._two_co(), [2])  # its O is left out
 
     def test_two_molecules_or_partial_selection_is_not(self):
         pytest.importorskip("tkinter")
@@ -2790,3 +2791,41 @@ class TestSaveMoleculeSelectionCheck:
 
         assert not selection_is_one_molecule(self._two_co(), [0, 1, 2, 3])
         assert not selection_is_one_molecule(self._two_co(), [0, 2])
+
+
+class TestSaveMoleculeSelectionCompleteness:
+    """A selection that leaves out atoms bonded to it is not a whole molecule."""
+
+    @staticmethod
+    def _benzene_crystal():
+        from molecular_modeling.csp.molecule import load_molecule
+
+        mol = load_molecule("data/benzene.toml")
+        atoms = Atoms(mol.get_chemical_symbols(), positions=mol.positions + [0.5, 5, 5], cell=[10, 10, 10], pbc=True)
+        atoms.wrap()  # split across the boundary
+        return atoms
+
+    def test_benzene_without_hydrogens_is_incomplete(self):
+        pytest.importorskip("tkinter")
+        from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule, selection_problem
+
+        atoms = self._benzene_crystal()
+        carbons = [i for i, s in enumerate(atoms.get_chemical_symbols()) if s == "C"]
+        assert not selection_is_one_molecule(atoms, carbons)
+        assert "missing" in selection_problem(atoms, carbons)
+        assert not selection_is_one_molecule(atoms, list(range(len(atoms)))[:-1])  # one H dropped
+        assert selection_is_one_molecule(atoms, list(range(len(atoms))))
+
+    def test_empty_selection_is_not_a_molecule(self):
+        pytest.importorskip("tkinter")
+        from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule
+
+        assert not selection_is_one_molecule(self._benzene_crystal(), [])
+
+    @pytest.mark.parametrize("indices", [[0, 0, 1], [-1, 0], [0, 99]])
+    def test_bad_indices_raise(self, indices):
+        pytest.importorskip("tkinter")
+        from molecular_modeling.gui.save_molecule_dialog import selection_is_one_molecule
+
+        with pytest.raises(ValueError):
+            selection_is_one_molecule(self._benzene_crystal(), indices)

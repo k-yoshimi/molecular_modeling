@@ -13,20 +13,55 @@ from typing import Callable, List, Optional
 
 import numpy as np
 from ase import Atoms
-from molecular_modeling.molecule_unwrap import extract_molecule, is_connected
+from molecular_modeling.molecule_unwrap import _bond_matrix, extract_molecule, is_connected
 
 from .base_dialog import BaseDialog, LabeledEntry
 
 
+def selection_problem(atoms: Atoms, indices: List[int]) -> Optional[str]:
+    """
+    Return why the selected atoms are not one whole molecule, or None if they are.
+
+    The selection is rejoined across periodic boundaries first, so a molecule
+    split by the cell boundary still counts as one molecule. A selection is
+    incomplete if a selected atom is bonded (periodic images included) to an
+    atom that is not selected.
+
+    Raises
+    ------
+    ValueError
+        If an index is negative, out of range, or repeated.
+    """
+    idx = [int(i) for i in indices]
+    n = len(atoms)
+    bad = [i for i in idx if i < 0 or i >= n]
+    if bad:
+        raise ValueError(f"atom indices out of range 0..{n - 1}: {bad}")
+    if len(set(idx)) != len(idx):
+        raise ValueError("atom indices are repeated in the selection")
+    if not idx:
+        return "no atoms are selected"
+    symbols, positions, _com = extract_molecule(atoms, idx)
+    if not is_connected(positions, symbols):
+        return "the selected atoms are not connected (several molecules or fragments)"
+    cell = np.array(atoms.get_cell())
+    bonded, _ = _bond_matrix(atoms.get_positions(), atoms.get_chemical_symbols(), cell, atoms.get_pbc())
+    outside = np.ones(n, dtype=bool)
+    outside[idx] = False
+    partners = sorted({int(j) for i in idx for j in np.nonzero(bonded[i] & outside)[0]})
+    if partners:
+        shown = ", ".join(str(j) for j in partners[:10]) + (" ..." if len(partners) > 10 else "")
+        return f"atoms missing: the selection is bonded to unselected atoms ({shown})"
+    return None
+
+
 def selection_is_one_molecule(atoms: Atoms, indices: List[int]) -> bool:
     """
-    Return True if the selected atoms form one connected molecule.
+    Return True if the selected atoms form one whole, connected molecule.
 
-    The selection is first rejoined across periodic boundaries, so a molecule
-    split by the cell boundary still counts as one molecule.
+    See :func:`selection_problem`; an empty selection is not a molecule.
     """
-    symbols, positions, _com = extract_molecule(atoms, indices)
-    return is_connected(positions, symbols)
+    return selection_problem(atoms, indices) is None
 
 
 def _format_toml(
@@ -329,11 +364,11 @@ class SaveMoleculeDialog(BaseDialog):
             )
             return False
 
-        if not selection_is_one_molecule(self.atoms, self.selected_indices):
+        problem = selection_problem(self.atoms, self.selected_indices)
+        if problem is not None:
             if not self.ask_yes_no(
                 "Not One Molecule",
-                "The selected atoms do not form one connected molecule "
-                "(several molecules, or a molecule with atoms missing).\n"
+                f"The selected atoms are not one whole molecule: {problem}.\n"
                 "A molecule file should hold exactly one whole molecule. Save anyway?",
             ):
                 return False
