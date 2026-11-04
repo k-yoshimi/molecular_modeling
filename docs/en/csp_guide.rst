@@ -22,8 +22,10 @@ Run every command in this guide from the repository root (the directory that con
    source .venv/bin/activate
    pip install -e ".[csp]"
 
-The ``csp`` extra installs PyXtal, tblite (GFN2-xTB) and pymatgen. They are not part of the core
-dependencies.
+The ``csp`` extra installs PyXtal, tblite (GFN2-xTB) and pymatgen; spglib, which CSP also uses,
+comes in with them. They are not part of the core dependencies. If one of them cannot be imported,
+``molecular-modeling-csp`` stops before generating anything and names the missing package, with the
+hint ``pip install -e ".[csp]"``.
 
 Workflow
 --------
@@ -72,7 +74,7 @@ Input file (input/csp.toml)
    * - ``space_groups``
      - 6 groups (below)
      - Space group numbers to try. Required in ``informed`` mode; in ``blind`` mode it is
-       replaced by the default list
+       replaced by the default list (with a warning if the file gives a different list)
    * - ``z``
      - omitted
      - Z per space group (e.g. ``z = { 14 = 4 }``). Default: general-position multiplicity × ``z_prime``.
@@ -121,7 +123,8 @@ Input file (input/csp.toml)
    * - ``max_mol_rmsd``
      - ``0.5``
      - Reject candidates in which a molecule deviates more than this heavy-atom RMSD (Å) from the
-       input molecule after relaxation
+       input molecule after relaxation. Candidates in which a molecule gained or lost a bond within
+       itself (a ring closed, a hydrogen moved to another atom) are rejected whatever the RMSD
    * - ``time_budget_min``
      - ``60``
      - Wall-clock target in minutes; see "Timings and defaults"
@@ -134,7 +137,12 @@ Input file (input/csp.toml)
      - Output directory
 
 The default space groups are ``[14, 2, 19, 15, 4, 61]`` (P2\ :sub:`1`/c, P-1,
-P2\ :sub:`1`\ 2\ :sub:`1`\ 2\ :sub:`1`, C2/c, P2\ :sub:`1`, Pbca). Unknown keys in the file are an error.
+P2\ :sub:`1`\ 2\ :sub:`1`\ 2\ :sub:`1`, C2/c, P2\ :sub:`1`, Pbca). Unknown keys in the file are an error,
+and so are values outside their range: ``packing_range`` needs 0 < lower < upper ≤ 1, space groups
+(and the keys of ``z``) 1-230, ``n_candidates_per_sg``, ``n_prescreen_keep``, ``n_procs``, ``z_prime``
+and the values of ``z`` at least 1, ``relax_steps`` at least 0, and ``relax_fmax``, ``max_mol_rmsd``,
+``time_budget_min`` and ``overlap_factor`` positive. Warnings issued while reading the file (such as
+keys that ``blind`` mode ignores) are printed and repeated at the top of ``run.log``.
 
 Minimal input files
 ~~~~~~~~~~~~~~~~~~~
@@ -160,7 +168,10 @@ An informed search gives what is known from experiment, here with a seed CIF:
    cif = "parent.cif"
    substitutions = [["O", "S", 1]]
 
-``input/csp.toml`` in the repository is a commented example that lists every key.
+``input/csp.toml`` in the repository is a commented example that lists every key. It is a light
+benzene example, not the built-in defaults: ``n_candidates_per_sg = 50`` (default 150) and
+``n_procs = 4`` (default: all CPU cores), so that it finishes quickly. Its ``space_groups`` line is
+commented out because ``blind`` mode ignores it; uncomment it together with ``mode = "informed"``.
 
 The molecule file ``data/<name>.toml`` has the same format as the molecule definitions used by the rest of
 the toolkit (see :doc:`toml_reference`, "Molecule Definition"); ``data/benzene.toml`` and
@@ -177,6 +188,14 @@ coordinates (Å), for example (an O=C=O molecule):
 CSP reads only ``symbols``, ``positions`` and, when ``use_fractional = true``, ``lattice_vectors`` (to
 convert the positions); other keys such as ``center_of_mass`` are not used. An ``.xyz`` file holding one
 molecule works as well. The molecule is shifted so that its plain (unweighted) centroid is at the origin.
+
+.. tip::
+
+   A molecule file can be made from a crystal structure in the GUI: select the atoms of one molecule and
+   choose **MoleculeTools** → **Save Selection as Molecule...**, which writes ``data/<name>.toml``
+   (see :doc:`gui_guide`). A molecule split across the cell boundary is rejoined before it is saved.
+   The selection must be one whole, connected molecule; if it is not (several molecules, or atoms
+   missing), the dialog warns and asks before saving.
 
 **Supported elements**: H, C, N, O, F, S, Cl, Se, Br and I. The rigid Lennard-Jones prescreen has UFF
 parameters only for these; a molecule with any other element is rejected with an error before
@@ -209,7 +228,7 @@ Two modes
 ``blind``
    Uses no information about the target crystal: the six default space groups, Z equal to the
    general-position multiplicity and Z' = 1. ``space_groups`` and ``z`` in the file are ignored and
-   ``z_prime`` is set to 1 (with a warning if the file says otherwise). ``seed_structures`` are still
+   ``z_prime`` is set to 1 (each with a warning if the file says otherwise). ``seed_structures`` are still
    used if given, because a seed is a related crystal (e.g. the parent compound before O→S substitution),
    not the experimental structure of the target. For a prediction from the molecule alone, leave
    ``seed_structures`` out, or switch seeds off with ``generators = {seed = 0}`` (the other weights keep
@@ -318,11 +337,12 @@ Reading the output
    pyxtal 1.1.5, tblite 0.8.0, ase 3.29.0, numpy 2.5.4, scipy 1.18.1, pymatgen 2026.10.24 and
    spglib 2.8.0.
 
-   ``rejected_deformed`` counts candidates in which a molecule deformed beyond ``max_mol_rmsd`` or
-   became covalently bonded to another molecule or to its own periodic image during relaxation;
-   ``failed`` counts
-   failed calculations. A line starting with ``time budget:`` means the number of relaxations was reduced
-   to fit the time target.
+   ``rejected_deformed`` counts candidates in which, during relaxation, a molecule deformed beyond
+   ``max_mol_rmsd``, gained or lost a bond within itself, or became covalently bonded to another
+   molecule or to its own periodic image; ``failed`` counts calculations that stopped with an error.
+   A missing tblite does not show up here as every candidate failing: the run stops before generation
+   (see `Installation`_). A line starting with ``time budget:`` means the number of relaxations was
+   reduced to fit the time target.
 
 Validation against experiment
 -----------------------------
@@ -333,7 +353,14 @@ Validation against experiment
    # optional: --n-top 20  --rmsd-cut 0.8  --flip O,S  (--no-flip skips the flip check)
 
 The report is printed and written to ``csp_out/validation.md``. Experimental CIFs must be
-**disorder-free** (full occupancy).
+**disorder-free** (full occupancy). They may lack hydrogen atoms, as many experimental CIFs do: only
+heavy atoms are compared, so a CIF with or without hydrogens matches the same candidates. If the output
+directory does not exist or holds neither ``candidates.csv`` nor candidate CIFs, the command stops with
+an error instead of writing a report.
+
+The flip check (``--flip O,S``) is **on by default**. For a molecule without O or S it has nothing to
+do and is reported as skipped; give ``--no-flip`` to leave it out, or ``--flip`` with two other elements
+(for example ``--flip Se,S``).
 
 The comparison follows the COMPACK approach: a cluster of 15 molecules is taken from the experimental
 structure and from each candidate and overlaid, giving RMSD\ :sub:`15`. RMSD\ :sub:`15` is over heavy
@@ -358,8 +385,10 @@ The report uses these terms (written below exactly as they appear in ``validatio
    Whether the match used the mirror image of the candidate.
 ``flip match rank``
    Best rank of a candidate that matches only when O and S are treated as one element: **the same
-   packing with O and S exchanged on the molecules**. It is never counted as success. It reads
-   ``skipped`` when the experimental structure lacks O or S.
+   packing with O and S exchanged on the molecules**. It is never counted as success. When the
+   experimental structure lacks one of the two elements it reads, for example,
+   ``skipped (no O, S in the experimental structure)`` (both missing) or
+   ``skipped (no S in the experimental structure)``.
 ``closest candidates``
    Always shown for each experimental structure: up to 10 comparable candidates, ordered by the number of
    matched molecules (most first), then RMSD, then rank.
