@@ -80,7 +80,8 @@ def _toml_atoms(path: Path) -> Atoms:
 
 def _xyz_atoms(path: Path) -> Atoms:
     try:
-        frames = read(str(path), index=":", format="xyz")
+        # extxyz reads plain XYZ too and follows a Properties= header (pos may not be the first columns)
+        frames = read(str(path), index=":", format="extxyz")
     except Exception as exc:  # ASE raises many kinds of errors for malformed files
         raise ValueError(f"{path}: cannot be read as XYZ: {type(exc).__name__}: {exc}") from None
     frames = frames if isinstance(frames, list) else [frames]

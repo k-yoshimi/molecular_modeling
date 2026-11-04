@@ -160,3 +160,17 @@ def test_load_molecule_extended_xyz_single_frame(tmp_path):
     mol = load_molecule(p)
     assert mol.get_chemical_symbols() == ["C", "O"]
     np.testing.assert_allclose(np.linalg.norm(mol.positions[1] - mol.positions[0]), 1.2)
+
+
+def test_load_molecule_extended_xyz_reads_positions_not_other_columns(tmp_path):
+    # forces come before positions in this file; a plain-XYZ reader would take them as coordinates
+    p = tmp_path / "co_forces.xyz"
+    p.write_text(
+        "2\n"
+        'Properties=species:S:1:forces:R:3:pos:R:3 pbc="F F F"\n'
+        "C 9.0 9.0 9.0 0.0 0.0 0.0\n"
+        "O 7.0 7.0 7.0 1.2 0.0 0.0\n"
+    )
+    mol = load_molecule(p)
+    assert mol.get_chemical_symbols() == ["C", "O"]
+    np.testing.assert_allclose(mol.positions, [[-0.6, 0, 0], [0.6, 0, 0]], atol=1e-12)
