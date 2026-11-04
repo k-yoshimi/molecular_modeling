@@ -148,9 +148,16 @@ def _generate(
                 logger.info("space group %d: random generator returned %d of %d requested", sg, len(rand), n_rand)
         vor: list[Candidate] = []
         if n_vor:
-            skeletons = generate_random(mol, sg, z, math.ceil(n_vor / 2), rng)
-            for sk in skeletons:
-                vor.extend(orient_candidate(sk))
+            # each skeleton gives two orientations, or one when the turned copy would be identical (a
+            # symmetric molecule); draw more skeletons until the share is filled, at most n_vor of them
+            n_skel = 0
+            while len(vor) < n_vor and n_skel < n_vor:
+                skeletons = generate_random(mol, sg, z, min(math.ceil((n_vor - len(vor)) / 2), n_vor - n_skel), rng)
+                if not skeletons:
+                    break
+                n_skel += len(skeletons)
+                for sk in skeletons:
+                    vor.extend(orient_candidate(sk))
             vor = vor[:n_vor]
             if len(vor) < n_vor:
                 logger.info("space group %d: voronoi generator returned %d of %d requested", sg, len(vor), n_vor)

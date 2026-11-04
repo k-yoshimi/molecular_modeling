@@ -24,6 +24,10 @@ from .molecule import FALLBACK_VDW_RADIUS
 
 logger = logging.getLogger(__name__)
 
+#: The turned copy of a molecule counts as the same orientation if, after pairing atoms of the same element,
+#: its atoms are within this RMSD (Å) of the untouched orientation.
+SAME_ORIENTATION_TOL = 0.1
+
 #: Nelder–Mead settings for the refinement after the Euler-angle grid search.
 NM_OPTIONS = {"xatol": 1e-2, "fatol": 1e-4, "maxiter": 400, "maxfev": 800, "disp": False}
 
@@ -219,6 +223,15 @@ def _plane_normal(pos: np.ndarray, symbols: list[str]) -> np.ndarray:
     return vecs[:, 0]
 
 
+def _same_orientation(a: np.ndarray, b: np.ndarray, symbols: list[str]) -> bool:
+    """True if centred positions ``b`` coincide with ``a`` once atoms of the same element are paired."""
+    from .molecule import _assign
+
+    sym = np.asarray(symbols)
+    perm = _assign(b, a, sym, sym)
+    return float(np.sqrt(np.mean(np.sum((b[perm] - a) ** 2, axis=1)))) < SAME_ORIENTATION_TOL
+
+
 def _site_representatives(cand: Candidate, n_mol: int) -> list[int]:
     """Molecule index whose orientation is optimised for each independent site.
 
@@ -251,7 +264,9 @@ def orient_candidate(cand: Candidate, grid_num: tuple[int, int, int] = (9, 9, 9)
     molecule about its centroid and the axis normal to its plane (the principal axis of the
     heavy-atom gyration tensor with the smallest extent). That turn exchanges the two ends of an
     elongated molecule (head and tail, e.g. the O and S ends) and keeps the molecular plane, which
-    the shape/cell IoU cannot tell apart. Both have ``origin = "voronoi"`` and ``meta["voronoi_iou"]`` (mean over optimised
+    the shape/cell IoU cannot tell apart. If the turn maps every optimised molecule onto itself
+    (atoms of the same element within :data:`SAME_ORIENTATION_TOL`, e.g. benzene), the turned copy
+    would be a duplicate and only Δ is returned. Each candidate has ``origin = "voronoi"`` and ``meta["voronoi_iou"]`` (mean over optimised
     molecules), ``meta["voronoi_iou_per_site"]``, ``meta["voronoi_variant"]`` (``"best"`` or
     ``"flip"``) and ``meta["parent_origin"]``. The input candidate is not modified.
     """
@@ -264,6 +279,7 @@ def orient_candidate(cand: Candidate, grid_num: tuple[int, int, int] = (9, 9, 9)
     coms = np.array([pos[ids == k].mean(axis=0) for k in range(n_mol)])
 
     reps = _site_representatives(cand, n_mol)
+    same_after_turn = True
     rots: dict[str, list[Rotation]] = {"best": [], "flip": []}
     ious: dict[str, list[float]] = {"best": [], "flip": []}
     for k in reps:
@@ -275,13 +291,14 @@ def orient_candidate(cand: Candidate, grid_num: tuple[int, int, int] = (9, 9, 9)
         rot, iou = best_orientation(shape, verts, grid_num)
         axis = _plane_normal(rot.apply(rel), mol_syms)
         flip = Rotation.from_rotvec(np.pi * axis) * rot
+        same_after_turn = same_after_turn and _same_orientation(rot.apply(rel), flip.apply(rel), mol_syms)
         rots["best"].append(rot)
         rots["flip"].append(flip)
         ious["best"].append(iou)
         ious["flip"].append(_ShapeInCell(shape, verts).iou(flip))
 
     out: list[Candidate] = []
-    for variant in ("best", "flip"):
+    for variant in ("best",) if same_after_turn else ("best", "flip"):
         meta: dict[str, Any] = {k: v for k, v in cand.meta.items() if k != "pyxtal"}
         if "pyxtal" in cand.meta:
             new_atoms = _apply_to_pyxtal(cand, rots[variant], meta, len(atoms) // n_mol, n_mol)

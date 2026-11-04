@@ -489,3 +489,12 @@ def test_cli_keeps_traceback_for_unexpected_errors(tmp_path, monkeypatch):
     p.write_text(f'molecule = "data/benzene.toml"\nn_procs = 1\nout_dir = "{tmp_path / "out"}"\n')
     with pytest.raises(ZeroDivisionError):
         cli.main([str(p)])
+
+
+def test_voronoi_share_filled_for_symmetric_molecule():
+    # benzene gives one Voronoi candidate per skeleton (the turned copy is identical), so more skeletons are drawn
+    from molecular_modeling.csp import pipeline
+
+    cfg = replace(default_cfg(), space_groups=[2], n_candidates_per_sg=10, generators={"random": 0.6, "voronoi": 0.4})
+    cands = pipeline._generate(cfg, load_molecule("data/benzene.toml"), np.random.default_rng(1))
+    assert sum(c.origin == "voronoi" for c in cands) == 4

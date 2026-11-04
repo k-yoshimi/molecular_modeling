@@ -113,7 +113,8 @@ def test_orient_candidate_keeps_symmetry_and_rigidity():
     skel = generate_random(mol, 14, 4, n=1, rng=np.random.default_rng(2))[0]
     before = skel.atoms.get_positions().copy()
     out = orient_candidate(skel)
-    assert len(out) == 2 and all(c.origin == "voronoi" for c in out)
+    # benzene is unchanged by the 180° turn, so only the best orientation is returned
+    assert len(out) == 1 and all(c.origin == "voronoi" for c in out)
     np.testing.assert_allclose(skel.atoms.get_positions(), before)  # input untouched
     for c in out:
         assert c.space_group == 14
@@ -122,8 +123,6 @@ def test_orient_candidate_keeps_symmetry_and_rigidity():
             assert rigid_rmsd(mol, c.atoms[c.atoms.arrays["mol_id"] == k]) < 1e-3
         assert spglib_number(c.atoms) == 14
     assert molecule_rmsd(mol, out[0].atoms[out[0].atoms.arrays["mol_id"] == 0]) < 1e-3
-    # the two variants differ in orientation
-    assert not np.allclose(out[0].atoms.get_positions(), out[1].atoms.get_positions(), atol=1e-3)
 
 
 def test_orient_candidate_orients_every_wyckoff_site():
@@ -154,7 +153,7 @@ def test_orient_seed_candidate_rotates_each_molecule_about_its_centre():
     mol = load_molecule("data/benzene.toml")
     skel = generate_from_seed(mol, SeedSpec(cif=DATA / "seed_benzene_p21c.cif", substitutions=[], volume_scale=1.0))[0]
     out = orient_candidate(skel)
-    assert len(out) == 2 and all(c.origin == "voronoi" for c in out)
+    assert len(out) == 1 and all(c.origin == "voronoi" for c in out)  # benzene: the turned copy is identical
     ids = skel.atoms.arrays["mol_id"]
     for c in out:
         assert "pyxtal" not in c.meta
@@ -174,7 +173,8 @@ def test_generate_voronoi_concatenates():
     atoms.set_array("mol_id", np.array([0, 0]))
     skel = Candidate(atoms=atoms, origin="seed:x", space_group=1)
     out = generate_voronoi([skel, skel])
-    assert len(out) == 4 and all(c.origin == "voronoi" for c in out)
+    # one candidate per skeleton: turning the C2 rod end over end gives the same orientation
+    assert len(out) == 2 and all(c.origin == "voronoi" for c in out)
     # the C2 rod ends up along the long cell axis
     d = out[0].atoms.positions[1] - out[0].atoms.positions[0]
     assert abs(d[2]) / np.linalg.norm(d) > 0.95
@@ -223,3 +223,20 @@ def test_second_variant_swaps_head_and_tail(with_pyxtal):
         # rigid: all pair distances preserved
         d = lambda p: np.linalg.norm(p[:, None] - p[None], axis=2)  # noqa: E731
         np.testing.assert_allclose(d(p_swap), d(OS_ROD.positions), atol=1e-6)
+
+
+def _single_site(mol: Atoms) -> Candidate:
+    atoms = Atoms(mol.symbols, positions=mol.positions + [4.0, 4.5, 5.0], cell=np.diag([8.0, 9.0, 10.0]), pbc=True)
+    atoms.set_array("mol_id", np.zeros(len(mol), dtype=int))
+    return Candidate(atoms=atoms, origin="seed:x", space_group=1)
+
+
+def test_turned_copy_skipped_when_it_is_the_same_orientation():
+    # benzene is unchanged by a 180° turn about its plane normal: the second variant would be a duplicate
+    out = orient_candidate(_single_site(load_molecule("data/benzene.toml")))
+    assert [c.meta["voronoi_variant"] for c in out] == ["best"]
+
+
+def test_turned_copy_kept_when_head_and_tail_differ():
+    out = orient_candidate(_single_site(OS_ROD))
+    assert [c.meta["voronoi_variant"] for c in out] == ["best", "flip"]
