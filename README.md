@@ -20,6 +20,7 @@ A molecular modeling toolkit built on ASE (Atomic Simulation Environment) with V
 - **Structure File Export**: Quantum ESPRESSO (`qe.in`), VASP (`POSCAR`, `INCAR`, `KPOINTS`), and CIF formats
 - **3D Visualization**: Generate Voronoi cell overlay images with matplotlib
 - **GUI**: Interactive molecular modeling interface based on tkinter (ASE-GUI extension)
+- **Crystal Structure Prediction (CSP)**: Generate candidate molecular crystals from one isolated molecule (PyXtal random and Voronoi-oriented packings, optional seed crystals), relax them with GFN2-xTB, rank them by energy and compare them with experimental CIFs
 
 ## Setup
 
@@ -36,6 +37,12 @@ For development (testing and documentation):
 
 ```bash
 pip install -e ".[dev]"
+```
+
+For crystal structure prediction (installs PyXtal, tblite and pymatgen):
+
+```bash
+pip install -e ".[csp]"
 ```
 
 ## Usage
@@ -59,6 +66,15 @@ Pipeline flow:
 ```bash
 python molecular_modeling_gui.py
 ```
+
+### CSP — Crystal Structure Prediction
+
+```bash
+molecular-modeling-csp input/csp.toml                     # predict; writes csp_out/
+python -m molecular_modeling.csp.validate csp_out exp.cif  # compare with an experimental CIF
+```
+
+`input/csp.toml` is a small benzene example. See the CSP guide in the documentation for every setting and how to read the output.
 
 ## Documentation
 
@@ -91,8 +107,10 @@ molecular_modeling/              <- repository root
 │   ├── optimize_voronoi_overlap.py
 │   ├── render_voronoi_overlays.py
 │   ├── write_structure.py
+│   ├── molecule_unwrap.py       <- rejoin molecules split across the cell boundary
+│   ├── csp/                     <- crystal structure prediction
 │   └── gui/                     <- GUI modules
-├── input/                       <- runtime config (input.toml)
+├── input/                       <- runtime config (input.toml, csp.toml)
 ├── data/                        <- molecule definitions (*.toml)
 ├── tests/                       <- test suite
 ├── docs/                        <- documentation (Sphinx / PDF)

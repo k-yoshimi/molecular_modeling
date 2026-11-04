@@ -87,6 +87,66 @@ Displays a CIF file in the GUI.
 **Note**: If ASE's CIF parser fails, the tool retries after stripping
 ``_citation*`` tags as a fallback.
 
+molecular-modeling-csp — Crystal Structure Prediction
+-----------------------------------------------------
+
+Generates, relaxes and ranks candidate molecular crystals. Needs the ``csp`` extra
+(``pip install -e ".[csp]"``); see :doc:`csp_guide` for the settings and the output.
+
+.. code-block:: bash
+
+   molecular-modeling-csp [config]
+
+**Arguments**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Argument
+     - Description
+   * - ``config`` (optional)
+     - CSP settings file (TOML). Default: ``input/csp.toml``
+
+**Output** (in ``out_dir``, default ``csp_out/``): ``candidates.csv`` (ranking), ``NNN_<id>.cif`` for
+the top 50 candidates, and ``run.log``. If a package of the ``csp`` extra is missing, the command stops
+before generating anything and says so.
+
+python -m molecular_modeling.csp.validate — Compare with Experiment
+-------------------------------------------------------------------
+
+Compares the candidate CIFs of a CSP run with experimental CIFs (cluster RMSD of 15 molecules).
+See :doc:`csp_guide`, "Validation against experiment", for how to read the report.
+
+.. code-block:: bash
+
+   python -m molecular_modeling.csp.validate <out_dir> <exp.cif> [<exp.cif> ...] [options]
+
+**Arguments**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Argument
+     - Description
+   * - ``out_dir``
+     - Output directory of ``molecular-modeling-csp`` (``candidates.csv`` and CIFs). The command
+       stops with an error if it does not exist or holds no candidates
+   * - ``exp.cif``
+     - One or more experimental CIF files (disorder-free; hydrogens may be missing)
+   * - ``--n-top N``
+     - A match within rank ``N`` counts as success (default 20)
+   * - ``--rmsd-cut X``
+     - RMSD\ :sub:`15` threshold in Å for a match (default 0.8)
+   * - ``--flip A,B``
+     - Two elements treated as one for the separate flip-match check (default ``O,S``; the check is
+       on by default)
+   * - ``--no-flip``
+     - Skip the flip-match check (useful for molecules without O or S)
+
+The report is printed and written to ``<out_dir>/validation.md``.
+
 Running Tests
 -------------
 
