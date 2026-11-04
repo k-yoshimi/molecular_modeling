@@ -665,3 +665,25 @@ def test_run_csp_rejects_mpi_runs(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="MPI"):
         run_csp(replace(default_cfg(), out_dir=tmp_path / "out"), method="EMT")
     assert not (tmp_path / "out").exists()
+
+
+def test_cli_unwritable_out_dir_is_a_clean_error(tmp_path, monkeypatch, capsys):
+    import os
+
+    out = tmp_path / "out"
+    _old_results(out)
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    real_open = os.open
+
+    def deny(path, flags, *args):
+        if str(path).endswith(".csp_run.lock"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", deny)
+    cfg = tmp_path / "csp.toml"
+    cfg.write_text(f'molecule = "data/benzene.toml"\nn_procs = 1\nout_dir = "{out}"\n')
+    assert cli.main([str(cfg)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "lock file" in err and "Traceback" not in err
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before

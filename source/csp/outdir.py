@@ -36,7 +36,8 @@ def hold_lock(out_dir: Path, holder: str) -> Iterator[None]:
             "If none is active (a run was killed), delete the lock file and rerun molecular-modeling-csp"
         ) from None
     except OSError as exc:
-        raise OSError(
+        # same subtype (e.g. PermissionError), so callers that report input errors still recognise it
+        raise type(exc)(
             f"cannot create the lock file {lock} ({exc.strerror or exc}); the output directory must be writable"
         ) from exc
     try:
