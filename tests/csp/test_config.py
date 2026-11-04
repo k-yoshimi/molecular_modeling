@@ -145,3 +145,76 @@ def test_all_generators_off_rejected(tmp_path):
     # seeds alone are enough
     cfg = load_csp_config(_seed_toml(tmp_path, "generators = {random = 0, voronoi = 0}\n"))
     assert cfg.generators["seed"] > 0
+
+
+def test_blind_mode_warns_when_space_groups_are_overridden(tmp_path, caplog):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nmode = "blind"\nspace_groups = [14, 2]\n')
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.config"):
+        cfg = load_csp_config(p)
+    assert cfg.space_groups == DEFAULT_SPACE_GROUPS
+    assert "space_groups" in caplog.text
+    assert any("space_groups" in w for w in cfg.config_warnings)
+
+
+def test_blind_mode_no_warning_without_space_groups(tmp_path, caplog):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nmode = "blind"\n')
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.config"):
+        cfg = load_csp_config(p)
+    assert caplog.text == "" and cfg.config_warnings == []
+
+
+def test_example_input_loads_without_warnings(caplog):
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.config"):
+        cfg = load_csp_config("input/csp.toml")
+    assert cfg.config_warnings == [] and caplog.text == ""
+
+
+def test_config_warnings_is_not_an_input_key(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nconfig_warnings = ["x"]\n')
+    with pytest.raises(ValueError, match="config_warnings"):
+        load_csp_config(p)
+
+
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        ("packing_range = [0.8, 0.4]", "packing_range"),
+        ("packing_range = [0.0, 0.5]", "packing_range"),
+        ("packing_range = [0.5, 1.2]", "packing_range"),
+        ("packing_range = [0.5, 0.5]", "packing_range"),
+        ('mode = "informed"\nspace_groups = [0]', "space_groups"),
+        ('mode = "informed"\nspace_groups = [231]', "space_groups"),
+        ('mode = "informed"\nspace_groups = []', "space_groups"),
+        ("n_candidates_per_sg = 0", "n_candidates_per_sg"),
+        ("n_candidates_per_sg = 2.5", "n_candidates_per_sg"),
+        ("n_prescreen_keep = -1", "n_prescreen_keep"),
+        ("relax_steps = -5", "relax_steps"),
+        ("max_mol_rmsd = 0", "max_mol_rmsd"),
+        ("time_budget_min = -1", "time_budget_min"),
+        ("time_budget_min = nan", "time_budget_min"),
+        ("n_procs = 0", "n_procs"),
+        ("relax_fmax = 0", "relax_fmax"),
+        ("overlap_factor = -0.1", "overlap_factor"),
+        ('mode = "informed"\nspace_groups = [2]\nz_prime = 0', "z_prime"),
+        ('mode = "informed"\nspace_groups = [2]\n[z]\n2 = 0', "z"),
+    ],
+)
+def test_out_of_range_values_rejected(tmp_path, line, key):
+    p = tmp_path / "csp.toml"
+    p.write_text(f'molecule = "data/benzene.toml"\n{line}\n')
+    with pytest.raises(ValueError, match=key):
+        load_csp_config(p)
+
+
+def test_boundary_values_accepted(tmp_path):
+    p = tmp_path / "csp.toml"
+    p.write_text(
+        'molecule = "data/benzene.toml"\nmode = "informed"\nspace_groups = [1, 230]\n'
+        "packing_range = [0.01, 1.0]\nn_candidates_per_sg = 1\nn_prescreen_keep = 1\nrelax_steps = 0\n"
+        "n_procs = 1\nmax_mol_rmsd = 0.01\ntime_budget_min = 0.5\n"
+    )
+    cfg = load_csp_config(p)
+    assert cfg.space_groups == [1, 230] and cfg.relax_steps == 0

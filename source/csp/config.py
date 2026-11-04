@@ -63,6 +63,41 @@ class CSPConfig:
     time_budget_min: float = 60
     rng: int = 1
     out_dir: Path = Path("csp_out")
+    #: Warnings issued while loading the file (not an input key); ``run_csp`` repeats them in ``run.log``.
+    config_warnings: list[str] = field(default_factory=list, repr=False, compare=False)
+
+
+#: Fields of :class:`CSPConfig` that are set by the loader, not read from the TOML file.
+_NOT_INPUT_KEYS = {"config_warnings"}
+
+
+def _is_int(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _is_real(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _check_ranges(cfg: CSPConfig) -> None:
+    """Raise ``ValueError`` naming the first setting outside its allowed range."""
+    lo, hi = cfg.packing_range
+    if not (_is_real(lo) and _is_real(hi) and 0 < lo < hi <= 1):
+        raise ValueError(f"packing_range must be [lo, hi] with 0 < lo < hi <= 1, got {list(cfg.packing_range)}")
+    if not cfg.space_groups or not all(_is_int(g) and 1 <= g <= 230 for g in cfg.space_groups):
+        raise ValueError(f"space_groups must be a non-empty list of integers 1..230, got {cfg.space_groups}")
+    if cfg.z is not None and not all(1 <= g <= 230 and v >= 1 for g, v in cfg.z.items()):
+        raise ValueError(f"z must map space groups 1..230 to positive integers, got {cfg.z}")
+    for name in ("z_prime", "n_candidates_per_sg", "n_prescreen_keep", "n_procs"):
+        v = getattr(cfg, name)
+        if not (_is_int(v) and v >= 1):
+            raise ValueError(f"{name} must be a positive integer, got {v!r}")
+    if not (_is_int(cfg.relax_steps) and cfg.relax_steps >= 0):
+        raise ValueError(f"relax_steps must be a non-negative integer, got {cfg.relax_steps!r}")
+    for name in ("relax_fmax", "max_mol_rmsd", "time_budget_min", "overlap_factor"):
+        v = getattr(cfg, name)
+        if not (_is_real(v) and v > 0):
+            raise ValueError(f"{name} must be a positive finite number, got {v!r}")
 
 
 def load_csp_config(path: str | Path) -> CSPConfig:
@@ -71,18 +106,29 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     In ``blind`` mode ``space_groups`` is replaced by the default list, ``z`` is ignored and
     ``z_prime`` is set to 1 (with a warning if the file says otherwise); ``seed_structures`` are
     still used, since a seed is a related (parent) crystal, not the target's experimental structure.
-    In ``informed`` mode ``space_groups`` is required.
+    In ``informed`` mode ``space_groups`` is required. Warnings are logged and also kept in
+    ``config_warnings``.
 
     Raises
     ------
     ValueError
-        On unknown keys, bad mode, ``informed`` mode without ``space_groups``, or unknown generator
-        names / negative or non-finite generator weights, or no generator enabled.
+        On unknown keys, bad mode, ``informed`` mode without ``space_groups``, unknown generator
+        names / negative or non-finite generator weights, no generator enabled, or a setting outside
+        its range: ``0 < packing_range[0] < packing_range[1] <= 1``; space groups (and ``z`` keys)
+        1..230; positive integers ``z`` values, ``z_prime``, ``n_candidates_per_sg``,
+        ``n_prescreen_keep``, ``n_procs``; non-negative integer ``relax_steps``; positive finite
+        ``relax_fmax``, ``max_mol_rmsd``, ``time_budget_min``, ``overlap_factor``.
     """
+    warnings: list[str] = []
+
+    def warn(msg: str) -> None:
+        logger.warning("%s", msg)
+        warnings.append(msg)
+
     with open(path, "rb") as f:
         raw: dict[str, Any] = tomllib.load(f)
 
-    known = {f.name for f in fields(CSPConfig)}
+    known = {f.name for f in fields(CSPConfig)} - _NOT_INPUT_KEYS
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ValueError(f"unknown key(s) in {path}: {', '.join(unknown)}")
@@ -105,12 +151,15 @@ def load_csp_config(path: str | Path) -> CSPConfig:
         # blind uses no information about the target crystal: default space groups, Z' = 1
         kwargs["space_groups"] = list(DEFAULT_SPACE_GROUPS)
         kwargs["z"] = None
-        if "z" in raw:
-            logger.warning("blind mode: 'z' is ignored (Z is the general-position multiplicity)")
-        if int(raw.get("z_prime", 1)) != 1:
-            logger.warning(
-                "blind mode: z_prime = %s is ignored and set to 1; use informed mode for Z' > 1", raw["z_prime"]
+        if "space_groups" in raw and list(raw["space_groups"]) != DEFAULT_SPACE_GROUPS:
+            warn(
+                f"blind mode: space_groups = {raw['space_groups']} is ignored and the default list "
+                f"{DEFAULT_SPACE_GROUPS} is used; use informed mode to choose space groups"
             )
+        if "z" in raw:
+            warn("blind mode: 'z' is ignored (Z is the general-position multiplicity)")
+        if raw.get("z_prime", 1) != 1:
+            warn(f"blind mode: z_prime = {raw['z_prime']} is ignored and set to 1; use informed mode for Z' > 1")
         kwargs["z_prime"] = 1
     else:
         if "space_groups" not in raw:
@@ -144,4 +193,7 @@ def load_csp_config(path: str | Path) -> CSPConfig:
         raise ValueError("generators: no generator is enabled (random and voronoi are 0 and no seeds are used)")
     kwargs["generators"] = generators
 
-    return CSPConfig(**kwargs)
+    cfg = CSPConfig(**kwargs)
+    _check_ranges(cfg)
+    cfg.config_warnings = warnings
+    return cfg

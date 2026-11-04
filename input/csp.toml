@@ -1,7 +1,8 @@
-# Example CSP input (blind search for benzene)
+# Example CSP input (blind search for benzene). A light example: n_candidates_per_sg and n_procs
+# below are smaller than the built-in defaults (150 and all CPU cores) so that it runs quickly.
 molecule = "data/benzene.toml"   # molecule file (.toml in data/ format, or .xyz)
 mode = "blind"                   # "blind": default space groups; "informed": use space_groups below
-space_groups = [14, 2]           # used only in informed mode (ignored in blind mode)
+# space_groups = [14, 2]         # informed mode only; blind mode ignores it (with a warning) and uses 14, 2, 19, 15, 4, 61
 # z = { 14 = 4 }                 # optional, informed mode only: space group -> Z (default: general multiplicity x z_prime)
 z_prime = 1                      # molecules per asymmetric unit when z is not given (always 1 in blind mode)
 n_candidates_per_sg = 50         # candidates generated per space group (built-in default: 150)
