@@ -156,6 +156,7 @@ pymatgen); see :doc:`csp_guide`.
 - ``dedupe.py``: merging identical structures
 - ``candidate.py``: the ``Candidate`` record passed between stages
 - ``deps.py``: check that the ``csp`` extra can be imported
+- ``outdir.py``: the lock file shared by runs and validation, and the marker of incomplete results
 - ``validate.py``: comparison with experimental CIFs (``python -m molecular_modeling.csp.validate``)
 
 system.info Metadata

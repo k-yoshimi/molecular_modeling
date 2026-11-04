@@ -156,6 +156,7 @@ csp/ — 結晶構造予測
 - ``dedupe.py``: 同じ構造をまとめる
 - ``candidate.py``: 段の間で受け渡す ``Candidate``
 - ``deps.py``: ``csp`` extra が import できるかの確認
+- ``outdir.py``: 実行と答え合わせが共有するロックファイルと、結果が未完成であることを示す目印
 - ``validate.py``: 実験 CIF との比較（``python -m molecular_modeling.csp.validate``）
 
 system.info メタデータ

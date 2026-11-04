@@ -320,9 +320,14 @@ Reusing ``out_dir``
    ``validation.md`` and overwrites ``run.log``. The new results are written at the end, with
    ``candidates.csv`` last. If the run stops with an error or is interrupted (Ctrl-C), the reason is
    written to ``run.log`` and no results are left, so an earlier run can never be mistaken for the new
-   one. Do not start two runs with the same ``out_dir``: a running job holds the lock file
-   ``.csp_run.lock`` and a second run (or a validation of that directory) is refused. If a run was
-   killed so hard that the lock file stayed behind, delete it.
+   one. While the results are being replaced the directory holds the marker ``.csp_incomplete``; it
+   is written before anything old is deleted and removed only after the new ``candidates.csv`` is in
+   place. A run that fails, is interrupted or is killed leaves the marker behind, and validation refuses
+   the directory until a run finishes. Do not start two runs with the same ``out_dir``: a running job
+   holds the lock file ``.csp_run.lock``, and validation holds the same lock while it reads the results
+   and writes ``validation.md``, so a run and a validation of the same directory cannot overlap; the
+   second one is refused. If a run was killed so hard that the lock file stayed behind, delete the lock
+   file **and rerun**: the marker keeps the partial results from being validated.
 
 ``run.log``
    How many candidates survived each stage and how long it took. Example from a real run with this
@@ -381,8 +386,9 @@ The report is printed and written to ``csp_out/validation.md``. Experimental CIF
 **disorder-free**: every site fully occupied (occupancy exactly 1) by one element; for a disordered
 structure, keep only the major component and save it as an ordered P1 CIF. They may lack hydrogen atoms, as many experimental CIFs do: only
 heavy atoms are compared, so a CIF with or without hydrogens matches the same candidates. If the output
-directory does not exist, holds neither ``candidates.csv`` nor candidate CIFs, or is still being
-written by a run, the command stops with an error instead of writing a report; so does an experimental
+directory does not exist, holds neither ``candidates.csv`` nor candidate CIFs, is in use by a run, or
+holds the results of a run that did not finish (see "Reusing ``out_dir``"), the command stops with an
+error instead of writing a report; so does an experimental
 CIF that cannot be read. Experimental structures are labelled by file name in the report, or by the path
 as given when two files have the same name.
 
