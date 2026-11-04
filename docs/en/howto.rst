@@ -125,6 +125,25 @@ Optimize Molecular Orientations
      - ``python run.py``.
        See :doc:`cli_reference` for details
 
+Predict Crystal Structures
+--------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - I want to...
+     - How to do it
+   * - Predict candidate crystal structures from one molecule
+     - ``molecular-modeling-csp input/csp.toml`` (needs ``pip install -e ".[csp]"``).
+       See :doc:`csp_guide`
+   * - Make the molecule file for a prediction from a known crystal
+     - GUI: select one molecule, then **MoleculeTools > Save Selection as Molecule...**.
+       See :doc:`csp_guide`
+   * - Compare predicted candidates with an experimental CIF
+     - ``python -m molecular_modeling.csp.validate csp_out exp.cif``.
+       See :doc:`csp_guide` and :doc:`cli_reference`
+
 Export Structure Files
 ----------------------
 

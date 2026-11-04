@@ -14,6 +14,8 @@ What This Toolkit Can Do
 - **Atom and molecule substitution**: Bulk element replacement, molecule swapping, individual atom changes (4 substitution methods)
 - **Structure file export**: Batch export to Quantum ESPRESSO / VASP / CIF formats
 - **Interactive GUI**: 3D visualization, mouse operations, intuitive editing via dialogs
+- **Crystal structure prediction (CSP)**: Generate candidate crystals from one isolated molecule, relax them with
+  GFN2-xTB, rank them by energy and compare them with experimental CIFs (see :doc:`csp_guide`)
 
 Processing Pipeline
 -------------------

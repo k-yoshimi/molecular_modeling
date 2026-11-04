@@ -124,6 +124,41 @@ Uses ASE I/O to write structure files in the following formats:
 - **VASP**: ``POSCAR``, ``INCAR``, ``KPOINTS``
 - **CIF**: ``structure.cif``
 
+molecule_unwrap.py
+~~~~~~~~~~~~~~~~~~
+
+Rejoins molecules that are split across periodic boundaries (breadth-first walk over the bond graph,
+1.2 × natural covalent radii), checks that a set of atoms is one connected molecule, and lists bonded
+atom pairs. Used by the GUI (Save Selection as Molecule) and by the CSP package.
+
+csp/ — Crystal Structure Prediction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A separate pipeline (``molecular-modeling-csp`` → ``source/csp/cli.py`` → ``pipeline.run_csp``) that
+builds candidate crystals from one isolated molecule. It needs the ``csp`` extra (PyXtal, tblite,
+pymatgen); see :doc:`csp_guide`.
+
+.. code-block:: text
+
+   input/csp.toml + molecule file
+          |
+          v
+   generation (gen_random, gen_voronoi, gen_seed) -> prescreen (screen)
+          -> relaxation (relax, GFN2-xTB) -> deduplication (dedupe)
+          -> csp_out/ (candidates.csv, NNN_<id>.cif, run.log)
+
+- ``config.py``: ``CSPConfig`` and ``load_csp_config`` (TOML settings, blind/informed modes, range checks)
+- ``pipeline.py``: ``run_csp`` (stages, time budget, dependency check, outputs); ``cli.py``: command-line entry point
+- ``molecule.py``: molecule loading, volume, RMSD and rigid alignment (``match_and_align``)
+- ``gen_random.py``, ``gen_voronoi.py``, ``gen_seed.py``: random (PyXtal), Voronoi-oriented and seed-based generators
+- ``screen.py``: overlap and packing checks, rigid Lennard-Jones prescreen
+- ``relax.py``: parallel relaxation and the deformation / bond checks
+- ``dedupe.py``: merging identical structures
+- ``candidate.py``: the ``Candidate`` record passed between stages
+- ``deps.py``: check that the ``csp`` extra can be imported
+- ``outdir.py``: the lock file shared by runs and validation, and the marker of incomplete results
+- ``validate.py``: comparison with experimental CIFs (``python -m molecular_modeling.csp.validate``)
+
 system.info Metadata
 --------------------
 

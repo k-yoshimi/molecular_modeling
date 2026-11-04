@@ -1,0 +1,839 @@
+"""Tests for comparing CSP candidates with experimental structures (RMSD_15)."""
+
+import shutil
+from dataclasses import replace
+
+import numpy as np
+import pytest
+from ase import Atoms
+from ase.build import make_supercell
+from ase.io import write
+from scipy.spatial.transform import Rotation
+
+pytest.importorskip("pyxtal")
+pytest.importorskip("tblite")
+pytest.importorskip("pymatgen")
+
+from molecular_modeling.csp import validate as validate_mod  # noqa: E402
+from molecular_modeling.csp.gen_random import generate_random  # noqa: E402
+from molecular_modeling.csp.gen_seed import split_molecules  # noqa: E402
+from molecular_modeling.csp.molecule import load_molecule  # noqa: E402
+from molecular_modeling.csp.pipeline import CSV_HEADER, run_csp  # noqa: E402
+from molecular_modeling.csp.validate import ValidationReport, rmsd_cluster, validate_run  # noqa: E402
+
+from .conftest import default_cfg  # noqa: E402
+
+
+def _benzene(sg: int, z: int, seed: int) -> Atoms:
+    return generate_random(load_molecule("data/benzene.toml"), sg, z, n=1, rng=np.random.default_rng(seed))[0].atoms
+
+
+def test_rmsd_cluster_zero_for_same_structure_and_rigid_motion():
+    c = generate_random(load_molecule("data/benzene.toml"), 14, 4, n=1, rng=np.random.default_rng(5))[0].atoms
+    moved = c.copy()
+    moved.translate([0.3, -0.2, 0.1])
+    moved.wrap()
+    rmsd, n = rmsd_cluster(c, moved)
+    assert rmsd < 1e-3 and n == 15
+
+
+def test_rmsd_cluster_large_for_different_packing():
+    mol = load_molecule("data/benzene.toml")
+    a = generate_random(mol, 14, 4, n=1, rng=np.random.default_rng(5))[0].atoms
+    b = generate_random(mol, 2, 2, n=1, rng=np.random.default_rng(6))[0].atoms
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd > 0.8 or n < 15
+
+
+def test_rmsd_cluster_ignores_atom_and_molecule_order():
+    a = _benzene(14, 4, 5)
+    rng = np.random.default_rng(1)
+    mol_ids = a.get_array("mol_id")
+    order = []
+    for m in rng.permutation(np.unique(mol_ids)):
+        order.extend(rng.permutation(np.nonzero(mol_ids == m)[0]))
+    b = a[order]
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+@pytest.mark.parametrize(
+    "matrix",
+    [[[1, 1, 0], [0, 1, 0], [0, 0, 1]], [[0, 1, 0], [0, 0, 1], [1, 0, 0]], [[2, 0, 0], [0, 1, 0], [0, 0, 1]]],
+)
+def test_rmsd_cluster_independent_of_cell_choice(matrix):
+    a = _benzene(14, 4, 5)
+    b = make_supercell(a, np.array(matrix))
+    b.wrap()
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+def test_rmsd_cluster_rotated_crystal():
+    a = _benzene(2, 2, 3)
+    b = a.copy()
+    b.rotate(37, "x", rotate_cell=True)
+    b.rotate(-71, "z", rotate_cell=True)
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+def test_rmsd_cluster_mirror_image_crystal():
+    a = _benzene(19, 4, 2)
+    b = a.copy()
+    b.positions *= -1
+    b.set_cell(-np.array(b.get_cell()))
+    b.wrap()
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+def test_rmsd_cluster_small_for_slightly_perturbed():
+    a = _benzene(14, 4, 5)
+    b = a.copy()
+    b.positions += np.random.default_rng(0).normal(scale=0.05, size=b.positions.shape)
+    rmsd, n = rmsd_cluster(a, b)
+    assert 0.01 < rmsd < 0.2 and n == 15
+
+
+def test_validate_run_reports_rank_and_origin(tmp_path):
+    cfg = replace(
+        default_cfg(),
+        space_groups=[2],
+        n_candidates_per_sg=6,
+        n_prescreen_keep=2,
+        relax_steps=3,
+        n_procs=1,
+        out_dir=tmp_path,
+    )
+    out = run_csp(cfg)
+    exp = tmp_path / "exp.cif"
+    shutil.copy(next(tmp_path.glob("001_*.cif")), exp)
+    report = validate_run(tmp_path, [exp], flip=None)
+    assert isinstance(report, ValidationReport)
+    entry = report.entries[0]
+    assert report.success and entry.best_rank == 1 and entry.best_origin == out[0].origin
+    assert entry.best_rmsd is not None and entry.best_rmsd < 1e-3
+    assert entry.flip_match_rank is None
+    md = report.to_markdown()
+    assert "exp.cif" in md
+
+
+def _fake_out_dir(tmp_path, structures):
+    """Write a minimal out_dir (candidates.csv + CIFs) for the given (id, origin, atoms) list."""
+    lines = [CSV_HEADER]
+    for rank, (cid, origin, atoms) in enumerate(structures, start=1):
+        lines.append(f"{rank},{cid},-1.0,0.0,1.0,2,2,{origin},0.0,relaxed")
+        write(tmp_path / f"{rank:03d}_{cid}.cif", atoms)
+    (tmp_path / "candidates.csv").write_text("\n".join(lines) + "\n")
+
+
+def test_validate_run_symmetric_experimental_cif_and_rank_outside_top(tmp_path):
+    from pymatgen.io.ase import AseAtomsAdaptor
+    from pymatgen.io.cif import CifWriter
+
+    target = _benzene(14, 4, 5)
+    others = [_benzene(2, 2, s) for s in (6, 7)]
+    _fake_out_dir(
+        tmp_path,
+        [("random-2-0", "random", others[0]), ("random-2-1", "random", others[1]), ("voronoi-14-0", "voronoi", target)],
+    )
+    exp = tmp_path / "exp_p21c.cif"
+    CifWriter(AseAtomsAdaptor.get_structure(target), symprec=0.01).write_file(str(exp))
+    assert "P 1" not in exp.read_text().split("_symmetry_space_group_name_H-M")[1].splitlines()[0]
+
+    report = validate_run(tmp_path, [exp], n_top=2, flip=None)
+    entry = report.entries[0]
+    assert entry.best_rank == 3 and entry.best_origin == "voronoi"
+    assert entry.best_rmsd is not None and entry.best_rmsd < 0.1
+    assert not entry.success and not report.success  # rank 3 is outside the top 2
+    assert len(entry.comparisons) == 3
+
+
+def _swap_first(atoms: Atoms, x: str, y: str) -> Atoms:
+    """Copy of ``atoms`` in which, in every molecule, the first ``x`` and the first ``y`` exchange elements."""
+    out = atoms.copy()
+    sym = np.array(out.get_chemical_symbols())
+    mol_ids = out.get_array("mol_id")
+    for m in np.unique(mol_ids):
+        idx = np.nonzero(mol_ids == m)[0]
+        ix = idx[sym[idx] == x][0]
+        iy = idx[sym[idx] == y][0]
+        sym[ix], sym[iy] = y, x
+    out.set_chemical_symbols(list(sym))
+    return out
+
+
+# Non-planar molecule with unequal O/S counts (1 O, 2 S), like OS-2SMe (1 O, 3 S).
+# O and the first S are both 1.62 Å from C so that the molecule stays bonded when they exchange elements.
+OSS_MOL = Atoms("CSOSN", positions=[[0, 0, 0], [1.62, 0, 0], [0, 1.62, 0], [-1.2, -1.2, 0.3], [-0.4, 0.2, 1.3]])
+
+
+def test_validate_run_flip_match_is_recorded_separately(tmp_path):
+    exp_atoms = generate_random(OSS_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    flipped = _swap_first(exp_atoms, "O", "S")  # same composition, O and one S exchanged in every molecule
+    _fake_out_dir(tmp_path, [("random-2-0", "random", flipped), ("random-2-1", "random", exp_atoms)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    report = validate_run(tmp_path, [exp])
+    entry = report.entries[0]
+    assert entry.best_rank == 2  # plain match only with the identical structure
+    assert entry.flip_match_rank == 1  # the flipped candidate is a flip match, not a plain match
+    assert entry.flip_rmsd is not None and entry.flip_rmsd < 1e-3
+    assert not entry.success or entry.best_rank <= report.n_top
+    no_flip = validate_run(tmp_path, [exp], flip=None)
+    assert no_flip.entries[0].flip_match_rank is None
+
+
+def test_validate_run_flip_not_recorded_for_plain_match(tmp_path):
+    exp_atoms = generate_random(OSS_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    _fake_out_dir(tmp_path, [("random-2-0", "random", exp_atoms)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.best_rank == 1 and entry.flip_match_rank is None
+
+
+def test_validate_run_flip_skipped_with_warning_when_element_absent(tmp_path, caplog):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.validate"):
+        entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.flip_match_rank is None
+    assert "flip" in caplog.text
+
+
+def _reoriented(atoms: Atoms, angle: float, axis_index: int = 0) -> Atoms:
+    """Turn every molecule about one of its principal axes (0 = plane normal for a planar molecule)."""
+    out = Atoms(cell=atoms.get_cell(), pbc=True)
+    for m in split_molecules(atoms):
+        c = m.positions.mean(axis=0)
+        x = m.positions - c
+        _, v = np.linalg.eigh(x.T @ x)
+        m.positions = x @ Rotation.from_rotvec(angle * v[:, axis_index]).as_matrix().T + c
+        out += m
+    return out
+
+
+@pytest.mark.parametrize(
+    ("name", "sg", "z", "seed", "angle"),
+    [
+        ("benzene", 14, 4, 5, np.pi / 3),
+        ("benzene", 2, 2, 3, np.pi / 3),
+        ("benzene", 19, 4, 2, np.pi / 3),
+        ("naphthalene", 14, 4, 1, np.pi),
+        ("naphthalene", 2, 2, 3, np.pi),
+    ],
+)
+def test_rmsd_cluster_symmetry_equivalent_molecule_orientation(name, sg, z, seed, angle):
+    mol = load_molecule(f"data/{name}.toml")
+    a = generate_random(mol, sg, z, n=1, rng=np.random.default_rng(seed))[0].atoms
+    b = _reoriented(a, angle)
+    for x, y in ((a, b), (b, a)):
+        rmsd, n = rmsd_cluster(x, y)
+        assert rmsd < 0.1 and n == 15
+
+
+@pytest.mark.parametrize("name", ["benzene", "naphthalene"])
+def test_rmsd_cluster_noise_on_both_sides(name):
+    mol = load_molecule(f"data/{name}.toml")
+    # (14, 4, 1) is avoided: its naphthalene cell has H...H contacts that noise turns into bonds.
+    for sg, z, seed in [(14, 4, 2), (2, 2, 3), (19, 4, 2), (14, 4, 5)]:
+        a0 = generate_random(mol, sg, z, n=1, rng=np.random.default_rng(seed))[0].atoms
+        for t in range(3):
+            r = np.random.default_rng(100 + t)
+            a = a0.copy()
+            a.positions += r.normal(scale=0.05, size=a.positions.shape)
+            b = a0.copy()
+            b.positions += r.normal(scale=0.05, size=b.positions.shape)
+            rmsd, n = rmsd_cluster(a, b)
+            assert rmsd < 0.8 and n == 15, (sg, seed, t, rmsd, n)
+
+
+def test_validate_run_reports_reason_when_not_comparable(tmp_path, caplog):
+    nap = generate_random(load_molecule("data/naphthalene.toml"), 2, 2, n=1, rng=np.random.default_rng(3))[0].atoms
+    _fake_out_dir(tmp_path, [("random-2-0", "random", nap)])
+    exp = tmp_path / "exp.cif"
+    write(exp, _benzene(14, 4, 5))
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.validate"):
+        report = validate_run(tmp_path, [exp], flip=None)
+    comp = report.entries[0].comparisons[0]
+    assert comp.note is not None and "composition" in comp.note
+    assert "composition" in caplog.text and "001_random-2-0.cif" in caplog.text
+    assert "composition" in report.to_markdown()
+
+
+def test_validate_run_records_mirror_match(tmp_path):
+    # OSS_MOL is chiral, so in P2_12_12_1 the inverted crystal is not superposable by a proper motion.
+    a = generate_random(OSS_MOL, 19, 4, n=1, rng=np.random.default_rng(2))[0].atoms
+    b = a.copy()
+    b.positions *= -1  # inverted through the origin; same (right-handed) cell so the CIF keeps the handedness
+    b.wrap()
+    _fake_out_dir(tmp_path, [("random-19-0", "random", b), ("random-19-1", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1 and entry.best_mirror is True
+    assert [c.mirror for c in entry.comparisons] == [True, False]
+
+
+def test_cli_writes_markdown(tmp_path, capsys):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    assert validate_mod.main([str(tmp_path), str(exp)]) == 0
+    printed = capsys.readouterr().out
+    assert "exp.cif" in printed
+    assert "exp.cif" in (tmp_path / "validation.md").read_text()
+
+
+# Asymmetric three-atom molecule used for the extra-molecule (density) tests.
+CNO_MOL = Atoms("CNO", positions=[[0, 0, 0], [1.3, 0, 0], [-0.4, 1.2, 0.3]])
+
+
+def _cno_crystal(body_centred: bool) -> Atoms:
+    """One CNO molecule in a 20 Å cubic cell, optionally with a second copy at the body centre."""
+    pos = [CNO_MOL.positions + 5.0]
+    if body_centred:
+        pos.append(CNO_MOL.positions + 15.0)
+    n = len(pos)
+    a = Atoms("CNO" * n, positions=np.vstack(pos), cell=np.eye(3) * 20.0, pbc=True)
+    a.set_array("mol_id", np.repeat(np.arange(n), 3))
+    return a
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_extra_candidate_molecules_are_not_a_match(reverse):
+    # The body-centred crystal contains every molecule of the simple cubic one plus as many again;
+    # it must not count as the same structure in either direction.
+    simple, centred = _cno_crystal(False), _cno_crystal(True)
+    a, b = (centred, simple) if reverse else (simple, centred)
+    rmsd, n = rmsd_cluster(a, b)
+    assert n < 15
+
+
+def test_validate_run_extra_candidate_molecules_not_matched(tmp_path):
+    _fake_out_dir(tmp_path, [("random-1-0", "random", _cno_crystal(True))])
+    exp = tmp_path / "exp.cif"
+    write(exp, _cno_crystal(False))
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+
+
+def test_validate_run_flipped_only_candidate(tmp_path):
+    exp_atoms = generate_random(OSS_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    _fake_out_dir(tmp_path, [("random-2-0", "random", _swap_first(exp_atoms, "O", "S"))])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    report = validate_run(tmp_path, [exp])
+    entry = report.entries[0]
+    assert not entry.success and not report.success
+    assert entry.best_rank is None
+    assert entry.flip_match_rank == 1
+
+
+def test_validate_run_flip_check_rejects_extra_molecules(tmp_path):
+    # Flip (element-mapped) comparisons get the same extra-molecule check as plain ones.
+    simple = _cno_crystal(False)
+    simple.set_chemical_symbols(["C", "S", "O"])
+    centred = _cno_crystal(True)
+    centred.set_chemical_symbols(["C", "O", "S"] * 2)  # flipped and doubled
+    _fake_out_dir(tmp_path, [("random-1-0", "random", centred)])
+    exp = tmp_path / "exp.cif"
+    write(exp, simple)
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.best_rank is None and entry.flip_match_rank is None
+
+
+def test_validate_run_ignores_cifs_not_listed_in_csv(tmp_path):
+    # A stale ranked CIF from an earlier run in the same directory must not be compared.
+    target = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-2-0", "random", _benzene(2, 2, 6))])
+    write(tmp_path / "002_voronoi-14-0.cif", target)
+    exp = tmp_path / "exp.cif"
+    write(exp, target)
+    report = validate_run(tmp_path, [exp], flip=None)
+    assert report.n_compared == 1
+    assert [c.id for c in report.entries[0].comparisons] == ["random-2-0"]
+    assert report.entries[0].best_rank is None
+
+
+def test_validate_run_duplicate_csv_rows_compared_once(tmp_path, caplog):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    csv_path = tmp_path / "candidates.csv"
+    rows = csv_path.read_text().splitlines()
+    csv_path.write_text("\n".join([*rows, rows[1]]) + "\n")  # the same rank and id twice
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    with caplog.at_level("WARNING", logger="molecular_modeling.csp.validate"):
+        report = validate_run(tmp_path, [exp], flip=None)
+    assert report.n_compared == 1
+    assert "duplicate" in caplog.text
+
+
+def test_validate_run_reports_missing_listed_cif(tmp_path):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a), ("random-14-1", "random", a)])
+    (tmp_path / "002_random-14-1.cif").unlink()
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    comps = validate_run(tmp_path, [exp], flip=None).entries[0].comparisons
+    assert [c.rank for c in comps] == [1, 2]
+    assert comps[1].note is not None and "missing" in comps[1].note
+
+
+def _cno_lattice() -> Atoms:
+    """3x3x3 repeat of the simple cubic CNO crystal (27 molecules, 60 Å cell)."""
+    ref = _cno_crystal(False).repeat((3, 3, 3))
+    ref.set_array("mol_id", np.repeat(np.arange(27), 3))
+    return ref
+
+
+def _cno_one_extra() -> Atoms:
+    """The 27-molecule lattice plus one extra molecule near the edge of the reference cluster."""
+    ref = _cno_lattice()
+    extra = Atoms("CNO", positions=CNO_MOL.positions + 5.0 + [27.0, 0, 0])
+    out = ref + extra
+    out.wrap()
+    out.set_array("mol_id", np.repeat(np.arange(28), 3))
+    return out
+
+
+def _cno_isolated_cluster() -> Atoms:
+    """Only the 15 molecules nearest to molecule 0 of the reference, in a 60 Å cell (5/9 of its density)."""
+    ref = _cno_lattice()
+    c = validate_mod._prepare(np.array(ref.get_cell()), split_molecules(ref))
+    idx, shift = validate_mod._cluster(c, 0, 15)
+    pos = np.vstack([c.mols[k].positions + s for k, s in zip(idx, shift)]) + 20.0
+    out = Atoms("CNO" * 15, positions=pos, cell=np.eye(3) * 60.0, pbc=True)
+    out.set_array("mol_id", np.repeat(np.arange(15), 3))
+    return out
+
+
+@pytest.mark.parametrize("make", [_cno_one_extra, _cno_isolated_cluster], ids=["edge_extra", "lower_density"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_rejects_partial_and_density_mismatch(make, reverse):
+    a, b = _cno_lattice(), make()
+    if reverse:
+        a, b = b, a
+    rmsd, n = rmsd_cluster(a, b)
+    assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+@pytest.mark.parametrize("make", [_cno_one_extra, _cno_isolated_cluster], ids=["edge_extra", "lower_density"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_validate_run_rejects_partial_and_density_mismatch(tmp_path, make, reverse):
+    exp_atoms, cand = _cno_lattice(), make()
+    if reverse:
+        exp_atoms, cand = cand, exp_atoms
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+    if make is _cno_isolated_cluster:
+        note = entry.comparisons[0].note
+        assert note is not None and "densit" in note
+
+
+def test_rmsd_cluster_same_lattice_in_supercell_still_matches():
+    rmsd, n = rmsd_cluster(_cno_lattice(), _cno_crystal(False))
+    assert rmsd < 1e-6 and n == 15
+
+
+def _extra_not_first() -> Atoms:
+    """``_cno_one_extra`` reordered so that molecule 0 is a lattice molecule far from the extra one."""
+    b = _cno_one_extra()
+    return b[np.r_[78:81, 0:78, 81:84]]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rmsd_cluster_extra_molecule_found_whatever_the_order(reverse):
+    a, b = _cno_lattice(), _extra_not_first()
+    if reverse:
+        a, b = b, a
+    rmsd, n = rmsd_cluster(a, b)
+    assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_validate_run_extra_molecule_found_whatever_the_order(tmp_path, reverse):
+    exp_atoms, cand = _cno_lattice(), _extra_not_first()
+    if reverse:
+        exp_atoms, cand = cand, exp_atoms
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank is None and not entry.success
+
+
+def test_validate_run_flip_path_finds_reordered_extra_molecule(tmp_path):
+    simple = _cno_lattice()
+    simple.set_chemical_symbols(["C", "S", "O"] * 27)
+    cand = _extra_not_first()
+    cand.set_chemical_symbols(["C", "O", "S"] * 28)  # flipped, with one extra molecule
+    _fake_out_dir(tmp_path, [("random-1-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, simple)
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert entry.best_rank is None and entry.flip_match_rank is None
+
+
+def test_rmsd_cluster_independent_of_molecule_order_with_extra_molecule():
+    a, b = _cno_lattice(), _cno_one_extra()
+    rng = np.random.default_rng(7)
+    for _ in range(3):
+        order = np.concatenate([np.arange(3 * m, 3 * m + 3) for m in rng.permutation(28)])
+        rmsd, n = rmsd_cluster(a, b[order])
+        assert not (rmsd < 0.8 and n == 15), (rmsd, n)
+
+
+def _two_conformer_crystal() -> Atoms:
+    """Z' = 2 crystal of two different C8 chain conformers (same composition, different shapes)."""
+    rng = np.random.default_rng(8)
+    pos = []
+    for centre in ([10, 10, 10], [28, 27, 26]):
+        d = rng.normal(size=(8, 3))
+        p = np.cumsum(d / np.linalg.norm(d, axis=1)[:, None] * 1.45, axis=0)
+        pos.append(p - p.mean(axis=0) + centre)
+    a = Atoms("C16", positions=np.vstack(pos), cell=np.eye(3) * 40, pbc=True)
+    a.set_array("mol_id", np.repeat([0, 1], 8))
+    return a
+
+
+def test_rmsd_cluster_two_conformers_identical_crystal():
+    a = _two_conformer_crystal()
+    b = a[np.r_[8:16, 0:8]]
+    for x, y in ((a, a), (a, b), (b, a)):
+        rmsd, n = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n == 15, (rmsd, n)
+
+
+def test_validate_run_two_conformers_identical_crystal(tmp_path):
+    a = _two_conformer_crystal()
+    _fake_out_dir(tmp_path, [("random-1-0", "random", a[np.r_[8:16, 0:8]])])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1 and entry.best_rmsd is not None and entry.best_rmsd < 1e-3
+
+
+def test_rmsd_cluster_nearly_identical_conformers_share_reference():
+    # the second molecule differs from the first by ~0.25 Å RMSD, just inside the conformer tolerance, so the
+    # overlays are composed through the first molecule; identical crystals must still match exactly
+    a = _two_conformer_crystal()
+    pos = a.get_positions()
+    first = pos[:8] - pos[:8].mean(axis=0)
+    second = first.copy()
+    second[3] += [0.0, 0.0, 0.7]  # 0.7/sqrt(8) ≈ 0.25 Å RMSD
+    pos[8:] = second - second.mean(axis=0) + pos[8:].mean(axis=0)
+    a.set_positions(pos)
+    c = validate_mod._prepare(np.array(a.get_cell()), split_molecules(a))
+    assert validate_mod._reference(c, 1) == 0
+    b = a[np.r_[8:16, 0:8]]
+    for x, y in ((a, a), (a, b), (b, a)):
+        rmsd, n = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n == 15, (rmsd, n)
+
+
+def _chain(n: int, seed: int) -> np.ndarray:
+    """Random C_n chain (1.45 Å bonds), centred on the origin."""
+    d = np.random.default_rng(seed).normal(size=(n, 3))
+    p = np.cumsum(d / np.linalg.norm(d, axis=1)[:, None] * 1.45, axis=0)
+    return p - p.mean(axis=0)
+
+
+def _conformer_at(first: np.ndarray, target: float) -> np.ndarray:
+    """A second conformer of ``first`` whose heavy-atom RMSD to it (after superposition) is ``target`` Å."""
+    from molecular_modeling.csp.molecule import match_and_align
+
+    n = len(first)
+    shift = np.random.default_rng(99).normal(size=(n, 3))
+    sym = "C" * n
+
+    def rmsd(t: float) -> float:
+        return match_and_align(Atoms(sym, positions=first + t * shift), Atoms(sym, positions=first)).rmsd
+
+    lo, hi = 0.0, 1.0
+    while rmsd(hi) < target:
+        hi *= 2
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if rmsd(mid) < target else (lo, mid)
+    out = first + (lo + hi) / 2 * shift
+    assert abs(rmsd((lo + hi) / 2) - target) < 1e-6
+    return out - out.mean(axis=0)
+
+
+def _conformer_pair_crystal(n: int, target: float) -> Atoms:
+    first = _chain(n, 8)
+    second = _conformer_at(first, target)
+    pos = np.vstack([first + [10, 10, 10], second + [28, 27, 26]])
+    a = Atoms("C" * (2 * n), positions=pos, cell=np.eye(3) * 40, pbc=True)
+    a.set_array("mol_id", np.repeat([0, 1], n))
+    return a
+
+
+@pytest.mark.parametrize("n", [8, 10])
+@pytest.mark.parametrize("target", [0.2999, 0.3001])
+def test_rmsd_cluster_conformer_tolerance_boundary(n, target):
+    a = _conformer_pair_crystal(n, target)
+    c = validate_mod._prepare(np.array(a.get_cell()), split_molecules(a))
+    assert len(c.mols) == 2 and len(validate_mod._centres(c)) == 2
+    # just inside the tolerance the two conformers share a reference, just outside each has its own
+    assert validate_mod._reference(c, 1) == (0 if target < validate_mod.CONFORMER_TOL else 1)
+    b = a[np.r_[n : 2 * n, 0:n]]
+    for x, y in ((a, a), (a, b), (b, a), (b, b)):
+        rmsd, n_matched = rmsd_cluster(x, y)
+        assert rmsd < 1e-6 and n_matched == 15, (rmsd, n_matched)
+
+
+@pytest.mark.parametrize("target", [0.2999, 0.3001])
+def test_validate_run_conformer_tolerance_boundary(tmp_path, target):
+    a = _conformer_pair_crystal(10, target)
+    _fake_out_dir(tmp_path, [("random-1-0", "random", a[np.r_[10:20, 0:10]])])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1 and entry.best_rmsd is not None and entry.best_rmsd < 1e-3
+
+
+def _without_h(atoms: Atoms) -> Atoms:
+    return atoms[[s != "H" for s in atoms.get_chemical_symbols()]]
+
+
+@pytest.mark.parametrize("h_side", ["a", "b"])
+def test_rmsd_cluster_hydrogens_on_one_side_only(h_side):
+    # experimental CIFs often have no H; the comparison uses heavy atoms, so H must not matter
+    full = _benzene(14, 4, 5)
+    a, b = (full, _without_h(full)) if h_side == "a" else (_without_h(full), full)
+    rmsd, n = rmsd_cluster(a, b)
+    assert rmsd < 1e-3 and n == 15
+
+
+@pytest.mark.parametrize("exp_has_h", [False, True])
+def test_validate_run_hydrogens_on_one_side_only(tmp_path, exp_has_h):
+    full = _benzene(14, 4, 5)
+    cand, exp_atoms = (_without_h(full), full) if exp_has_h else (full, _without_h(full))
+    _fake_out_dir(tmp_path, [("random-14-0", "random", cand)])
+    exp = tmp_path / "exp.cif"
+    write(exp, exp_atoms)
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.comparisons[0].note is None
+    assert entry.best_rank == 1 and entry.comparisons[0].n_matched == 15
+
+
+# OSS_MOL with a hydrogen on N
+OSSH_MOL = OSS_MOL + Atoms("H", positions=[[-0.4, 0.2, 2.3]])
+
+
+def test_validate_run_flip_path_with_hydrogen_free_experiment(tmp_path):
+    with_h = generate_random(OSSH_MOL, 2, 2, n=1, rng=np.random.default_rng(4))[0].atoms
+    flipped = _swap_first(with_h, "O", "S")
+    _fake_out_dir(tmp_path, [("random-2-0", "random", flipped), ("random-2-1", "random", with_h)])
+    exp = tmp_path / "exp.cif"
+    write(exp, _without_h(with_h))
+    entry = validate_run(tmp_path, [exp]).entries[0]
+    assert all(c.note is None for c in entry.comparisons + entry.flip_comparisons)
+    assert entry.best_rank == 2 and entry.flip_match_rank == 1
+
+
+def test_cli_fails_clearly_for_missing_out_dir(tmp_path, capsys):
+    exp = tmp_path / "exp.cif"
+    write(exp, _benzene(14, 4, 5))
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path / "no_such_dir"), str(exp)])
+    assert info.value.code != 0
+    assert "no_such_dir" in capsys.readouterr().err
+
+
+def test_cli_fails_clearly_for_out_dir_without_candidates(tmp_path, capsys):
+    out = tmp_path / "empty"
+    out.mkdir()
+    exp = tmp_path / "exp.cif"
+    write(exp, _benzene(14, 4, 5))
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(out), str(exp)])
+    assert info.value.code != 0
+    assert "candidates.csv" in capsys.readouterr().err
+    assert not (out / "validation.md").exists()
+
+
+def test_validate_run_raises_for_missing_out_dir(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no_such_dir"):
+        validate_run(tmp_path / "no_such_dir", [tmp_path / "exp.cif"])
+
+
+@pytest.mark.parametrize("missing", ["pymatgen", "spglib"])
+def test_validation_without_csp_extra_reports_install_hint(tmp_path, monkeypatch, capsys, missing):
+    import importlib
+
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    real = importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == missing:
+            raise ModuleNotFoundError(f"No module named '{missing}'")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    with pytest.raises(ImportError, match=rf"{missing}.*pip install -e"):
+        validate_run(tmp_path, [exp])
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp)])
+    assert info.value.code != 0
+    err = capsys.readouterr().err
+    assert missing in err and 'pip install -e ".[csp]"' in err
+    assert not (tmp_path / "validation.md").exists()
+
+
+def _out_and_exp(tmp_path):
+    a = _benzene(14, 4, 5)
+    _fake_out_dir(tmp_path, [("random-14-0", "random", a)])
+    exp = tmp_path / "exp.cif"
+    write(exp, a)
+    return a, exp
+
+
+@pytest.mark.parametrize("content", ["this is not a cif\nfoo bar\n", ""], ids=["garbage", "empty"])
+def test_unreadable_experimental_cif_named_in_error(tmp_path, capsys, content):
+    _out_and_exp(tmp_path)
+    bad = tmp_path / "bad_exp.cif"
+    bad.write_text(content)
+    with pytest.raises(ValueError, match="bad_exp.cif"):
+        validate_run(tmp_path, [bad], flip=None)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(bad)])
+    assert info.value.code == 2 and "bad_exp.cif" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("occ", ["0.5000", "1.5000"])
+def test_experimental_cif_with_wrong_occupancy_rejected_with_experimental_advice(tmp_path, occ):
+    _a, exp = _out_and_exp(tmp_path)
+    text = exp.read_text()
+    assert "  1.0000\n" in text
+    exp.write_text(text.replace("  1.0000\n", f"  {occ}\n", 1))
+    with pytest.raises(ValueError) as info:
+        validate_run(tmp_path, [exp], flip=None)
+    msg = str(info.value)
+    assert "exp.cif" in msg and "occupancy" in msg
+    assert "seed" not in msg and "experimental" in msg
+
+
+def test_seed_cif_with_occupancy_above_one_rejected(tmp_path):
+    from molecular_modeling.csp.gen_seed import read_seed_molecules
+
+    _a, exp = _out_and_exp(tmp_path)
+    exp.write_text(exp.read_text().replace("  1.0000\n", "  1.5000\n", 1))
+    with pytest.raises(ValueError, match="occupancy"):
+        read_seed_molecules(exp)
+
+
+def test_candidates_csv_with_bom_crlf_and_float_rank_is_read(tmp_path):
+    a, exp = _out_and_exp(tmp_path)
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()
+    rows[1] = rows[1].replace("1,", "1.0,", 1)
+    (tmp_path / "candidates.csv").write_bytes(("﻿" + "\r\n".join(rows) + "\r\n").encode("utf-8"))
+    entry = validate_run(tmp_path, [exp], flip=None).entries[0]
+    assert entry.best_rank == 1
+
+
+def test_candidates_csv_with_bad_rank_gives_clear_error(tmp_path):
+    _a, exp = _out_and_exp(tmp_path)
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()
+    rows[1] = "first" + rows[1][1:]
+    (tmp_path / "candidates.csv").write_text("\n".join(rows) + "\n")
+    with pytest.raises(ValueError, match="candidates.csv.*rank"):
+        validate_run(tmp_path, [exp], flip=None)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--n-top", "0"],
+        ["--rmsd-cut", "0"],
+        ["--rmsd-cut", "nan"],
+        ["--rmsd-cut", "-1"],
+        ["--flip", "O,O"],
+        ["--flip", "O,Qq"],
+        ["--flip", "O"],
+        ["--flip", "O,S", "--no-flip"],
+    ],
+)
+def test_cli_rejects_bad_options(tmp_path, capsys, args):
+    _a, exp = _out_and_exp(tmp_path)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp), *args])
+    assert info.value.code == 2
+
+
+def test_cli_flip_elements_case_normalised(tmp_path, monkeypatch):
+    _a, exp = _out_and_exp(tmp_path)
+    seen = {}
+
+    def fake_validate(out_dir, experimental, n_top, rmsd_cut, flip):
+        seen["flip"] = flip
+        return ValidationReport(success=False, entries=[])
+
+    monkeypatch.setattr(validate_mod, "_validate_locked", fake_validate)
+    validate_mod.main([str(tmp_path), str(exp), "--flip", "o, s"])
+    assert seen["flip"] == ("O", "S")
+
+
+def test_experiments_with_the_same_file_name_are_labelled_by_path(tmp_path):
+    a, exp = _out_and_exp(tmp_path)
+    (tmp_path / "other").mkdir()
+    exp2 = tmp_path / "other" / "exp.cif"
+    write(exp2, a)
+    report = validate_run(tmp_path, [exp, exp2], flip=None)
+    labels = [e.experimental for e in report.entries]
+    assert len(set(labels)) == 2 and all(lab.endswith("exp.cif") for lab in labels)
+
+
+def test_validation_refuses_out_dir_of_running_job(tmp_path):
+    _a, exp = _out_and_exp(tmp_path)
+    (tmp_path / ".csp_run.lock").write_text("1\n")
+    with pytest.raises(FileExistsError, match="in use by a CSP run"):
+        validate_run(tmp_path, [exp], flip=None)
+
+
+def _deny_lock(monkeypatch):
+    import os
+
+    real_open = os.open
+
+    def deny(path, flags, *args):
+        if str(path).endswith(".csp_run.lock"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", deny)
+
+
+def test_validation_fails_closed_when_lock_cannot_be_created(tmp_path, monkeypatch, capsys):
+    _a, exp = _out_and_exp(tmp_path)
+    _deny_lock(monkeypatch)
+    with pytest.raises(OSError, match="lock file"):
+        validate_run(tmp_path, [exp], flip=None)
+    with pytest.raises(SystemExit) as info:
+        validate_mod.main([str(tmp_path), str(exp), "--no-flip"])
+    assert info.value.code == 2 and "lock file" in capsys.readouterr().err
+    assert not (tmp_path / "validation.md").exists()
+
+
+def test_validation_rejects_mpi_runs(tmp_path, monkeypatch):
+    import ase.parallel
+
+    _a, exp = _out_and_exp(tmp_path)
+    monkeypatch.setattr(ase.parallel.world, "size", 2)
+    with pytest.raises(ValueError, match="MPI"):
+        validate_run(tmp_path, [exp], flip=None)
+    assert not (tmp_path / ".csp_run.lock").exists()

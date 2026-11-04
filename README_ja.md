@@ -20,6 +20,7 @@ ASE (Atomic Simulation Environment) と Voronoi セル最適化に基づく分�
 - **構造ファイル出力**: Quantum ESPRESSO (`qe.in`)、VASP (`POSCAR`, `INCAR`, `KPOINTS`)、CIF 形式に対応
 - **3D 可視化**: matplotlib による Voronoi セル重ね合わせ画像を生成
 - **GUI**: tkinter ベースの対話型分子モデリングインターフェース（ASE-GUI 拡張）
+- **結晶構造予測（CSP）**: 孤立分子 1 個から分子結晶の候補を生成（PyXtal によるランダム配置と Voronoi による向き決め、任意で置換元結晶）し、GFN2-xTB で緩和してエネルギー順に並べ、実験 CIF と比較
 
 ## セットアップ
 
@@ -36,6 +37,12 @@ pip install -e .
 
 ```bash
 pip install -e ".[dev]"
+```
+
+結晶構造予測を使う場合（PyXtal、tblite、pymatgen が入ります）:
+
+```bash
+pip install -e ".[csp]"
 ```
 
 ## 使い方
@@ -59,6 +66,15 @@ python run.py
 ```bash
 python molecular_modeling_gui.py
 ```
+
+### CSP — 結晶構造予測
+
+```bash
+molecular-modeling-csp input/csp.toml                     # 予測（csp_out/ に出力）
+python -m molecular_modeling.csp.validate csp_out exp.cif  # 実験 CIF と比較
+```
+
+`input/csp.toml` は小さなベンゼンの例です。設定の全項目と出力の読み方は、ドキュメントの CSP ガイドを参照してください。
 
 ## ドキュメント
 
@@ -91,8 +107,10 @@ molecular_modeling/              ← リポジトリルート
 │   ├── optimize_voronoi_overlap.py
 │   ├── render_voronoi_overlays.py
 │   ├── write_structure.py
+│   ├── molecule_unwrap.py       ← セル境界で切れた分子をつなぎ直す
+│   ├── csp/                     ← 結晶構造予測
 │   └── gui/                     ← GUI モジュール
-├── input/                       ← 実行時設定 (input.toml)
+├── input/                       ← 実行時設定 (input.toml, csp.toml)
 ├── data/                        ← 分子辞書 (*.toml)
 ├── tests/                       ← テストスイート
 ├── docs/                        ← ドキュメント (Sphinx / PDF)

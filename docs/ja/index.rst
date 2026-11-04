@@ -16,6 +16,7 @@ Molecular Modeling Toolkit ドキュメント
    quickstart
    tutorial
    gui_guide
+   csp_guide
    cli_reference
    toml_reference
 

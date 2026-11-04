@@ -20,6 +20,12 @@
 - **manifold3d** (3.2.1) — マニフォールド再構成
 - **Pillow** (11.3.0) — 画像処理
 
+結晶構造予測（``csp`` extra。:doc:`csp_guide` を参照）で使う任意の依存ライブラリ:
+
+- **PyXtal** (>= 1.1.5) — 対称性をもつ分子結晶のランダム生成
+- **tblite** (>= 0.8.0) — 緩和に使う GFN2-xTB のエネルギーと力
+- **pymatgen** (>= 2025.1.9) — CIF の読み書き。**spglib**\ （空間群の判定）も一緒に入る
+
 インストール手順
 ----------------
 
@@ -54,6 +60,12 @@ uv を使用する場合:
 .. code-block:: bash
 
    uv sync
+
+結晶構造予測を使う場合は ``csp`` extra を加えます:
+
+.. code-block:: bash
+
+   pip install -e ".[csp]"     # uv なら: uv sync --extra csp
 
 4. 動作確認
 ~~~~~~~~~~~

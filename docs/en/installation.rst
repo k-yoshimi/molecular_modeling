@@ -20,6 +20,12 @@ Key dependencies (managed in ``pyproject.toml``):
 - **manifold3d** (3.2.1) — Manifold reconstruction
 - **Pillow** (11.3.0) — Image processing
 
+Optional dependencies for crystal structure prediction (the ``csp`` extra, see :doc:`csp_guide`):
+
+- **PyXtal** (>= 1.1.5) — Random symmetric molecular crystals
+- **tblite** (>= 0.8.0) — GFN2-xTB energies and forces for relaxation
+- **pymatgen** (>= 2025.1.9) — CIF reading and writing; brings in **spglib** (space-group detection)
+
 Installation Steps
 ------------------
 
@@ -54,6 +60,12 @@ Using uv:
 .. code-block:: bash
 
    uv sync
+
+For crystal structure prediction, add the ``csp`` extra:
+
+.. code-block:: bash
+
+   pip install -e ".[csp]"     # or: uv sync --extra csp
 
 4. Verify installation
 ~~~~~~~~~~~~~~~~~~~~~~

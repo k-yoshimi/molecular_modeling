@@ -87,6 +87,75 @@ Displays a CIF file in the GUI.
 **Note**: If ASE's CIF parser fails, the tool retries after stripping
 ``_citation*`` tags as a fallback.
 
+molecular-modeling-csp — Crystal Structure Prediction
+-----------------------------------------------------
+
+Generates, relaxes and ranks candidate molecular crystals. Needs the ``csp`` extra
+(``pip install -e ".[csp]"``); see :doc:`csp_guide` for the settings and the output.
+
+.. code-block:: bash
+
+   molecular-modeling-csp [config]
+
+**Arguments**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Argument
+     - Description
+   * - ``config`` (optional)
+     - CSP settings file (TOML). Default: ``input/csp.toml``
+
+**Output** (in ``out_dir``, default ``csp_out/``): ``candidates.csv`` (ranking), ``NNN_<id>.cif`` for
+the top 50 candidates, and ``run.log``. If a package of the ``csp`` extra is missing, the command stops
+before generating anything and says so. Input errors (bad settings, missing or unreadable files, an
+``out_dir`` in use by another run) are printed as ``error: <message>`` with exit code 2; Ctrl-C exits
+with code 130 and leaves no results. See :doc:`csp_guide`, "Reusing out_dir".
+
+python -m molecular_modeling.csp.validate — Compare with Experiment
+-------------------------------------------------------------------
+
+Compares the candidate CIFs of a CSP run with experimental CIFs (cluster RMSD of 15 molecules).
+Also needs the ``csp`` extra (pymatgen, spglib); without it the command stops with the install hint.
+See :doc:`csp_guide`, "Validation against experiment", for how to read the report.
+
+.. code-block:: bash
+
+   python -m molecular_modeling.csp.validate <out_dir> <exp.cif> [<exp.cif> ...] [options]
+
+**Arguments**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Argument
+     - Description
+   * - ``out_dir``
+     - Output directory of ``molecular-modeling-csp`` (``candidates.csv`` and CIFs). The command
+       stops with an error if it does not exist or holds no candidates
+   * - ``exp.cif``
+     - One or more experimental CIF files (disorder-free; hydrogens may be missing)
+   * - ``--n-top N``
+     - A match within rank ``N`` counts as success (default 20; at least 1)
+   * - ``--rmsd-cut X``
+     - RMSD\ :sub:`15` threshold in Å for a match (default 0.8; a positive number)
+   * - ``--flip A,B``
+     - Two different elements treated as one for the separate flip-match check (default ``O,S``; the
+       check is on by default; case does not matter)
+   * - ``--no-flip``
+     - Skip the flip-match check (useful for molecules without O or S); cannot be combined with ``--flip``
+
+Input errors (bad options, unreadable CIFs, a missing or busy output directory, results of a run that
+did not finish, a lock file that cannot be created, more than one MPI process) end with a usage
+message and exit code 2. Validation holds the output directory's lock file while it runs, so a CSP run
+cannot start in that directory meanwhile; it therefore needs write access to the output directory and
+never reads it without the lock.
+
+The report is printed and written to ``<out_dir>/validation.md``.
+
 Running Tests
 -------------
 

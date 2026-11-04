@@ -125,6 +125,25 @@
      - ``python run.py``。
        詳細は :doc:`cli_reference` を参照
 
+結晶構造を予測したい
+--------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - やりたいこと
+     - 操作
+   * - 分子 1 個から結晶構造の候補を予測したい
+     - ``molecular-modeling-csp input/csp.toml``\ （``pip install -e ".[csp]"`` が必要）。
+       :doc:`csp_guide` を参照
+   * - 既知の結晶から予測用の分子ファイルを作りたい
+     - GUI: 分子 1 個を選び、**MoleculeTools → Save Selection as Molecule...**。
+       :doc:`csp_guide` を参照
+   * - 予測した候補を実験 CIF と比べたい
+     - ``python -m molecular_modeling.csp.validate csp_out exp.cif``。
+       :doc:`csp_guide` と :doc:`cli_reference` を参照
+
 構造をファイルに出力したい
 --------------------------
 
