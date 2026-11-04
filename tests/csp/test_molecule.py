@@ -174,3 +174,21 @@ def test_load_molecule_extended_xyz_reads_positions_not_other_columns(tmp_path):
     mol = load_molecule(p)
     assert mol.get_chemical_symbols() == ["C", "O"]
     np.testing.assert_allclose(mol.positions, [[-0.6, 0, 0], [0.6, 0, 0]], atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "comment", ["", "benzene from a lab notebook, conformer 1", "Lattice optimization", "stress=0"]
+)
+def test_load_molecule_plain_xyz_with_any_comment_line(tmp_path, comment):
+    p = tmp_path / "co.xyz"
+    p.write_text(f"2\n{comment}\nC 0 0 0\nO 1.2 0 0\n")
+    mol = load_molecule(p)
+    assert mol.get_chemical_symbols() == ["C", "O"]
+    np.testing.assert_allclose(mol.positions, [[-0.6, 0, 0], [0.6, 0, 0]], atol=1e-12)
+
+
+def test_load_molecule_broken_extended_xyz_is_not_read_as_plain(tmp_path):
+    p = tmp_path / "bad_ext.xyz"
+    p.write_text("2\nProperties=species:S:1:pos:R:3:forces:R:3\nC 0 0 0\nO 1.2 0 0\n")  # forces missing
+    with pytest.raises(ValueError, match="bad_ext.xyz"):
+        load_molecule(p)

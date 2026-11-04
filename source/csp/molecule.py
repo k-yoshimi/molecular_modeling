@@ -79,9 +79,18 @@ def _toml_atoms(path: Path) -> Atoms:
 
 
 def _xyz_atoms(path: Path) -> Atoms:
+    # a Properties= header declares the columns (positions need not come first): use the extended reader,
+    # with no fallback if it fails. Without one the comment line is free text (e.g. "Lattice optimization"
+    # or "stress=0", which the extended reader would try to parse), so use the plain reader.
     try:
-        # extxyz reads plain XYZ too and follows a Properties= header (pos may not be the first columns)
-        frames = read(str(path), index=":", format="extxyz")
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            fh.readline()
+            comment = fh.readline()
+    except OSError as exc:
+        raise ValueError(f"{path}: cannot be read: {exc}") from None
+    fmt = "extxyz" if "properties=" in comment.lower() else "xyz"
+    try:
+        frames = read(str(path), index=":", format=fmt)
     except Exception as exc:  # ASE raises many kinds of errors for malformed files
         raise ValueError(f"{path}: cannot be read as XYZ: {type(exc).__name__}: {exc}") from None
     frames = frames if isinstance(frames, list) else [frames]
