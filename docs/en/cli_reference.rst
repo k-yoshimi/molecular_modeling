@@ -110,7 +110,9 @@ Generates, relaxes and ranks candidate molecular crystals. Needs the ``csp`` ext
 
 **Output** (in ``out_dir``, default ``csp_out/``): ``candidates.csv`` (ranking), ``NNN_<id>.cif`` for
 the top 50 candidates, and ``run.log``. If a package of the ``csp`` extra is missing, the command stops
-before generating anything and says so.
+before generating anything and says so. Input errors (bad settings, missing or unreadable files, an
+``out_dir`` in use by another run) are printed as ``error: <message>`` with exit code 2; Ctrl-C exits
+with code 130 and leaves no results. See :doc:`csp_guide`, "Reusing out_dir".
 
 python -m molecular_modeling.csp.validate — Compare with Experiment
 -------------------------------------------------------------------
@@ -137,14 +139,17 @@ See :doc:`csp_guide`, "Validation against experiment", for how to read the repor
    * - ``exp.cif``
      - One or more experimental CIF files (disorder-free; hydrogens may be missing)
    * - ``--n-top N``
-     - A match within rank ``N`` counts as success (default 20)
+     - A match within rank ``N`` counts as success (default 20; at least 1)
    * - ``--rmsd-cut X``
-     - RMSD\ :sub:`15` threshold in Å for a match (default 0.8)
+     - RMSD\ :sub:`15` threshold in Å for a match (default 0.8; a positive number)
    * - ``--flip A,B``
-     - Two elements treated as one for the separate flip-match check (default ``O,S``; the check is
-       on by default)
+     - Two different elements treated as one for the separate flip-match check (default ``O,S``; the
+       check is on by default; case does not matter)
    * - ``--no-flip``
-     - Skip the flip-match check (useful for molecules without O or S)
+     - Skip the flip-match check (useful for molecules without O or S); cannot be combined with ``--flip``
+
+Input errors (bad options, unreadable CIFs, a missing or busy output directory) end with a usage
+message and exit code 2.
 
 The report is printed and written to ``<out_dir>/validation.md``.
 

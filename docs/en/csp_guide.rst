@@ -36,7 +36,10 @@ Workflow
    python -m molecular_modeling.csp.validate csp_out exp1.cif exp2.cif   # compare with experiment
 
 ``exp1.cif`` and ``exp2.cif`` stand for experimental CIF files that you supply; none ship with the
-repository.
+repository. Relative paths (the config file, and ``molecule``, ``cif`` and ``out_dir`` inside it) are
+resolved against the current directory, not against the directory of the config file. If the input is
+wrong (bad settings, a missing or unreadable file, a missing package), the command prints
+``error: <message>`` and exits with code 2.
 
 A run goes through these stages:
 
@@ -141,7 +144,10 @@ P2\ :sub:`1`\ 2\ :sub:`1`\ 2\ :sub:`1`, C2/c, P2\ :sub:`1`, Pbca). Unknown keys 
 and so are values outside their range: ``packing_range`` needs 0 < lower < upper ≤ 1, space groups
 (and the keys of ``z``) 1-230, ``n_candidates_per_sg``, ``n_prescreen_keep``, ``n_procs``, ``z_prime``
 and the values of ``z`` at least 1, ``relax_steps`` at least 0, and ``relax_fmax``, ``max_mol_rmsd``,
-``time_budget_min`` and ``overlap_factor`` positive. Warnings issued while reading the file (such as
+``time_budget_min`` and ``overlap_factor`` positive, and ``rng`` a non-negative integer. A value of the
+wrong type (for example ``space_groups = 14``) is an error naming the key, and so is an unknown key
+inside ``[[seed_structures]]``. Repeated space groups are removed, and ``z`` given for a space group
+that is not searched is ignored; both with a warning. Warnings issued while reading the file (such as
 keys that ``blind`` mode ignores) are printed and repeated at the top of ``run.log``.
 
 Minimal input files
@@ -187,7 +193,9 @@ coordinates (Å), for example (an O=C=O molecule):
 
 CSP reads only ``symbols``, ``positions`` and, when ``use_fractional = true``, ``lattice_vectors`` (to
 convert the positions); other keys such as ``center_of_mass`` are not used. An ``.xyz`` file holding one
-molecule works as well. The molecule is shifted so that its plain (unweighted) centroid is at the origin.
+molecule (exactly one frame) works as well. Symbols must be element symbols with the usual
+capitalisation (``C``, ``Cl``), and no two atoms may be closer than 0.5 Å; otherwise loading stops with a
+message naming the file. The molecule is shifted so that its plain (unweighted) centroid is at the origin.
 
 .. tip::
 
@@ -248,10 +256,13 @@ taken from a parent structure. In CSP the Voronoi cell is used to choose the **i
 - Find the orientation that maximises the IoU between the cell and **the molecule's own shape** (the
   convex hull of its atoms inflated by vdW radii). For the comparison only, the shape is scaled to the
   cell volume. Atomic coordinates are not scaled; the molecule is only rotated as a rigid body.
-- For elongated, nearly symmetric molecules the shape cannot tell head from tail, so both the best
-  orientation and that orientation turned by 180° about the axis normal to the molecular plane (through
-  the centroid) become candidates. That turn exchanges the two ends (for OS-2SMe, the O end and the S
-  end) and keeps the molecular plane. In ``candidates.csv`` both variants have origin ``voronoi``.
+- The shape cannot tell head from tail, so for every skeleton both the best orientation and that
+  orientation turned by 180° about the axis normal to the molecular plane (through the centroid) become
+  candidates. That turn exchanges the two ends (for OS-2SMe, the O end and the S end) and keeps the
+  molecular plane. If the turn maps every molecule onto itself (atoms of the same element within 0.1 Å,
+  as for benzene or naphthalene), the turned copy would be a duplicate and is left out; more skeletons
+  are then used, so the Voronoi share of ``n_candidates_per_sg`` is still filled. In ``candidates.csv``
+  both variants have origin ``voronoi``.
 - The space-group symmetry is kept: the orientation is chosen for the asymmetric-unit molecules, and the
   others follow from the symmetry operations.
 
@@ -295,12 +306,23 @@ Reading the output
       * - ``max_mol_rmsd``
         - Deformation of the molecules after relaxation (heavy-atom RMSD, Å)
       * - ``status``
-        - ``relaxed`` (accepted)
+        - ``relaxed``: the candidate passed the checks after relaxation (deformation, bonds). It does
+          not mean that the relaxation converged to ``relax_fmax``; it may have stopped at
+          ``relax_steps``
 
 ``001_<id>.cif`` ... ``050_<id>.cif``
-   Structures of the top 50. When ``out_dir`` is reused, ranked CIFs (``NNN_<id>.cif``) of the
-   earlier run are deleted first; ``candidates.csv`` and ``run.log`` are overwritten. Validation reads
-   only the CIFs listed in ``candidates.csv``.
+   Structures of the top 50. Validation reads only the CIFs listed in ``candidates.csv``.
+
+Reusing ``out_dir``
+   The settings, the molecule and the seed CIFs are checked first; if one of them is wrong the run stops
+   without touching ``out_dir``, so the results of an earlier run stay as they were. Once the run
+   starts, it deletes the earlier ``candidates.csv``, ranked CIFs (``NNN_<id>.cif``) and
+   ``validation.md`` and overwrites ``run.log``. The new results are written at the end, with
+   ``candidates.csv`` last. If the run stops with an error or is interrupted (Ctrl-C), the reason is
+   written to ``run.log`` and no results are left, so an earlier run can never be mistaken for the new
+   one. Do not start two runs with the same ``out_dir``: a running job holds the lock file
+   ``.csp_run.lock`` and a second run (or a validation of that directory) is refused. If a run was
+   killed so hard that the lock file stayed behind, delete it.
 
 ``run.log``
    How many candidates survived each stage and how long it took. Example from a real run with this
@@ -321,17 +343,18 @@ Reading the output
 
    The log (per-space-group lines omitted)::
 
-      generated 200 candidates {'random': 120, 'voronoi': 80} in 22.9 s
-      prescreen {'generated': 200, 'no_overlap': 85, 'packing': 85, 'kept': 85} in 3.3 s
-      time budget: 37.0 s per candidate, 62 s left; relaxing 0 of 83 remaining candidates
-      relax: 2 relaxed, 0 rejected_deformed, 0 failed in 73.9 s
+      generated 200 candidates {'random': 120, 'voronoi': 80} in 49.5 s
+      prescreen {'generated': 200, 'no_overlap': 86, 'packing': 86, 'kept': 86} in 3.8 s
+      time budget: 43.6 s per candidate, 21 s left; relaxing 0 of 84 remaining candidates
+      relax: 2 relaxed, 0 rejected_deformed, 0 failed in 87.3 s
       dedupe: 2 -> 2 in 0.0 s
 
    The counts follow from the input: 2 space groups × 100 = 200 candidates, 60 random and 40 Voronoi
-   per space group. 85 have no overlap and all of them are inside the packing range; because
-   ``n_prescreen_keep = 150`` is larger, all 85 are kept. The first round (``n_procs`` = 2 candidates,
-   74 s) already used most of the 3-minute budget, so the other 83 were not relaxed. Generation takes
-   23 s mostly because of the Voronoi orientation search. The relaxation counts depend on how long the
+   per space group. Benzene is unchanged by the 180° turn, so each of the 40 Voronoi candidates comes
+   from its own PyXtal skeleton. 86 have no overlap and all of them are inside the packing range; because
+   ``n_prescreen_keep = 150`` is larger, all 86 are kept. The first round (``n_procs`` = 2 candidates,
+   87 s) already used most of the 3-minute budget, so the other 84 were not relaxed. Generation takes
+   50 s mostly because of the Voronoi orientation search. The relaxation counts depend on how long the
    first round took, so they are observations of this timed run rather than fixed results; timings vary by
    a few seconds between runs. The log was reproduced with identical counts using Python 3.13.12,
    pyxtal 1.1.5, tblite 0.8.0, ase 3.29.0, numpy 2.5.4, scipy 1.18.1, pymatgen 2026.10.24 and
@@ -341,8 +364,10 @@ Reading the output
    ``max_mol_rmsd``, gained or lost a bond within itself, or became covalently bonded to another
    molecule or to its own periodic image; ``failed`` counts calculations that stopped with an error.
    A missing tblite does not show up here as every candidate failing: the run stops before generation
-   (see `Installation`_). A line starting with ``time budget:`` means the number of relaxations was
-   reduced to fit the time target.
+   (see `Installation`_). After the ``relax:`` line, one line per reason gives the number of failed or
+   rejected candidates and the first message, for example
+   ``2 failed: InputError: Too close interatomic distances``. A line starting with ``time budget:``
+   means the number of relaxations was reduced to fit the time target.
 
 Validation against experiment
 -----------------------------
@@ -353,14 +378,18 @@ Validation against experiment
    # optional: --n-top 20  --rmsd-cut 0.8  --flip O,S  (--no-flip skips the flip check)
 
 The report is printed and written to ``csp_out/validation.md``. Experimental CIFs must be
-**disorder-free** (full occupancy). They may lack hydrogen atoms, as many experimental CIFs do: only
+**disorder-free**: every site fully occupied (occupancy exactly 1) by one element; for a disordered
+structure, keep only the major component and save it as an ordered P1 CIF. They may lack hydrogen atoms, as many experimental CIFs do: only
 heavy atoms are compared, so a CIF with or without hydrogens matches the same candidates. If the output
-directory does not exist or holds neither ``candidates.csv`` nor candidate CIFs, the command stops with
-an error instead of writing a report.
+directory does not exist, holds neither ``candidates.csv`` nor candidate CIFs, or is still being
+written by a run, the command stops with an error instead of writing a report; so does an experimental
+CIF that cannot be read. Experimental structures are labelled by file name in the report, or by the path
+as given when two files have the same name.
 
 The flip check (``--flip O,S``) is **on by default**. For a molecule without O or S it has nothing to
-do and is reported as skipped; give ``--no-flip`` to leave it out, or ``--flip`` with two other elements
-(for example ``--flip Se,S``).
+do and is reported as skipped; give ``--no-flip`` to leave it out, or ``--flip`` with two other, different
+elements (for example ``--flip Se,S``; case does not matter). ``--flip`` and ``--no-flip`` cannot be
+combined, ``--n-top`` must be at least 1 and ``--rmsd-cut`` a positive number.
 
 The comparison follows the COMPACK approach: a cluster of 15 molecules is taken from the experimental
 structure and from each candidate and overlaid, giving RMSD\ :sub:`15`. RMSD\ :sub:`15` is over heavy
@@ -434,15 +463,15 @@ requested number of attempts, which can make generation take longer, and as long
 ``n_prescreen_keep`` candidates pass prescreening the relaxation time is unchanged:
 
 - Generation and prescreening: 6 space groups × 150 = 900 candidates. Per space group these are
-  90 random crystals and 60 Voronoi candidates; the Voronoi candidates come from 30 PyXtal skeletons,
-  each giving 2 orientations (the best one, and that one turned 180° about the plane normal to swap
-  head and tail). PyXtal builds 6 × (90 + 30) = 720 crystals (about 30 s), the Voronoi orientation
-  takes 6 × 30 skeletons × 0.7 s (about 2 min), LJ ranking about 20 s: about 3-4 min. Seed candidates,
-  if any, come on top.
+  90 random crystals and 60 Voronoi candidates. For naphthalene the 180° turn gives the same
+  orientation, so each PyXtal skeleton gives one Voronoi candidate and 60 skeletons are needed (a
+  molecule with different ends, such as OS-2SMe, gives two per skeleton and needs 30). PyXtal builds
+  6 × (90 + 60) = 900 crystals (about 36 s), the Voronoi orientation takes 6 × 60 skeletons × 0.7 s
+  (about 4 min), LJ ranking about 20 s: about 5-6 min. Seed candidates, if any, come on top.
 - One relaxation round (8 candidates at once): 60 steps × 10.9 s = about 11 min.
-- The remaining 54 - 4 = 50 min allows 4 rounds, about 44 min, i.e. 8 × 4 = **32 candidates**
+- The remaining 54 - 6 = 48 min allows 4 rounds, about 44 min, i.e. 8 × 4 = **32 candidates**
   (``n_prescreen_keep = 32``).
-- Total about 48 min, inside the target. **This total is calculated from the measured step times; a full
+- Total about 50 min, inside the target. **This total is calculated from the measured step times; a full
   default run was not timed end to end.** Convergence at 60 steps was not checked: ``relax_fmax`` may not be
   reached.
 - A larger molecule than naphthalene, such as OS-2SMe, takes longer per step and therefore gets fewer rounds
@@ -459,8 +488,8 @@ is compared with the slowest round so far; if it is shorter, the remaining candi
 Because the check is repeated before every round, later rounds that are slower than the first one stop
 the run early; a single round that is unexpectedly slow can still overrun the target by up to its own
 length.
-**The first round always runs** (about 11 min at the defaults for naphthalene, plus about 4 min of
-generation), so a ``time_budget_min`` under about 15 min is exceeded.
+**The first round always runs** (about 11 min at the defaults for naphthalene, plus about 6 min of
+generation), so a ``time_budget_min`` under about 17 min is exceeded.
 
 About the packing range
 ~~~~~~~~~~~~~~~~~~~~~~~
