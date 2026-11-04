@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import logging
 import math
 import time
@@ -35,12 +36,36 @@ EV_TO_KJMOL = 96.485
 SAFETY_MARGIN = 0.9
 
 
+#: Packages of the ``csp`` extra needed by every run; ``tblite`` is needed in addition for GFN methods.
+REQUIRED_PACKAGES = ("pyxtal", "pymatgen", "spglib")
+
+
+def check_dependencies(method: str = "GFN2-xTB") -> None:
+    """Raise ``ImportError`` naming every missing package of the ``csp`` extra needed for ``method``."""
+    names = list(REQUIRED_PACKAGES) + (["tblite"] if method.startswith("GFN") else [])
+    missing = []
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            missing.append(name)
+    if missing:
+        raise ImportError(
+            f"crystal structure prediction needs {', '.join(missing)}, which cannot be imported; "
+            'install the CSP dependencies with: pip install -e ".[csp]"'
+        )
+
+
 @contextmanager
-def _run_log(path: Path) -> Iterator[None]:
-    """Send ``molecular_modeling.csp`` log records to ``path`` and stderr for the duration of the run."""
+def _run_log(path: Path) -> Iterator[logging.Handler]:
+    """Send ``molecular_modeling.csp`` log records to ``path`` and stderr for the duration of the run.
+
+    Yields the file handler, so that records can be written to the file alone.
+    """
     root = logging.getLogger("molecular_modeling.csp")
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    handlers: list[logging.Handler] = [logging.FileHandler(path, mode="w", encoding="utf-8"), logging.StreamHandler()]
+    file_handler = logging.FileHandler(path, mode="w", encoding="utf-8")
+    handlers: list[logging.Handler] = [file_handler, logging.StreamHandler()]
     old_level = root.level
     for h in handlers:
         h.setFormatter(fmt)
@@ -48,7 +73,7 @@ def _run_log(path: Path) -> Iterator[None]:
         root.addHandler(h)
     root.setLevel(logging.INFO)
     try:
-        yield
+        yield file_handler
     finally:
         for h in handlers:
             root.removeHandler(h)
@@ -210,10 +235,19 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     -------
     list of Candidate
         Deduplicated relaxed candidates, lowest energy first.
+
+    Raises
+    ------
+    ImportError
+        Before anything is written, if a package of the ``csp`` extra needed for ``method`` is missing.
     """
+    check_dependencies(method)
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    with _run_log(out_dir / "run.log"):
+    with _run_log(out_dir / "run.log") as file_log:
+        # warnings from loading the config were logged before run.log existed: repeat them in the file only
+        for msg in cfg.config_warnings:
+            file_log.handle(logger.makeRecord(logger.name, logging.WARNING, __file__, 0, "config: %s", (msg,), None))
         t_start = time.perf_counter()
         rng = np.random.default_rng(cfg.rng)
         mol = load_molecule(cfg.molecule)

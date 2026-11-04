@@ -239,3 +239,43 @@ def test_run_csp_rejects_elements_without_lj_parameters(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="Si") as exc:
         run_csp(cfg)
     assert "H, C, N, O, F, S, Cl, Se, Br, I" in str(exc.value)
+
+
+def test_config_warnings_reach_run_log(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.config import load_csp_config
+
+    p = tmp_path / "csp.toml"
+    p.write_text(
+        f'molecule = "data/benzene.toml"\nmode = "blind"\nspace_groups = [2]\nz_prime = 2\nout_dir = "{tmp_path / "out"}"\n'
+    )
+    cfg = load_csp_config(p)  # warnings are issued here, before run.log exists
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    run_csp(cfg, method="EMT")
+    log = (tmp_path / "out" / "run.log").read_text()
+    assert "WARNING" in log and "space_groups" in log and "z_prime" in log
+
+
+def test_run_csp_reports_missing_dependency_before_generation(tmp_path, monkeypatch):
+    import importlib
+
+    from molecular_modeling.csp import pipeline
+
+    real = importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == "tblite":
+            raise ImportError("No module named 'tblite'")
+        return real(name, *args, **kwargs)
+
+    def no_generation(*args, **kwargs):
+        raise AssertionError("generation must not start")
+
+    monkeypatch.setattr(pipeline.importlib, "import_module", fake_import)
+    monkeypatch.setattr(pipeline, "_generate", no_generation)
+    cfg = replace(default_cfg(), out_dir=tmp_path / "out")
+    with pytest.raises(ImportError, match=r"tblite.*pip install -e \"\.\[csp\]\""):
+        run_csp(cfg)
+    # the test calculator does not need tblite
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    assert run_csp(cfg, method="EMT") == []
