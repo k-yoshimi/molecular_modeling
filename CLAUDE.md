@@ -13,6 +13,7 @@ All commands run from the repository root with the venv activated:
 ```bash
 # Setup
 source .venv/bin/activate
+pip install -e ".[dev]"       # install with dev dependencies
 
 # Run the full pipeline
 python run.py
@@ -22,9 +23,27 @@ pytest                                    # all tests
 pytest tests/test_voronoi_geom.py         # single file
 pytest tests/test_voronoi_geom.py::TestPolyhedron::test_volume  # single test
 pytest -m "not slow"                      # skip slow tests
+pytest --cov=molecular_modeling --cov-report=term-missing  # with coverage
+
+# Lint and format
+ruff check source/ tests/                # lint
+ruff check source/ tests/ --fix          # lint with auto-fix
+ruff format source/ tests/               # format
+mypy source/ --ignore-missing-imports    # type check (GUI excluded)
+
+# Pre-commit (runs ruff + mypy)
+pre-commit run --all-files
+
+# Build docs
+SPHINX_LANG=en make -C docs html
+SPHINX_LANG=ja make -C docs html
 
 # Launch GUI (ASE-GUI extension with tkinter dialogs)
 python molecular_modeling_gui.py
+
+# Crystal structure prediction (needs the csp extra: pip install -e ".[csp]")
+molecular-modeling-csp input/csp.toml                     # writes csp_out/
+python -m molecular_modeling.csp.validate csp_out exp.cif  # compare with an experimental CIF
 ```
 
 ## Architecture
@@ -45,7 +64,11 @@ The largest module. Contains `Polyhedron` class for convex polyhedra, Voronoi ce
 
 ### GUI (`source/gui/`)
 
-Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to the pipeline. `molecule_registry.py` manages the molecule database from `data/*.toml`.
+Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to the pipeline. `molecule_registry.py` manages the molecule database from `data/*.toml`. Excluded from mypy and coverage.
+
+### Crystal Structure Prediction (`source/csp/`)
+
+Separate pipeline that predicts lattice and packing together: generate candidates (`gen_random` PyXtal, `gen_voronoi`, `gen_seed` from a parent crystal) → `screen` → `relax` (GFN2-xTB via tblite, process pool, time budget) → `dedupe` → ranked `candidates.csv` + CIFs. `pipeline.py` orchestrates, `outdir.py` handles staging/lock, `validate.py` compares against experimental CIFs. Tests in `tests/csp/`.
 
 ### Input/Output
 
@@ -56,8 +79,10 @@ Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to 
 ## Key Conventions
 
 - Python 3.11+ required (configured for 3.13)
-- Pinned dependencies in `pyproject.toml` (setuptools backend)
 - Package mapping: `molecular_modeling` package maps to `source/` directory via `[tool.setuptools] package-dir`
-- pytest configured with `pythonpath = .` so imports resolve from the repository root
+- Import as `from molecular_modeling.<module> import ...` (resolves to `source/<module>.py`)
+- pytest configured with `pythonpath = .` in `pytest.ini` so imports resolve from the repository root
 - Shared test fixtures in `tests/conftest.py`: `simple_cell`, `simple_atoms`, `simple_polyhedron`
 - `system.info` dict on ASE `Atoms` objects carries metadata between pipeline stages
+- Ruff rules: E, F, W, I selected; E501 ignored; line length 120
+- Coverage excludes `source/gui/` and `source/main.py` (see `.coveragerc`)
