@@ -513,6 +513,14 @@ Save Selection as Molecule Dialog
    **Remove Selected**
 5. Click **OK** to save as ``data/<name>.toml``
 
+.. note::
+
+   If the molecule is split across the cell boundary, its atoms are rejoined into one
+   whole molecule before saving, so you can select the pieces on either side of the cell.
+   The selection should be exactly one whole molecule. If the selected atoms are not
+   connected, or are bonded to atoms you did not select, a **Not One Molecule** dialog
+   explains the problem and asks whether to save anyway.
+
 Global Element Substitution Dialog
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
