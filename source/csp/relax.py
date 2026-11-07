@@ -234,6 +234,9 @@ class WorkerPool:
             raise RelaxBackendError(
                 f"relaxation workers could not start ({self.method}): {type(exc).__name__}: {exc}"
             ) from exc
+        except BaseException:  # e.g. Ctrl-C while the models load: do not leave the workers running
+            ex.shutdown(wait=False, cancel_futures=True)
+            raise
         self._ex = ex
         dt = time.perf_counter() - t0
         logger.info("worker pool: %d workers ready in %.1f s (%s)", self.workers, dt, self.method)

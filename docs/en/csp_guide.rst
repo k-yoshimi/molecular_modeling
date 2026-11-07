@@ -484,8 +484,8 @@ within one method. The ``relax_method`` column of ``candidates.csv`` and the fir
 file).
 
 **Weights and network access.** On first use OrbMol-v2 downloads its weights (about 100 MB) into
-``~/.cache/cached_path`` (or the directory in ``CACHED_PATH_CACHE_ROOT``). Before an OrbMol-v2 run
-touches ``out_dir``, a separate process builds the model and evaluates one water molecule (at most
+``~/.cache/cached_path`` (or the directory in ``CACHED_PATH_CACHE_ROOT``). After the input has been read and
+before an OrbMol-v2 run touches ``out_dir``, a separate process builds the model and evaluates one water molecule (at most
 10 min). If that fails, for example on a computer without network access, the run stops with a
 one-line ``error:`` that names the cause and the cache directory. To prepare such a computer, run this
 on one with network access and copy the whole cache directory over:

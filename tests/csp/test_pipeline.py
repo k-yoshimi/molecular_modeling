@@ -844,3 +844,16 @@ def test_cli_reports_backend_error_in_one_line(tmp_path, monkeypatch, capsys):
     assert cli.main([str(p)]) == 2
     err = capsys.readouterr().err
     assert err.startswith("error: relaxation method OrbMol-v2") and "Traceback" not in err
+
+
+def test_bad_molecule_is_reported_before_the_backend_check(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    def no_preflight(method):
+        raise AssertionError("the backend check ran before the input was read")
+
+    monkeypatch.setattr(pipeline, "PREFLIGHT_METHODS", frozenset({"EMT"}))
+    monkeypatch.setattr(pipeline, "preflight", no_preflight)
+    cfg = replace(default_cfg(), molecule=tmp_path / "typo.toml", out_dir=tmp_path / "out")
+    with pytest.raises(FileNotFoundError):
+        run_csp(cfg, method="EMT")

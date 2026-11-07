@@ -6,8 +6,10 @@ calculators, so that the parent process of a run never loads it (see ``relax.Wor
 
 from __future__ import annotations
 
+import importlib.util
 import multiprocessing
 import os
+import sys
 import time
 from importlib.metadata import PackageNotFoundError, version
 
@@ -47,6 +49,7 @@ def make_calculator(method: str = "GFN2-xTB") -> Calculator:
 
         return TBLite(method=method, verbosity=0)
     if method == "OrbMol-v2":
+        quiet_warp()
         from orb_models.forcefield import pretrained
         from orb_models.forcefield.inference.calculator import ORBCalculator
 
@@ -96,9 +99,25 @@ def _test_calculator(method: str) -> Calculator:
     return EMT()
 
 
+def quiet_warp() -> None:
+    """Show only warnings and errors of NVIDIA Warp (used by orb-models), not its start-up messages."""
+    if "warp" not in sys.modules and importlib.util.find_spec("warp") is None:
+        return
+    import warp
+
+    warp.config.log_level = max(warp.config.log_level, warp.LOG_WARNING)
+
+
 def weights_cache_dir() -> str:
-    """Directory in which orb-models keeps downloaded weights (``CACHED_PATH_CACHE_ROOT`` if set)."""
-    return os.path.expanduser(os.environ.get("CACHED_PATH_CACHE_ROOT") or os.path.join("~", ".cache", "cached_path"))
+    """Directory in which orb-models keeps downloaded weights.
+
+    As in ``cached_path``: ``CACHED_PATH_CACHE_ROOT`` whenever it is set (an empty value means the
+    current directory), else ``~/.cache/cached_path``.
+    """
+    root = os.environ.get("CACHED_PATH_CACHE_ROOT")
+    if root is None:
+        return os.path.expanduser(os.path.join("~", ".cache", "cached_path"))
+    return os.path.abspath(root)
 
 
 def _weights_info(method: str) -> dict[str, str]:
@@ -183,8 +202,9 @@ def preflight(method: str, timeout_s: float = 600.0) -> dict[str, str]:
     cause = " ".join(str(payload).split())
     cache = weights_cache_dir()
     raise RelaxBackendError(
-        f"relaxation method {method} is not usable: {cause}; weights are cached in {cache}; on a computer "
-        'without network access, run python -c "from orb_models.forcefield import pretrained; '
+        f"relaxation method {method} is not usable: {cause}; weights are cached in {cache}; if the weights "
+        'could not be downloaded because this computer has no network access, run python -c "from '
+        "orb_models.forcefield import pretrained; "
         "pretrained.orbmol_v2(device='cpu')\" on one with access and copy the "
         f"{cache} directory"
     )

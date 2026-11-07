@@ -6,7 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from ase import Atoms
-from molecular_modeling.csp import backends
+from molecular_modeling.csp import backends, relax
 from molecular_modeling.csp.backends import RelaxBackendError
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.gen_random import generate_random
@@ -229,6 +229,27 @@ def test_worker_pool_rebuilds_after_crash():
 def test_worker_pool_start_failure_is_backend_error():
     with WorkerPool(1, "EMT-BROKEN") as pool, pytest.raises(RelaxBackendError, match="EMT-BROKEN"):
         pool.ensure()
+
+
+def test_worker_pool_interrupted_during_warmup_shuts_down(monkeypatch):
+    class _Future:
+        def result(self):
+            raise KeyboardInterrupt
+
+    class _Executor:
+        shut = False
+
+        def submit(self, fn):
+            return _Future()
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            _Executor.shut = True
+
+    monkeypatch.setattr(relax, "_new_executor", lambda *a, **k: _Executor())
+    pool = WorkerPool(1, "EMT")
+    with pytest.raises(KeyboardInterrupt):
+        pool.ensure()
+    assert _Executor.shut
 
 
 def test_get_calculator_caches_only_ml_methods(monkeypatch):

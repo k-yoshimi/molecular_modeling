@@ -7,6 +7,7 @@ import sys
 import time
 
 import pytest
+from molecular_modeling.csp import backends
 from molecular_modeling.csp.backends import (
     CONFIG_METHODS,
     METHODS,
@@ -86,12 +87,30 @@ def test_preflight_failure_is_one_line_with_advice():
     msg = str(ei.value)
     assert "\n" not in msg and "EMT-BROKEN" in msg and "RuntimeError: test backend is broken" in msg
     assert "cached_path" in msg and "pretrained.orbmol_v2" in msg
+    assert "if the weights could not be downloaded" in msg
 
 
 def test_preflight_cache_location_follows_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("CACHED_PATH_CACHE_ROOT", str(tmp_path / "weights"))
     with pytest.raises(RelaxBackendError, match=str(tmp_path / "weights")):
         preflight("EMT-BROKEN")
+
+
+def test_weights_cache_dir_matches_cached_path_for_empty_variable(monkeypatch, tmp_path):
+    # cached_path uses the variable whenever it is set, even when empty (then the current directory)
+    monkeypatch.setenv("CACHED_PATH_CACHE_ROOT", "")
+    monkeypatch.chdir(tmp_path)
+    assert backends.weights_cache_dir() == str(tmp_path)
+
+
+def test_quiet_warp_raises_log_level(monkeypatch):
+    import types
+
+    fake = types.SimpleNamespace(LOG_WARNING=30, config=types.SimpleNamespace(log_level=20))
+    monkeypatch.setitem(sys.modules, "warp", fake)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a, **k: object())
+    backends.quiet_warp()
+    assert fake.config.log_level == 30
 
 
 def test_preflight_times_out():

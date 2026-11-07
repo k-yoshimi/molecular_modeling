@@ -419,13 +419,14 @@ def run_csp(cfg: CSPConfig, method: str | None = None) -> list[Candidate]:
     check_single_process()
     method, source = resolve_method(cfg, method)
     check_dependencies(method)
-    backend = preflight(method) if method in PREFLIGHT_METHODS else {}
     # everything that can fail on bad input is checked before out_dir is touched, so a failed rerun
     # leaves the previous (complete) results and their run.log as they were
     mol = load_molecule(cfg.molecule)
     check_supported_elements(mol)
     rng = np.random.default_rng(cfg.rng)
     seeded = _seed_candidates(cfg, mol)
+    # last, since it takes tens of seconds: mistakes in the input are reported without that wait
+    backend = preflight(method) if method in PREFLIGHT_METHODS else {}
 
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
