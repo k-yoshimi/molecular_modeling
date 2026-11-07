@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 import subprocess
 import sys
+import time
 
 import pytest
 from molecular_modeling.csp.backends import (
@@ -11,7 +12,10 @@ from molecular_modeling.csp.backends import (
     METHODS,
     ML_METHODS,
     TEST_METHODS,
+    RelaxBackendError,
+    backend_info,
     make_calculator,
+    preflight,
 )
 from molecular_modeling.csp.pipeline import check_dependencies
 
@@ -70,3 +74,35 @@ def test_check_dependencies_orbmol_does_not_need_tblite(monkeypatch):
     check_dependencies("OrbMol-v2")
     with pytest.raises(ImportError, match="tblite"):
         check_dependencies("GFN2-xTB")
+
+
+def test_preflight_ok_for_working_backend():
+    assert preflight("EMT") == {}
+
+
+def test_preflight_failure_is_one_line_with_advice():
+    with pytest.raises(RelaxBackendError) as ei:
+        preflight("EMT-BROKEN")
+    msg = str(ei.value)
+    assert "\n" not in msg and "EMT-BROKEN" in msg and "RuntimeError: test backend is broken" in msg
+    assert "cached_path" in msg and "pretrained.orbmol_v2" in msg
+
+
+def test_preflight_cache_location_follows_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("CACHED_PATH_CACHE_ROOT", str(tmp_path / "weights"))
+    with pytest.raises(RelaxBackendError, match=str(tmp_path / "weights")):
+        preflight("EMT-BROKEN")
+
+
+def test_preflight_times_out():
+    t0 = time.monotonic()
+    with pytest.raises(RelaxBackendError, match="TimeoutError: no answer within 2 s"):
+        preflight("EMT-SLOW", timeout_s=2)
+    assert time.monotonic() - t0 < 15
+
+
+def test_backend_info_names_package_and_version():
+    from importlib.metadata import version
+
+    assert backend_info("GFN2-xTB") == f"tblite {version('tblite')}"
+    assert backend_info("EMT") == "test calculator"

@@ -20,7 +20,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import write
 
-from .backends import METHODS, ML_INSTALL_HINT, ML_METHODS
+from .backends import METHODS, ML_INSTALL_HINT, ML_METHODS, PREFLIGHT_METHODS, backend_info, preflight
 from .candidate import MAX_CIF, Candidate
 from .config import SEED_GENERATOR_WEIGHT, CSPConfig, SeedSpec
 from .dedupe import deduplicate
@@ -406,6 +406,9 @@ def run_csp(cfg: CSPConfig, method: str | None = None) -> list[Candidate]:
         a seed structure that cannot be read or used.
     FileExistsError
         If another run holds ``out_dir`` (lock file ``.csp_run.lock``).
+    RelaxBackendError
+        Before anything is written, if a machine-learned ``method`` cannot build its calculator (e.g. the
+        weights cannot be downloaded); also later if the relaxation workers cannot start.
 
     Notes
     -----
@@ -416,6 +419,7 @@ def run_csp(cfg: CSPConfig, method: str | None = None) -> list[Candidate]:
     check_single_process()
     method, source = resolve_method(cfg, method)
     check_dependencies(method)
+    backend = preflight(method) if method in PREFLIGHT_METHODS else {}
     # everything that can fail on bad input is checked before out_dir is touched, so a failed rerun
     # leaves the previous (complete) results and their run.log as they were
     mol = load_molecule(cfg.molecule)
@@ -429,7 +433,8 @@ def run_csp(cfg: CSPConfig, method: str | None = None) -> list[Candidate]:
         # warnings from loading the config were logged before run.log existed: repeat them in the file only
         for msg in cfg.config_warnings:
             file_log.handle(logger.makeRecord(logger.name, logging.WARNING, __file__, 0, "config: %s", (msg,), None))
-        logger.info("relax method %s (from %s)", method, source)
+        weights = f"; weights {backend['weights']} in {backend['cache']}" if backend else ""
+        logger.info("relax method %s (from %s); %s%s", method, source, backend_info(method), weights)
         try:
             mark_incomplete(out_dir)  # before anything of the earlier results is changed
             _remove_results(out_dir)

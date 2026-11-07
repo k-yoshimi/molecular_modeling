@@ -798,3 +798,49 @@ def test_cli_rejects_unknown_relax_method(capsys):
     with pytest.raises(SystemExit) as ei:
         cli.main(["x.toml", "--relax-method", "EMT"])
     assert ei.value.code == 2 and "--relax-method" in capsys.readouterr().err
+
+
+def test_run_csp_preflight_failure_stops_before_out_dir(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.backends import RelaxBackendError
+
+    monkeypatch.setattr(pipeline, "PREFLIGHT_METHODS", frozenset({"EMT-BROKEN"}))
+    out = tmp_path / "out"
+    with pytest.raises(RelaxBackendError, match="EMT-BROKEN"):
+        run_csp(replace(default_cfg(), out_dir=out), method="EMT-BROKEN")
+    assert not out.exists()
+
+
+def test_preflight_result_reaches_run_log(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    monkeypatch.setattr(pipeline, "PREFLIGHT_METHODS", frozenset({"EMT"}))
+    monkeypatch.setattr(pipeline, "preflight", lambda m: {"weights": "w.ckpt", "cache": "/c"})
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    run_csp(replace(default_cfg(), out_dir=tmp_path), method="EMT")
+    assert (
+        "relax method EMT (from argument); test calculator; weights w.ckpt in /c" in (tmp_path / "run.log").read_text()
+    )
+
+
+def test_xtb_runs_skip_preflight(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    monkeypatch.setattr(pipeline, "preflight", lambda *a, **k: pytest.fail("no preflight for xTB"))
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    run_csp(replace(default_cfg(), out_dir=tmp_path))
+    assert "relax method GFN2-xTB (from default); tblite " in (tmp_path / "run.log").read_text()
+
+
+def test_cli_reports_backend_error_in_one_line(tmp_path, monkeypatch, capsys):
+    from molecular_modeling.csp.backends import RelaxBackendError
+
+    def boom(cfg):
+        raise RelaxBackendError("relaxation method OrbMol-v2 is not usable: OSError: offline")
+
+    monkeypatch.setattr(cli, "run_csp", boom)
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\n')
+    assert cli.main([str(p)]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: relaxation method OrbMol-v2") and "Traceback" not in err

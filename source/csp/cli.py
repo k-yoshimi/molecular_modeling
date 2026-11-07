@@ -6,6 +6,7 @@ import argparse
 import sys
 import tomllib
 
+from .backends import RelaxBackendError
 from .config import CONFIG_RELAX_METHODS, load_csp_config
 from .pipeline import run_csp
 
@@ -18,6 +19,7 @@ EXPECTED_ERRORS = (
     PermissionError,
     IsADirectoryError,
     NotADirectoryError,
+    RelaxBackendError,
 )
 
 
@@ -26,8 +28,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ``--relax-method`` overrides ``relax_method`` of the config file.
 
-    Errors caused by the input (bad settings, missing or unreadable files, missing packages) are
-    printed as ``error: <message>`` and give exit code 2; other exceptions keep their traceback.
+    Errors caused by the input (bad settings, missing or unreadable files, missing packages, an unusable
+    relaxation backend) are printed as ``error: <message>`` and give exit code 2; other exceptions keep
+    their traceback.
     An interrupted run (Ctrl-C) exits with code 130.
     """
     parser = argparse.ArgumentParser(
