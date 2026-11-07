@@ -30,7 +30,7 @@ from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
 from .molecule import load_molecule, molecule_volume
 from .outdir import INCOMPLETE_NAME, check_single_process, hold_lock, mark_incomplete
-from .relax import relax_many
+from .relax import WorkerPool, relax_many
 from .screen import check_supported_elements, prescreen
 
 logger = logging.getLogger(__name__)
@@ -204,8 +204,11 @@ def _relax_with_budget(
 ) -> list[Candidate]:
     """Relax ``cands`` in rounds of ``cfg.n_procs``, stopping when the next round would exceed the budget.
 
-    The first round always runs. Before each further round the remaining time is compared with the
-    longest round so far; if it is shorter, the remaining candidates are dropped.
+    All rounds run on one :class:`~molecular_modeling.csp.relax.WorkerPool`, made ready (workers started,
+    calculators loaded) before the first round and again after a worker died. That time counts against
+    the budget but not as part of a round. The first round always runs. Before each further round the
+    remaining time is compared with the longest round so far; if it is shorter, the remaining candidates
+    are dropped.
     """
     budget = cfg.time_budget_min * 60 * SAFETY_MARGIN
     n_round = max(cfg.n_procs, 1)
@@ -213,22 +216,24 @@ def _relax_with_budget(
     rest = list(cands)
     longest = 0.0  # wall time of the slowest round so far
     n_done_rounds = 0
-    while rest:
-        if n_done_rounds:
-            remaining = budget - (time.perf_counter() - t_start)
-            if remaining < longest:
-                logger.info(
-                    "time budget: %.1f s per candidate, %.0f s left; relaxing 0 of %d remaining candidates",
-                    longest / n_round,
-                    max(remaining, 0.0),
-                    len(rest),
-                )
-                break
-        batch, rest = rest[:n_round], rest[n_round:]
-        t0 = time.perf_counter()
-        done = done + relax_many(batch, mol, cfg, method)
-        longest = max(longest, time.perf_counter() - t0)
-        n_done_rounds += 1
+    with WorkerPool(n_round, method) as pool:
+        while rest:
+            pool.ensure()
+            if n_done_rounds:
+                remaining = budget - (time.perf_counter() - t_start)
+                if remaining < longest:
+                    logger.info(
+                        "time budget: %.1f s per candidate, %.0f s left; relaxing 0 of %d remaining candidates",
+                        longest / n_round,
+                        max(remaining, 0.0),
+                        len(rest),
+                    )
+                    break
+            batch, rest = rest[:n_round], rest[n_round:]
+            t0 = time.perf_counter()
+            done = done + relax_many(batch, mol, cfg, method, pool=pool)
+            longest = max(longest, time.perf_counter() - t0)
+            n_done_rounds += 1
     return done
 
 

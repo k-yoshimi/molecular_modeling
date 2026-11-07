@@ -99,20 +99,50 @@ class _FakeClock:
         return self.now
 
 
-def _run_budget(monkeypatch, budget_min, n_cands=40, n_procs=4, round_s=100.0):
-    """Run the budgeted relaxation with a fake clock.
+class _FakePool:
+    """Stand-in for ``WorkerPool``: getting ready costs ``warmup_s`` on the fake clock, the first time only."""
+
+    created = 0
+
+    def __init__(self, clock: _FakeClock, warmup_s: float) -> None:
+        self.clock, self.warmup_s, self.ready = clock, warmup_s, False
+
+    def __call__(self, workers, method):  # used as the class: WorkerPool(workers, method)
+        _FakePool.created += 1
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def ensure(self) -> float:
+        if self.ready:
+            return 0.0
+        self.ready = True
+        self.clock.now += self.warmup_s
+        return self.warmup_s
+
+
+def _run_budget(monkeypatch, budget_min, n_cands=40, n_procs=4, round_s=100.0, warmup_s=0.0):
+    """Run the budgeted relaxation with a fake clock and a fake worker pool.
 
     ``round_s`` is the wall time of one round of ``n_procs`` parallel relaxations (a number, or a
     function of the 0-based round index); a call relaxing ``n`` candidates costs ``ceil(n / n_procs)``
-    rounds.
+    rounds. Getting the pool ready costs ``warmup_s``. Returns the relaxed candidates, the batch sizes,
+    the final clock and the number of pools made.
     """
     from molecular_modeling.csp import pipeline
 
     clock = _FakeClock()
     sizes: list[int] = []
     cost = round_s if callable(round_s) else (lambda k: round_s)
+    pool = _FakePool(clock, warmup_s)
+    _FakePool.created = 0
 
-    def fake_relax_many(cands, mol, cfg, method):
+    def fake_relax_many(cands, mol, cfg, method, pool=None):
+        assert pool is not None and pool.ready
         for _ in range(math.ceil(len(cands) / cfg.n_procs)):
             clock.now += cost(len(sizes))
         sizes.append(len(cands))
@@ -120,22 +150,23 @@ def _run_budget(monkeypatch, budget_min, n_cands=40, n_procs=4, round_s=100.0):
 
     monkeypatch.setattr(pipeline, "time", clock)
     monkeypatch.setattr(pipeline, "relax_many", fake_relax_many)
+    monkeypatch.setattr(pipeline, "WorkerPool", pool)
     cfg = replace(default_cfg(), n_procs=n_procs, time_budget_min=budget_min)
     done = pipeline._relax_with_budget(list(range(n_cands)), None, cfg, "EMT", 0.0)  # type: ignore[arg-type]
-    return done, sizes, clock.now
+    return done, sizes, clock.now, _FakePool.created
 
 
 def test_relax_budget_runs_whole_rounds_while_time_is_left(monkeypatch):
     # 10 min * 0.9 = 540 s; each round of 4 takes 100 s. After 5 rounds (500 s) only 40 s are left,
     # less than a round, so 20 candidates are relaxed.
-    done, sizes, t = _run_budget(monkeypatch, budget_min=10)
+    done, sizes, t, _ = _run_budget(monkeypatch, budget_min=10)
     assert sizes == [4] * 5
     assert len(done) == 20 and t == 500
 
 
 def test_relax_budget_first_round_always_runs(monkeypatch):
     # 1 min budget is shorter than one round (100 s): the first round still runs, nothing more does.
-    done, sizes, _ = _run_budget(monkeypatch, budget_min=1)
+    done, sizes, _, _ = _run_budget(monkeypatch, budget_min=1)
     assert sizes == [4]
     assert len(done) == 4
 
@@ -143,15 +174,51 @@ def test_relax_budget_first_round_always_runs(monkeypatch):
 def test_relax_budget_stops_when_rounds_get_slower(monkeypatch):
     # The first round takes 1 s, later ones 100 s. A 60 s budget (54 s usable) must not commit all
     # remaining candidates on the strength of the first fast round.
-    done, sizes, t = _run_budget(monkeypatch, budget_min=1, round_s=lambda k: 1.0 if k == 0 else 100.0)
+    done, sizes, t, _ = _run_budget(monkeypatch, budget_min=1, round_s=lambda k: 1.0 if k == 0 else 100.0)
     assert sizes == [4, 4]
     assert len(done) == 8 and t == 101
 
 
 def test_relax_budget_relaxes_everything_when_time_allows(monkeypatch):
-    done, sizes, _ = _run_budget(monkeypatch, budget_min=60, n_cands=10)
+    done, sizes, _, _ = _run_budget(monkeypatch, budget_min=60, n_cands=10)
     assert sizes == [4, 4, 2]
     assert done == list(range(10))
+
+
+@pytest.mark.parametrize("n_procs", [1, 4])
+def test_budget_reuses_one_pool_across_rounds(monkeypatch, n_procs):
+    _, sizes, _, created = _run_budget(monkeypatch, budget_min=60, n_cands=10, n_procs=n_procs)
+    assert len(sizes) > 1 and created == 1
+
+
+def test_budget_counts_warmup_as_elapsed_not_round_time(monkeypatch):
+    # 540 s usable; getting ready takes 200 s and a round 100 s: 200 + 3 * 100 = 500 s leaves 40 s,
+    # less than a round (the warm-up is not taken for a round), so 3 rounds run
+    done, sizes, t, _ = _run_budget(monkeypatch, budget_min=10, warmup_s=200.0)
+    assert sizes == [4] * 3 and t == 500
+
+
+def test_budget_first_round_runs_even_if_warmup_eats_budget(monkeypatch):
+    done, sizes, _, _ = _run_budget(monkeypatch, budget_min=1, warmup_s=1000.0)
+    assert sizes == [4]
+
+
+def test_budget_recovers_after_worker_crash_mid_run():
+    from ase import Atoms
+    from molecular_modeling.csp import pipeline
+    from molecular_modeling.csp.candidate import Candidate
+
+    cands = []
+    for k in range(6):
+        el = "Au" if k == 3 else "Cu"  # crashes its worker in the second round
+        atoms = Atoms(el + "4", positions=[[0, 0, 0], [0, 0, 2.5], [5, 5, 0], [5, 5, 2.5]], cell=[10] * 3, pbc=True)
+        atoms.set_array("mol_id", np.array([0, 0, 1, 1]))
+        cands.append(Candidate(atoms=atoms, origin="random", space_group=1, meta={"tag": k}))
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    out = pipeline._relax_with_budget(cands, mol, cfg, "EMT-CRASH-ON-AU", time.perf_counter())
+    assert [c.meta["tag"] for c in out] == list(range(6))
+    assert [c.status for c in out] == ["relaxed"] * 3 + ["failed"] + ["relaxed"] * 2
 
 
 @pytest.mark.parametrize(("weight", "expect_seed"), [(0.0, False), (0.5, True), (None, True)])

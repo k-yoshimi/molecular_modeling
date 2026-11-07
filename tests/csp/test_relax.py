@@ -6,10 +6,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from ase import Atoms
+from molecular_modeling.csp import backends
+from molecular_modeling.csp.backends import RelaxBackendError
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.gen_random import generate_random
 from molecular_modeling.csp.molecule import load_molecule, molecule_rmsd
 from molecular_modeling.csp.relax import (
+    WorkerPool,
     make_calculator,
     max_deformation,
     relax_candidate,
@@ -132,11 +135,13 @@ class _ControlledPool:
 
     crash: set[int] = set()
     submitted: list[list[int]] = []
+    created: list[dict] = []
 
-    def __init__(self, max_workers=None, initializer=None):
+    def __init__(self, max_workers=None, **kwargs):
         self.broken = False
         self.log: list[int] = []
         _ControlledPool.submitted.append(self.log)
+        _ControlledPool.created.append(kwargs)
 
     def __enter__(self):
         return self
@@ -181,6 +186,74 @@ def test_relax_many_recovers_from_broken_pool_at_submit(monkeypatch, n_procs, cr
             assert c.status == "failed" and "died" in c.meta["error"]
         else:
             assert c.status == "relaxed", c.meta.get("error")
+
+
+def test_all_pools_use_spawn(monkeypatch):
+    from molecular_modeling.csp import relax as relax_mod
+
+    _ControlledPool.crash = {1}
+    _ControlledPool.submitted = []
+    _ControlledPool.created = []
+    monkeypatch.setattr(relax_mod, "ProcessPoolExecutor", _ControlledPool)
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    relax_many(_emt_cands(4), mol, replace(default_cfg(), n_procs=2), method="EMT")
+    assert len(_ControlledPool.created) >= 2  # the parallel pool and at least one single-worker pool
+    assert all(k["mp_context"].get_start_method() == "spawn" for k in _ControlledPool.created)
+    assert all(k["initargs"] == ("EMT",) for k in _ControlledPool.created)
+
+
+def test_relax_many_uses_given_pool_and_leaves_it_open():
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    with WorkerPool(2, "EMT") as pool:
+        assert pool.ensure() > 0
+        ex = pool.executor
+        first = relax_many(_emt_cands(2), mol, cfg, "EMT", pool=pool)
+        second = relax_many(_emt_cands(2), mol, cfg, "EMT", pool=pool)
+        assert pool.executor is ex and pool.ensure() == 0.0
+    assert [c.status for c in first + second] == ["relaxed"] * 4
+
+
+def test_worker_pool_rebuilds_after_crash():
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    cfg = replace(default_cfg(), n_procs=2, relax_steps=2, max_mol_rmsd=5.0)
+    with WorkerPool(2, "EMT-CRASH-ON-AU") as pool:
+        pool.ensure()
+        ex = pool.executor
+        out = relax_many(_emt_cands(2, gold={0}), mol, cfg, "EMT-CRASH-ON-AU", pool=pool)
+        assert [c.status for c in out] == ["failed", "relaxed"]
+        assert pool.ensure() > 0 and pool.executor is not ex
+        assert [c.status for c in relax_many(_emt_cands(2), mol, cfg, "EMT-CRASH-ON-AU", pool=pool)] == ["relaxed"] * 2
+
+
+def test_worker_pool_start_failure_is_backend_error():
+    with WorkerPool(1, "EMT-BROKEN") as pool, pytest.raises(RelaxBackendError, match="EMT-BROKEN"):
+        pool.ensure()
+
+
+def test_get_calculator_caches_only_ml_methods(monkeypatch):
+    monkeypatch.setattr(backends, "_CACHE", {})
+    monkeypatch.setattr(backends, "ML_METHODS", frozenset({"EMT"}))
+    assert backends.get_calculator("EMT") is backends.get_calculator("EMT")
+    monkeypatch.setattr(backends, "ML_METHODS", frozenset())
+    assert backends.get_calculator("EMT") is not backends.get_calculator("EMT")
+
+
+def test_relax_candidate_sets_neutral_singlet_for_ml_methods(monkeypatch):
+    from molecular_modeling.csp import relax as relax_mod
+
+    seen = {}
+
+    class _Spy(backends.make_calculator("EMT").__class__):
+        def calculate(self, atoms=None, properties=("energy",), system_changes=("positions",)):
+            seen.update(charge=atoms.info.get("charge"), spin=atoms.info.get("spin"))
+            super().calculate(atoms, properties, system_changes)
+
+    monkeypatch.setattr(relax_mod, "get_calculator", lambda m: _Spy())
+    monkeypatch.setattr(relax_mod, "ML_METHODS", frozenset({"EMT"}))
+    mol = Atoms("Cu2", positions=[[0, 0, 0], [0, 0, 2.5]])
+    relax_candidate(_emt_cands(1)[0], mol, "EMT", fmax=0.5, steps=1, max_mol_rmsd=5.0)
+    assert seen == {"charge": 0, "spin": 1}
 
 
 def test_relax_many_survives_consecutive_worker_crashes():

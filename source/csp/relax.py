@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import multiprocessing
 import os
+import sys
+import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
@@ -12,12 +16,20 @@ from ase import Atoms
 from ase.filters import FrechetCellFilter
 from ase.neighborlist import natural_cutoffs, neighbor_list
 from ase.optimize import FIRE
-from molecular_modeling.csp.backends import METHODS, make_calculator  # noqa: F401 - re-exported
+from molecular_modeling.csp.backends import (  # noqa: F401 - METHODS and make_calculator are re-exported
+    METHODS,
+    ML_METHODS,
+    RelaxBackendError,
+    get_calculator,
+    make_calculator,
+)
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
 from molecular_modeling.csp.molecule import molecule_rmsd
 from molecular_modeling.csp.screen import crystal_density, whole_molecules
 from molecular_modeling.molecule_unwrap import bond_pairs, is_connected, unwrap_molecule
+
+logger = logging.getLogger(__name__)
 
 
 def _mirror(mol: Atoms) -> Atoms:
@@ -106,7 +118,9 @@ def relax_candidate(
     try:
         atoms = cand.atoms.copy()
         bonds_before = intramolecular_bonds(atoms)
-        atoms.calc = make_calculator(method)
+        if method in ML_METHODS:  # the machine-learned models need charge and spin: neutral singlet
+            atoms.info.update(charge=0, spin=1)
+        atoms.calc = get_calculator(method)
         opt = FIRE(FrechetCellFilter(atoms), logfile=None)
         converged = bool(opt.run(fmax=fmax, steps=steps))
         n_mol = len(np.unique(atoms.arrays["mol_id"]))
@@ -137,8 +151,88 @@ def relax_candidate(
     return cand
 
 
-def _init_worker() -> None:
+def _init_worker(method: str) -> None:
+    """Prepare a worker process: one thread, and the calculator of ``method`` built (its model loaded) once."""
     os.environ["OMP_NUM_THREADS"] = "1"
+    get_calculator(method)
+    torch = sys.modules.get("torch")
+    if torch is not None:
+        torch.set_num_threads(1)
+
+
+def _warmup() -> int:
+    """Job that only makes the pool start a worker (whose initializer loads the model)."""
+    return os.getpid()
+
+
+def _new_executor(workers: int, method: str) -> ProcessPoolExecutor:
+    """Process pool for ``method``: workers are started with spawn (never fork) and run :func:`_init_worker`."""
+    return ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_init_worker,
+        initargs=(method,),
+    )
+
+
+class WorkerPool:
+    """A process pool kept open across several :func:`relax_many` calls (one relaxation stage).
+
+    :meth:`ensure` starts the pool when there is none (at first, and after a worker died) and waits
+    until every worker has loaded its calculator; a broken pool is dropped by :meth:`mark_broken`.
+    """
+
+    def __init__(self, workers: int, method: str) -> None:
+        self.workers = workers
+        self.method = method
+        self._ex: ProcessPoolExecutor | None = None
+
+    def ensure(self) -> float:
+        """Start the pool if needed and return the seconds that took (0 if it was ready).
+
+        Raises
+        ------
+        RelaxBackendError
+            If the workers cannot start, e.g. because the calculator cannot be built.
+        """
+        if self._ex is not None:
+            return 0.0
+        t0 = time.perf_counter()
+        ex = _new_executor(self.workers, self.method)
+        try:
+            for fut in [ex.submit(_warmup) for _ in range(self.workers)]:
+                fut.result()
+        except Exception as exc:  # noqa: BLE001 - BrokenProcessPool or an error from the initializer
+            ex.shutdown(wait=True, cancel_futures=True)
+            raise RelaxBackendError(
+                f"relaxation workers could not start ({self.method}): {type(exc).__name__}: {exc}"
+            ) from exc
+        self._ex = ex
+        dt = time.perf_counter() - t0
+        logger.info("worker pool: %d workers ready in %.1f s (%s)", self.workers, dt, self.method)
+        return dt
+
+    @property
+    def executor(self) -> ProcessPoolExecutor:
+        """The running pool; :meth:`ensure` must have been called."""
+        if self._ex is None:
+            raise RuntimeError("WorkerPool.ensure() must be called first")
+        return self._ex
+
+    def mark_broken(self) -> None:
+        """Shut a pool down whose worker died; the next :meth:`ensure` starts a new one."""
+        self.close()
+
+    def close(self) -> None:
+        if self._ex is not None:
+            self._ex.shutdown(wait=True, cancel_futures=True)
+            self._ex = None
+
+    def __enter__(self) -> WorkerPool:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
 def _worker(args: tuple) -> Candidate:
@@ -153,18 +247,27 @@ def _failed(cand: Candidate, exc: BaseException) -> Candidate:
     return cand
 
 
-def _run_parallel(jobs: list[tuple], keys: list[int], workers: int, results: list[Candidate | None]) -> list[int]:
+def _run_parallel(
+    jobs: list[tuple],
+    keys: list[int],
+    workers: int,
+    results: list[Candidate | None],
+    ex: ProcessPoolExecutor | None = None,
+) -> list[int]:
     """Run ``jobs[k]`` for ``k`` in ``keys`` on one pool; fill ``results`` and return unresolved keys.
 
-    Unresolved are jobs whose result was lost because the pool broke (a worker died), whether they
-    had been submitted or not; which of the submitted ones crashed is unknown at this point.
+    The pool is ``ex`` (left open) or, if ``None``, a new one that is closed at the end. Unresolved are
+    jobs whose result was lost because the pool broke (a worker died), whether they had been submitted
+    or not; which of the submitted ones crashed is unknown at this point.
     """
     unresolved: list[int] = []
     futures: dict[int, Future] = {}
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker) as ex:
+    own = ex is None
+    pool = _new_executor(workers, jobs[keys[0]][2]) if ex is None else ex
+    try:
         for n, k in enumerate(keys):
             try:
-                futures[k] = ex.submit(_worker, jobs[k])
+                futures[k] = pool.submit(_worker, jobs[k])
             except BrokenProcessPool:  # a worker already died; the rest is never submitted
                 unresolved.extend(keys[n:])
                 break
@@ -175,6 +278,9 @@ def _run_parallel(jobs: list[tuple], keys: list[int], workers: int, results: lis
                 unresolved.append(k)
             except Exception as exc:  # noqa: BLE001 - e.g. result unpickling errors
                 results[k] = _failed(jobs[k][0], exc)
+    finally:
+        if own:
+            pool.shutdown(wait=True)
     return sorted(unresolved)
 
 
@@ -191,7 +297,7 @@ def _run_isolated(jobs: list[tuple], keys: list[int], results: list[Candidate | 
         while queue:
             k = queue[0]
             if ex is None:
-                ex = ProcessPoolExecutor(max_workers=1, initializer=_init_worker)
+                ex = _new_executor(1, jobs[k][2])
                 fresh = True
             try:
                 fut = ex.submit(_worker, jobs[k])
@@ -217,8 +323,18 @@ def _run_isolated(jobs: list[tuple], keys: list[int], results: list[Candidate | 
             ex.shutdown(wait=True)
 
 
-def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
+def relax_many(
+    cands: list[Candidate],
+    ref_mol: Atoms,
+    cfg: CSPConfig,
+    method: str = "GFN2-xTB",
+    pool: WorkerPool | None = None,
+) -> list[Candidate]:
     """Relax candidates in parallel with ``cfg.n_procs`` processes; results keep the input order.
+
+    With ``pool`` (already made ready by :meth:`WorkerPool.ensure`) the jobs run on its workers, whatever
+    ``cfg.n_procs`` is, and the pool is left open; if one of its workers dies the pool is marked broken.
+    Without it a pool is made for this call (only if ``cfg.n_procs > 1``) and closed again.
 
     ``meta["pyxtal"]`` is dropped before sending to workers (it may not be picklable). If a worker
     process dies, the jobs whose results were lost (submitted or not) are re-run one at a time in a
@@ -232,7 +348,11 @@ def relax_many(cands: list[Candidate], ref_mol: Atoms, cfg: CSPConfig, method: s
         jobs.append((replace(c, meta=meta), ref_mol, method, cfg.relax_fmax, cfg.relax_steps, cfg.max_mol_rmsd))
     results: list[Candidate | None] = [None] * len(jobs)
     keys = list(range(len(jobs)))
-    if cfg.n_procs > 1:
+    if pool is not None:
+        keys = _run_parallel(jobs, keys, pool.workers, results, pool.executor)
+        if keys:
+            pool.mark_broken()
+    elif cfg.n_procs > 1:
         keys = _run_parallel(jobs, keys, cfg.n_procs, results)
     _run_isolated(jobs, keys, results)
     return [r for r in results if r is not None]

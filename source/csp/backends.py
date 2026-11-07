@@ -52,6 +52,26 @@ def make_calculator(method: str = "GFN2-xTB") -> Calculator:
     raise ValueError(f"unsupported method {method!r}; use one of {', '.join(CONFIG_METHODS)}")
 
 
+#: Calculators of the machine-learned methods built in this (worker) process, by method name.
+_CACHE: dict[str, Calculator] = {}
+
+
+def get_calculator(method: str) -> Calculator:
+    """Calculator for one relaxation in this process.
+
+    Machine-learned methods (:data:`ML_METHODS`) load their model once per process and are reused
+    (after ``reset()``); every other method gets a new calculator each time, as before, so that no
+    state carries over from one candidate to the next.
+    """
+    if method not in ML_METHODS:
+        return make_calculator(method)
+    calc = _CACHE.get(method)
+    if calc is None:
+        calc = _CACHE[method] = make_calculator(method)
+    calc.reset()
+    return calc
+
+
 def _test_calculator(method: str) -> Calculator:
     from ase.calculators.emt import EMT
 
