@@ -26,6 +26,10 @@
 - **tblite** (>= 0.8.0) — 緩和に使う GFN2-xTB のエネルギーと力
 - **pymatgen** (>= 2025.1.9) — CIF の読み書き。**spglib**\ （空間群の判定）も一緒に入る
 
+機械学習ポテンシャル OrbMol-v2 で緩和する場合は、``csp-ml`` extra で次も入ります（Python 3.12 以上、約 1 GB）:
+
+- **orb-models** (>= 0.7, < 0.8) — OrbMol-v2 のポテンシャル。**PyTorch** と **NVIDIA Warp** も一緒に入る
+
 インストール手順
 ----------------
 
@@ -66,6 +70,7 @@ uv を使用する場合:
 .. code-block:: bash
 
    pip install -e ".[csp]"     # uv なら: uv sync --extra csp
+   pip install -e ".[csp-ml]"  # csp に OrbMol-v2 を加える（uv なら: uv sync --extra csp-ml）
 
 4. 動作確認
 ~~~~~~~~~~~

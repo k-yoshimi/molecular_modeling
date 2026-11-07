@@ -41,7 +41,7 @@ SPHINX_LANG=ja make -C docs html
 # Launch GUI (ASE-GUI extension with tkinter dialogs)
 python molecular_modeling_gui.py
 
-# Crystal structure prediction (needs the csp extra: pip install -e ".[csp]")
+# Crystal structure prediction (needs the csp extra: pip install -e ".[csp]"; OrbMol-v2 needs ".[csp-ml]")
 molecular-modeling-csp input/csp.toml                     # writes csp_out/
 python -m molecular_modeling.csp.validate csp_out exp.cif  # compare with an experimental CIF
 ```
@@ -68,7 +68,7 @@ Tkinter-based dialogs extending ASE-GUI. `controller.py` bridges GUI actions to 
 
 ### Crystal Structure Prediction (`source/csp/`)
 
-Separate pipeline that predicts lattice and packing together: generate candidates (`gen_random` PyXtal, `gen_voronoi`, `gen_seed` from a parent crystal) → `screen` → `relax` (GFN2-xTB via tblite, process pool, time budget) → `dedupe` → ranked `candidates.csv` + CIFs. `pipeline.py` orchestrates, `outdir.py` handles staging/lock, `validate.py` compares against experimental CIFs. Tests in `tests/csp/`.
+Separate pipeline that predicts lattice and packing together: generate candidates (`gen_random` PyXtal, `gen_voronoi`, `gen_seed` from a parent crystal) → `screen` → `relax` (method from `relax_method`: GFN2-xTB/GFN1-xTB via tblite or OrbMol-v2 via orb-models, built in `backends.py`; spawned worker pool reused per stage, time budget) → `dedupe` → ranked `candidates.csv` + CIFs. `pipeline.py` orchestrates, `outdir.py` handles staging/lock, `validate.py` compares against experimental CIFs. Tests in `tests/csp/`.
 
 ### Input/Output
 

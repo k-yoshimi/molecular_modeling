@@ -91,11 +91,12 @@ molecular-modeling-csp — Crystal Structure Prediction
 -----------------------------------------------------
 
 Generates, relaxes and ranks candidate molecular crystals. Needs the ``csp`` extra
-(``pip install -e ".[csp]"``); see :doc:`csp_guide` for the settings and the output.
+(``pip install -e ".[csp]"``; for OrbMol-v2 the ``csp-ml`` extra); see :doc:`csp_guide` for the
+settings and the output.
 
 .. code-block:: bash
 
-   molecular-modeling-csp [config]
+   molecular-modeling-csp [config] [--relax-method METHOD]
 
 **Arguments**:
 
@@ -107,11 +108,15 @@ Generates, relaxes and ranks candidate molecular crystals. Needs the ``csp`` ext
      - Description
    * - ``config`` (optional)
      - CSP settings file (TOML). Default: ``input/csp.toml``
+   * - ``--relax-method`` (optional)
+     - Relaxation method: ``GFN2-xTB``, ``GFN1-xTB`` or ``OrbMol-v2``. Overrides ``relax_method`` in
+       the settings file; ``run.log`` records that it came from the command line
 
 **Output** (in ``out_dir``, default ``csp_out/``): ``candidates.csv`` (ranking), ``NNN_<id>.cif`` for
 the top 50 candidates, and ``run.log``. If a package of the ``csp`` extra is missing, the command stops
 before generating anything and says so. Input errors (bad settings, missing or unreadable files, an
-``out_dir`` in use by another run) are printed as ``error: <message>`` with exit code 2; Ctrl-C exits
+``out_dir`` in use by another run, an OrbMol-v2 model that cannot be loaded, e.g. without network
+access on first use) are printed as ``error: <message>`` with exit code 2; Ctrl-C exits
 with code 130 and leaves no results. See :doc:`csp_guide`, "Reusing out_dir".
 
 python -m molecular_modeling.csp.validate — Compare with Experiment

@@ -20,7 +20,7 @@ ASE (Atomic Simulation Environment) と Voronoi セル最適化に基づく分�
 - **構造ファイル出力**: Quantum ESPRESSO (`qe.in`)、VASP (`POSCAR`, `INCAR`, `KPOINTS`)、CIF 形式に対応
 - **3D 可視化**: matplotlib による Voronoi セル重ね合わせ画像を生成
 - **GUI**: tkinter ベースの対話型分子モデリングインターフェース（ASE-GUI 拡張）
-- **結晶構造予測（CSP）**: 孤立分子 1 個から分子結晶の候補を生成（PyXtal によるランダム配置と Voronoi による向き決め、任意で置換元結晶）し、GFN2-xTB で緩和してエネルギー順に並べ、実験 CIF と比較
+- **結晶構造予測（CSP）**: 孤立分子 1 個から分子結晶の候補を生成（PyXtal によるランダム配置と Voronoi による向き決め、任意で置換元結晶）し、GFN2-xTB（既定）または機械学習ポテンシャル OrbMol-v2 で緩和してエネルギー順に並べ、実験 CIF と比較
 
 ## セットアップ
 

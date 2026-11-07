@@ -106,3 +106,30 @@ def test_backend_info_names_package_and_version():
 
     assert backend_info("GFN2-xTB") == f"tblite {version('tblite')}"
     assert backend_info("EMT") == "test calculator"
+
+
+needs_orb = pytest.mark.skipif(importlib.util.find_spec("orb_models") is None, reason="orb-models not installed")
+
+
+@pytest.mark.slow
+@needs_orb
+def test_preflight_orbmol_real():
+    info = preflight("OrbMol-v2")
+    assert info["weights"].startswith("orbmol-v2") and info["weights"].endswith(".ckpt") and info["cache"]
+
+
+@pytest.mark.slow
+@needs_orb
+def test_run_csp_orbmol_small(tmp_path):
+    from dataclasses import replace
+
+    from molecular_modeling.csp.pipeline import run_csp
+
+    from tests.csp.conftest import default_cfg
+
+    cfg = replace(default_cfg(), n_candidates_per_sg=4, n_prescreen_keep=2, relax_steps=3, n_procs=2, out_dir=tmp_path)
+    out = run_csp(cfg, method="OrbMol-v2")
+    log = (tmp_path / "run.log").read_text()
+    assert "relax method OrbMol-v2 (from argument); orb-models 0.7" in log and "worker pool" in log
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()[1:]
+    assert len(out) >= 1 and len(rows) == len(out) and all(r.endswith(",OrbMol-v2") for r in rows)

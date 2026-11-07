@@ -2,8 +2,8 @@ Crystal Structure Prediction (CSP) Guide
 ========================================
 
 This guide describes how to build candidate molecular crystals from the structure of an isolated
-molecule alone, relax them with GFN2-xTB, rank them by energy, and compare them with experimental CIF
-files. It is written with OS-2SMe (molecular crystals with O/S exchange, "flip", between molecules)
+molecule alone, relax them with GFN2-xTB (the default) or the machine-learned potential OrbMol-v2,
+rank them by energy, and compare them with experimental CIF files. It is written with OS-2SMe (molecular crystals with O/S exchange, "flip", between molecules)
 in mind, but it works for ordinary organic molecular crystals as well.
 
 .. contents:: Contents
@@ -27,6 +27,16 @@ comes in with them. They are not part of the core dependencies. If one of them c
 ``molecular-modeling-csp`` stops before generating anything and names the missing package, with the
 hint ``pip install -e ".[csp]"``.
 
+To relax with the machine-learned potential OrbMol-v2 (see `Choosing the relaxation method`_), install
+the ``csp-ml`` extra instead; it includes everything of ``csp``:
+
+.. code-block:: bash
+
+   pip install -e ".[csp-ml]"    # or: uv sync --extra csp-ml
+
+It adds orb-models with PyTorch and NVIDIA Warp (about 1 GB, all under the Apache 2.0 licence) and
+needs Python 3.12 or later. Users of GFN2-xTB alone do not need it.
+
 Workflow
 --------
 
@@ -40,7 +50,8 @@ repository. Relative paths (the config file, and ``molecule``, ``cif`` and ``out
 resolved against the current directory, not against the directory of the config file. Run both
 commands as a single process: under ``mpiexec`` with more than one process they stop with an error
 (use ``n_procs`` for parallel relaxation). If the input is
-wrong (bad settings, a missing or unreadable file, a missing package), the command prints
+wrong (bad settings, a missing or unreadable file, a missing package, a relaxation method that cannot
+run), the command prints
 ``error: <message>`` and exits with code 2.
 
 A run goes through these stages:
@@ -51,13 +62,14 @@ A run goes through these stages:
 2. **Overlap check and prescreening**: candidates with atoms too close together, broken molecules or a
    packing fraction outside the range are dropped. The rest are ranked by a cheap rigid-molecule
    intermolecular energy (UFF Lennard-Jones) and the best ``n_prescreen_keep`` are kept.
-3. **GFN2-xTB relaxation**: atoms and cell are relaxed (in parallel). Candidates whose molecules
+3. **Relaxation**: atoms and cell are relaxed (in parallel) with the method set by ``relax_method``
+   (GFN2-xTB by default). Candidates whose molecules
    deform too much from the input are dropped.
 4. **Deduplication and ranking**: identical structures are merged and ranked by energy per molecule.
 5. **Output**: a ranking table and CIF files for the top 50.
 
 Atomic coordinates of the molecule are never scaled. The only operations on a molecule are rigid
-rotation and translation, apart from the GFN2-xTB relaxation.
+rotation and translation, apart from the relaxation.
 
 Input file (input/csp.toml)
 ---------------------------
@@ -115,7 +127,12 @@ Input file (input/csp.toml)
        periodic images) are closer than this factor × the sum of their vdW radii
    * - ``n_prescreen_keep``
      - ``32``
-     - Candidates kept after prescreening, i.e. relaxed with GFN2-xTB
+     - Candidates kept after prescreening, i.e. relaxed
+   * - ``relax_method``
+     - ``"GFN2-xTB"``
+     - Relaxation method: ``"GFN2-xTB"``, ``"GFN1-xTB"`` or ``"OrbMol-v2"`` (needs the ``csp-ml``
+       extra); see `Choosing the relaxation method`_. The command-line option ``--relax-method``
+       overrides it
    * - ``relax_steps``
      - ``60``
      - Maximum relaxation steps per candidate
@@ -293,7 +310,8 @@ Reading the output
         - Candidate identifier ``<origin>-<space group>-<serial>``, with ``:`` and ``/`` in the origin
           replaced by ``_``; e.g. ``random-14-3``, ``voronoi-2-17``, ``seed_parent-1-0``
       * - ``energy_per_mol_eV``
-        - GFN2-xTB energy per molecule (eV)
+        - Energy per molecule (eV) from the relaxation method. Each method has its own zero of
+          energy: compare energies only between rows of the same method
       * - ``rel_energy_kJmol``
         - Difference from rank 1 (kJ/mol per molecule)
       * - ``density_gcm3``
@@ -311,6 +329,8 @@ Reading the output
         - ``relaxed``: the candidate passed the checks after relaxation (deformation, bonds). It does
           not mean that the relaxation converged to ``relax_fmax``; it may have stopped at
           ``relax_steps``
+      * - ``relax_method``
+        - Relaxation method used for the run (``GFN2-xTB``, ``GFN1-xTB`` or ``OrbMol-v2``)
 
 ``001_<id>.cif`` ... ``050_<id>.cif``
    Structures of the top 50. Validation reads only the CIFs listed in ``candidates.csv``.
@@ -437,6 +457,49 @@ The report uses these terms (written below exactly as they appear in ``validatio
    different compositions, the molecular densities differ too much, there are no molecules to compare,
    or the candidate CIF could not be read or is missing.
 
+Choosing the relaxation method
+------------------------------
+
+``relax_method`` (or ``--relax-method`` on the command line, which takes precedence) selects how
+candidates are relaxed and ranked:
+
+``GFN2-xTB`` (default), ``GFN1-xTB``
+   Tight-binding methods from tblite, part of the ``csp`` extra.
+``OrbMol-v2``
+   A machine-learned interatomic potential (orb-models, trained on OMol25, which covers every element
+   CSP supports, Se included). Needs the ``csp-ml`` extra. Molecules are treated as neutral singlets.
+
+In a small comparison (2026-11-06; naphthalene and two Se compounds, the experimental structure plus
+6-12 random PyXtal candidates each, up to 300 relaxation steps), OrbMol-v2 ranked the experimental
+structure lowest in all three systems and took about half the time of GFN2-xTB per candidate, while
+GFN2-xTB ranked one random candidate 20 kJ/mol below the experimental naphthalene structure and failed
+(no SCF convergence) on the experimental structure of diphenyl diselenide. **For molecules with Se, and
+when GFN2-xTB ranks poorly, OrbMol-v2 is worth trying.** The comparison was small, used looser
+candidates than this pipeline produces, and was not checked against DFT; the default stays GFN2-xTB.
+
+Energies of different methods have different zeros: compare ``energy_per_mol_eV`` and rankings only
+within one method. The ``relax_method`` column of ``candidates.csv`` and the first lines of
+``run.log`` record which method was used (and, in ``run.log``, where the setting came from:
+``default``, ``config``, ``cli`` or ``argument``, the package version and, for OrbMol-v2, the weights
+file).
+
+**Weights and network access.** On first use OrbMol-v2 downloads its weights (about 100 MB) into
+``~/.cache/cached_path`` (or the directory in ``CACHED_PATH_CACHE_ROOT``). Before an OrbMol-v2 run
+touches ``out_dir``, a separate process builds the model and evaluates one water molecule (at most
+10 min). If that fails, for example on a computer without network access, the run stops with a
+one-line ``error:`` that names the cause and the cache directory. To prepare such a computer, run this
+on one with network access and copy the whole cache directory over:
+
+.. code-block:: bash
+
+   python -c "from orb_models.forcefield import pretrained; pretrained.orbmol_v2(device='cpu')"
+
+Each worker process loads the model once, before the first round of relaxations; that time counts
+against ``time_budget_min`` but not as part of a round. The relaxation settings (``relax_steps``,
+``relax_fmax``) and the prescreening are the same for every method. The timings below were measured
+with GFN2-xTB; OrbMol-v2 has not yet been timed under the conditions of this pipeline (one thread per
+worker).
+
 Timings and defaults
 --------------------
 
@@ -517,7 +580,7 @@ Limitations
 
 - **The molecule is a rigid input conformer.** Torsions are not varied at generation. Relaxation moves
   atoms a little, but a candidate whose molecule deviates beyond ``max_mol_rmsd`` is dropped.
-- **GFN2-xTB ranking may not separate close polymorphs**, especially for dipolar molecules, where the
+- **The energy ranking (GFN2-xTB or OrbMol-v2) may not separate close polymorphs**, especially for dipolar molecules, where the
   energy differences are smaller than the method error. The experimental structure can be generated
   yet ranked below ``n_top`` (or below 50, where it is no longer compared).
 - **Flip disorder is not modelled.** Mixtures of O/S-exchanged molecules (partially occupied sites) are

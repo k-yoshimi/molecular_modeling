@@ -20,7 +20,7 @@ A molecular modeling toolkit built on ASE (Atomic Simulation Environment) with V
 - **Structure File Export**: Quantum ESPRESSO (`qe.in`), VASP (`POSCAR`, `INCAR`, `KPOINTS`), and CIF formats
 - **3D Visualization**: Generate Voronoi cell overlay images with matplotlib
 - **GUI**: Interactive molecular modeling interface based on tkinter (ASE-GUI extension)
-- **Crystal Structure Prediction (CSP)**: Generate candidate molecular crystals from one isolated molecule (PyXtal random and Voronoi-oriented packings, optional seed crystals), relax them with GFN2-xTB, rank them by energy and compare them with experimental CIFs
+- **Crystal Structure Prediction (CSP)**: Generate candidate molecular crystals from one isolated molecule (PyXtal random and Voronoi-oriented packings, optional seed crystals), relax them with GFN2-xTB (default) or the machine-learned potential OrbMol-v2, rank them by energy and compare them with experimental CIFs
 
 ## Setup
 

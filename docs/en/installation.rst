@@ -26,6 +26,11 @@ Optional dependencies for crystal structure prediction (the ``csp`` extra, see :
 - **tblite** (>= 0.8.0) — GFN2-xTB energies and forces for relaxation
 - **pymatgen** (>= 2025.1.9) — CIF reading and writing; brings in **spglib** (space-group detection)
 
+For relaxation with the machine-learned potential OrbMol-v2, the ``csp-ml`` extra adds (Python 3.12 or
+later, about 1 GB):
+
+- **orb-models** (>= 0.7, < 0.8) — OrbMol-v2 potential; brings in **PyTorch** and **NVIDIA Warp**
+
 Installation Steps
 ------------------
 
@@ -66,6 +71,7 @@ For crystal structure prediction, add the ``csp`` extra:
 .. code-block:: bash
 
    pip install -e ".[csp]"     # or: uv sync --extra csp
+   pip install -e ".[csp-ml]"  # csp plus OrbMol-v2 (or: uv sync --extra csp-ml)
 
 4. Verify installation
 ~~~~~~~~~~~~~~~~~~~~~~
