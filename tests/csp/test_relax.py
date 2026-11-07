@@ -363,3 +363,29 @@ def test_relax_candidate_keeps_unchanged_bonds(monkeypatch):
     moved = [(-1.45, 0.02, 0), (0, 0, 0), (0.01, 1.42, 0)]  # same two bonds, slightly moved
     out = _relax_to(monkeypatch, "C3", C3_OPEN, moved)
     assert out.status == "relaxed" and "reject_reason" not in out.meta
+
+
+def test_warmup_reaches_every_worker():
+    with WorkerPool(4, "EMT") as pool:
+        pool.ensure()
+        assert len(set(pool.warm_pids)) == 4
+
+
+def test_init_worker_evaluates_ml_calculator_once(monkeypatch):
+    from molecular_modeling.csp import relax as relax_mod
+
+    calls = []
+
+    class _Spy(backends.make_calculator("EMT").__class__):
+        def calculate(self, atoms=None, properties=("energy",), system_changes=("positions",)):
+            calls.append(len(atoms))
+            super().calculate(atoms, properties, system_changes)
+
+    monkeypatch.setattr(relax_mod, "get_calculator", lambda m: _Spy())
+    monkeypatch.setattr(relax_mod, "ML_METHODS", frozenset({"EMT"}))
+    relax_mod._init_worker("EMT")
+    assert calls  # the first call (where a model compiles itself) happens at start-up, not in a round
+    calls.clear()
+    monkeypatch.setattr(relax_mod, "ML_METHODS", frozenset())
+    relax_mod._init_worker("EMT")
+    assert not calls

@@ -20,6 +20,7 @@ from molecular_modeling.csp.backends import (  # noqa: F401 - METHODS and make_c
     METHODS,
     ML_METHODS,
     RelaxBackendError,
+    exercise,
     get_calculator,
     make_calculator,
 )
@@ -151,27 +152,52 @@ def relax_candidate(
     return cand
 
 
-def _init_worker(method: str) -> None:
-    """Prepare a worker process: one thread, and the calculator of ``method`` built (its model loaded) once."""
+#: Seconds a warm-up job waits for the other workers of its pool to start.
+WARMUP_TIMEOUT_S = 600.0
+
+#: Barrier shared by the workers of a pool that is warming up (set by :func:`_init_worker`).
+_BARRIER = None
+
+
+def _init_worker(method: str, barrier=None) -> None:
+    """Prepare a worker process: one thread, and the calculator of ``method`` built (its model loaded) once.
+
+    For machine-learned methods the calculator also evaluates a small structure, so that the slow first
+    call (the model compiles itself) happens here and not in the first relaxation round.
+    """
+    global _BARRIER
+    _BARRIER = barrier
     os.environ["OMP_NUM_THREADS"] = "1"
-    get_calculator(method)
+    calc = get_calculator(method)
     torch = sys.modules.get("torch")
     if torch is not None:
         torch.set_num_threads(1)
+    if method in ML_METHODS:
+        exercise(calc)
 
 
 def _warmup() -> int:
-    """Job that only makes the pool start a worker (whose initializer loads the model)."""
+    """Warm-up job: wait until every worker of the pool is running (and so has loaded its model).
+
+    Without the wait, a worker that started early could take every warm-up job while the others are
+    still loading, and their loading time would fall into the first round.
+    """
+    if _BARRIER is not None:
+        _BARRIER.wait(WARMUP_TIMEOUT_S)
     return os.getpid()
 
 
-def _new_executor(workers: int, method: str) -> ProcessPoolExecutor:
-    """Process pool for ``method``: workers are started with spawn (never fork) and run :func:`_init_worker`."""
+def _new_executor(workers: int, method: str, barrier=None) -> ProcessPoolExecutor:
+    """Process pool for ``method``: workers are started with spawn (never fork) and run :func:`_init_worker`.
+
+    ``barrier`` (a spawn-context ``Barrier`` for ``workers`` parties) is handed to every worker for the
+    warm-up jobs of :class:`WorkerPool`.
+    """
     return ProcessPoolExecutor(
         max_workers=workers,
         mp_context=multiprocessing.get_context("spawn"),
         initializer=_init_worker,
-        initargs=(method,),
+        initargs=(method,) if barrier is None else (method, barrier),
     )
 
 
@@ -186,6 +212,8 @@ class WorkerPool:
         self.workers = workers
         self.method = method
         self._ex: ProcessPoolExecutor | None = None
+        #: Process ids that answered the last warm-up (one per worker).
+        self.warm_pids: list[int] = []
 
     def ensure(self) -> float:
         """Start the pool if needed and return the seconds that took (0 if it was ready).
@@ -198,10 +226,9 @@ class WorkerPool:
         if self._ex is not None:
             return 0.0
         t0 = time.perf_counter()
-        ex = _new_executor(self.workers, self.method)
+        ex = _new_executor(self.workers, self.method, multiprocessing.get_context("spawn").Barrier(self.workers))
         try:
-            for fut in [ex.submit(_warmup) for _ in range(self.workers)]:
-                fut.result()
+            self.warm_pids = [fut.result() for fut in [ex.submit(_warmup) for _ in range(self.workers)]]
         except Exception as exc:  # noqa: BLE001 - BrokenProcessPool or an error from the initializer
             ex.shutdown(wait=True, cancel_futures=True)
             raise RelaxBackendError(

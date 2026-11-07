@@ -115,20 +115,30 @@ def _weights_info(method: str) -> dict[str, str]:
     return {"weights": url.rsplit("/", 1)[-1], "cache": os.path.dirname(local)}
 
 
+def exercise(calc: Calculator) -> None:
+    """Compute energy, forces and stress of one water molecule in a periodic cell with ``calc``.
+
+    The first call of a machine-learned calculator is slow (the model compiles itself); this makes it
+    happen here instead of in the first relaxation.
+    """
+    from ase.build import molecule
+
+    atoms = molecule("H2O")
+    atoms.set_cell([10.0, 10.0, 10.0])
+    atoms.center()
+    atoms.pbc = True
+    atoms.info.update(charge=0, spin=1)
+    atoms.calc = calc
+    atoms.get_potential_energy()
+    atoms.get_forces()
+    atoms.get_stress()
+    atoms.calc = None
+
+
 def _preflight_child(method: str, conn) -> None:
     """Build the calculator and evaluate one water molecule in a periodic cell; send the outcome."""
     try:
-        from ase.build import molecule
-
-        atoms = molecule("H2O")
-        atoms.set_cell([10.0, 10.0, 10.0])
-        atoms.center()
-        atoms.pbc = True
-        atoms.info.update(charge=0, spin=1)
-        atoms.calc = make_calculator(method)
-        atoms.get_potential_energy()
-        atoms.get_forces()
-        atoms.get_stress()
+        exercise(make_calculator(method))
         conn.send(("ok", _weights_info(method)))
     except Exception as exc:  # noqa: BLE001 - reported to the parent as text
         conn.send(("error", f"{type(exc).__name__}: {exc}"))

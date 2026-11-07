@@ -475,8 +475,10 @@ OrbMol-v2 では重みのファイル名も書きます）。
 
    python -c "from orb_models.forcefield import pretrained; pretrained.orbmol_v2(device='cpu')"
 
-各ワーカープロセスは、最初の周の前にモデルを 1 回だけ読み込みます。この時間は ``time_budget_min`` には
-数えますが、1 周の時間には入れません。緩和の設定（``relax_steps``、``relax_fmax``）と事前ふるいは、
+各ワーカープロセスは、最初の周の前にモデルを 1 回だけ読み込みます（時間のかかる最初の計算も含みます）。
+この時間は ``time_budget_min`` には数えますが、1 周の時間には入れません。**メモリ:** OrbMol-v2 のワーカーは
+試験で 1 つあたり約 1 GB を使いました。``n_procs`` の既定値は CPU のコア数なので、コアが多くメモリが
+少ない計算機では ``n_procs`` を小さくしてください。緩和の設定（``relax_steps``、``relax_fmax``）と事前ふるいは、
 どの方法でも共通です。下の時間の目安は GFN2-xTB で測ったものです。OrbMol-v2 は、本パイプラインの条件
 （ワーカー 1 つあたり 1 スレッド）ではまだ測っていません。
 

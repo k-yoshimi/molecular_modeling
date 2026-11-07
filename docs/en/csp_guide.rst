@@ -494,8 +494,10 @@ on one with network access and copy the whole cache directory over:
 
    python -c "from orb_models.forcefield import pretrained; pretrained.orbmol_v2(device='cpu')"
 
-Each worker process loads the model once, before the first round of relaxations; that time counts
-against ``time_budget_min`` but not as part of a round. The relaxation settings (``relax_steps``,
+Each worker process loads the model once, before the first round of relaxations (including its slow
+first evaluation); that time counts against ``time_budget_min`` but not as part of a round. **Memory:**
+each OrbMol-v2 worker used about 1 GB in our tests, and ``n_procs`` defaults to the number of CPU
+cores; on a machine with many cores and little memory, set ``n_procs`` lower. The relaxation settings (``relax_steps``,
 ``relax_fmax``) and the prescreening are the same for every method. The timings below were measured
 with GFN2-xTB; OrbMol-v2 has not yet been timed under the conditions of this pipeline (one thread per
 worker).
