@@ -323,3 +323,30 @@ def test_z_for_unused_space_group_and_duplicate_space_groups_warn(tmp_path, capl
         cfg = load_csp_config(p)
     assert cfg.space_groups == [2, 14]
     assert "repeated" in caplog.text and "19" in caplog.text
+
+
+def _toml(tmp_path, text: str) -> Path:
+    p = tmp_path / "csp.toml"
+    p.write_text(text)
+    return p
+
+
+def test_relax_method_default_and_source(tmp_path):
+    cfg = load_csp_config(_toml(tmp_path, 'molecule = "data/benzene.toml"\n'))
+    assert (cfg.relax_method, cfg.relax_method_source) == ("GFN2-xTB", "default")
+
+
+def test_relax_method_from_file(tmp_path):
+    cfg = load_csp_config(_toml(tmp_path, 'molecule = "data/benzene.toml"\nrelax_method = "OrbMol-v2"\n'))
+    assert (cfg.relax_method, cfg.relax_method_source) == ("OrbMol-v2", "config")
+
+
+@pytest.mark.parametrize("bad", ['"EMT"', '"orbmol-v2"', "1"])
+def test_relax_method_rejects_other_values(tmp_path, bad):
+    with pytest.raises(ValueError, match="relax_method must be one of 'GFN2-xTB', 'GFN1-xTB', 'OrbMol-v2'"):
+        load_csp_config(_toml(tmp_path, f'molecule = "data/benzene.toml"\nrelax_method = {bad}\n'))
+
+
+def test_relax_method_source_is_not_an_input_key(tmp_path):
+    with pytest.raises(ValueError, match="unknown key"):
+        load_csp_config(_toml(tmp_path, 'molecule = "data/benzene.toml"\nrelax_method_source = "cli"\n'))

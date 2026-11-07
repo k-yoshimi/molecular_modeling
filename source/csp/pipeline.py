@@ -36,7 +36,8 @@ from .screen import check_supported_elements, prescreen
 logger = logging.getLogger(__name__)
 
 CSV_HEADER = (
-    "rank,id,energy_per_mol_eV,rel_energy_kJmol,density_gcm3,space_group_in,space_group_out,origin,max_mol_rmsd,status"
+    "rank,id,energy_per_mol_eV,rel_energy_kJmol,density_gcm3,space_group_in,space_group_out,origin,max_mol_rmsd,status,"
+    "relax_method"
 )
 EV_TO_KJMOL = 96.485
 SAFETY_MARGIN = 0.9
@@ -252,8 +253,10 @@ def _mark_complete(out_dir: Path) -> None:
     (out_dir / INCOMPLETE_NAME).unlink(missing_ok=True)
 
 
-def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
+def _write_outputs(cfg: CSPConfig, ranked: list[Candidate], method: str) -> None:
     """Write ``candidates.csv`` and CIFs of the top :data:`MAX_CIF` candidates.
+
+    Every row of ``candidates.csv`` names the relaxation ``method`` in its last column.
 
     The directory is marked incomplete (:data:`~molecular_modeling.csp.outdir.INCOMPLETE_NAME`)
     first; then results of an earlier run (``candidates.csv``, ranked CIFs ``NNN_<id>.cif``,
@@ -286,6 +289,7 @@ def _write_outputs(cfg: CSPConfig, ranked: list[Candidate]) -> None:
                 c.origin,
                 "" if rmsd is None else f"{rmsd:.4f}",
                 c.status,
+                method,
             ]
         )
         if rank <= MAX_CIF:
@@ -357,20 +361,31 @@ def _run_stages(
     ranked = [replace(c) for c in ranked]
     logger.info("dedupe: %d -> %d in %.1f s", n_ok, len(ranked), time.perf_counter() - t)
 
-    _write_outputs(cfg, ranked)
+    _write_outputs(cfg, ranked, method)
     logger.info("wrote %d rows to %s; total %.1f s", len(ranked), out_dir, time.perf_counter() - t_start)
     return ranked
 
 
-def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
+def resolve_method(cfg: CSPConfig, method: str | None) -> tuple[str, str]:
+    """The relaxation method of a run and where it came from.
+
+    ``method`` (an argument of :func:`run_csp`) overrides ``cfg.relax_method``; the source is then
+    ``"argument"``, otherwise ``cfg.relax_method_source``.
+    """
+    if method is None:
+        return cfg.relax_method, cfg.relax_method_source
+    return method, "argument"
+
+
+def run_csp(cfg: CSPConfig, method: str | None = None) -> list[Candidate]:
     """Run the full CSP pipeline and write ``candidates.csv``, CIF files and ``run.log``.
 
     Parameters
     ----------
     cfg : CSPConfig
         Run settings. Output goes to ``cfg.out_dir``.
-    method : str
-        Calculator for relaxation (``"EMT"`` is available for fast tests).
+    method : str, optional
+        Relaxation method; overrides ``cfg.relax_method`` (``"EMT"`` is available for fast tests).
 
     Returns
     -------
@@ -394,6 +409,7 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
     written to ``run.log`` and no results are left, so validation cannot mistake old results for new ones.
     """
     check_single_process()
+    method, source = resolve_method(cfg, method)
     check_dependencies(method)
     # everything that can fail on bad input is checked before out_dir is touched, so a failed rerun
     # leaves the previous (complete) results and their run.log as they were
@@ -408,6 +424,7 @@ def run_csp(cfg: CSPConfig, method: str = "GFN2-xTB") -> list[Candidate]:
         # warnings from loading the config were logged before run.log existed: repeat them in the file only
         for msg in cfg.config_warnings:
             file_log.handle(logger.makeRecord(logger.name, logging.WARNING, __file__, 0, "config: %s", (msg,), None))
+        logger.info("relax method %s (from %s)", method, source)
         try:
             mark_incomplete(out_dir)  # before anything of the earlier results is changed
             _remove_results(out_dir)

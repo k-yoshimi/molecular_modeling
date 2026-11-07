@@ -182,7 +182,7 @@ def test_write_outputs_quotes_awkward_seed_names(tmp_path):
     c.origin = 'seed:parent,form "II"'
     c.energy_per_mol, c.density, c.status = -1.25, 1.1, "relaxed"
     c.meta.update(id=f"{pipeline._tag(c.origin)}-1-0", max_mol_rmsd=0.01)
-    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), [c])
+    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), [c], "EMT")
     text = (tmp_path / "candidates.csv").read_text()
     assert text.splitlines()[0] == CSV_HEADER
     rows = list(csv.DictReader(text.splitlines()))
@@ -206,12 +206,12 @@ def test_reused_output_dir_with_fewer_survivors(tmp_path):
         c.energy_per_mol, c.status = -1.0 + k, "relaxed"
         c.meta["id"] = f"random-2-{k}"
     cfg = replace(default_cfg(), out_dir=tmp_path)
-    pipeline._write_outputs(cfg, cands)  # first run: 3 survivors
+    pipeline._write_outputs(cfg, cands, "EMT")  # first run: 3 survivors
     assert len(list(tmp_path.glob("[0-9][0-9][0-9]_*.cif"))) == 3
     (tmp_path / "notes.cif").write_text("not a ranked file")
 
     second = [replace(cands[2], energy_per_mol=-2.0)]  # second run: 1 survivor, a different structure
-    pipeline._write_outputs(cfg, second)
+    pipeline._write_outputs(cfg, second, "EMT")
     with open(tmp_path / "candidates.csv", newline="") as fh:
         rows = list(csv.DictReader(fh))
     listed = {f"{int(r['rank']):03d}_{r['id']}.cif" for r in rows}
@@ -537,7 +537,7 @@ def test_interrupted_publication_is_never_validated(tmp_path, monkeypatch, exc, 
 
     monkeypatch.setattr(os, "replace", flaky)
     with pytest.raises(exc):
-        pipeline._write_outputs(cfg, cands)
+        pipeline._write_outputs(cfg, cands, "EMT")
     monkeypatch.setattr(os, "replace", real)
     assert (tmp_path / ".csp_incomplete").exists()
     with pytest.raises(ValueError, match="incomplete"):
@@ -558,7 +558,7 @@ def test_marker_removed_only_as_the_last_step(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pipeline, "_mark_complete", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        pipeline._write_outputs(cfg, cands)
+        pipeline._write_outputs(cfg, cands, "EMT")
     with pytest.raises(ValueError, match="incomplete"):
         validate_run(tmp_path, [exp], flip=None)
 
@@ -617,7 +617,7 @@ def test_run_cannot_start_while_validation_holds_the_lock(tmp_path, monkeypatch)
     cfg = replace(default_cfg(), out_dir=tmp_path)
     from molecular_modeling.csp import pipeline
 
-    pipeline._write_outputs(cfg, cands)
+    pipeline._write_outputs(cfg, cands, "EMT")
     exp = _exp_for(tmp_path, cands[0].atoms)
     real_read = validate_mod._read_candidates
     seen = {}
@@ -640,7 +640,7 @@ def test_cli_validation_holds_lock_while_writing_report(tmp_path, monkeypatch):
     from molecular_modeling.csp import validate as validate_mod
 
     cands = _three_ranked()
-    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), cands)
+    pipeline._write_outputs(replace(default_cfg(), out_dir=tmp_path), cands, "EMT")
     exp = _exp_for(tmp_path, cands[0].atoms)
     real_md = validate_mod.ValidationReport.to_markdown
 
@@ -687,3 +687,47 @@ def test_cli_unwritable_out_dir_is_a_clean_error(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert err.startswith("error: ") and "lock file" in err and "Traceback" not in err
     assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
+def test_csv_has_relax_method_column(tmp_path):
+    cfg = replace(
+        default_cfg(), n_candidates_per_sg=6, n_prescreen_keep=2, relax_steps=3, max_mol_rmsd=50.0, out_dir=tmp_path
+    )
+    run_csp(cfg, method="EMT")
+    rows = (tmp_path / "candidates.csv").read_text().splitlines()
+    assert rows[0] == CSV_HEADER and CSV_HEADER.endswith(",relax_method")
+    assert len(rows) > 1 and all(r.endswith(",EMT") for r in rows[1:])
+
+
+@pytest.mark.parametrize(("method", "source"), [(None, "default"), ("EMT", "argument")])
+def test_run_log_records_method_and_source(tmp_path, monkeypatch, method, source):
+    from molecular_modeling.csp import pipeline
+
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    run_csp(replace(default_cfg(), out_dir=tmp_path), method=method)
+    expect = "GFN2-xTB" if method is None else "EMT"
+    assert f"relax method {expect} (from {source})" in (tmp_path / "run.log").read_text()
+
+
+def test_run_csp_uses_relax_method_from_config(tmp_path, monkeypatch):
+    from molecular_modeling.csp import pipeline
+
+    monkeypatch.setattr(pipeline, "_generate", lambda *a, **k: [])
+    cfg = replace(default_cfg(), out_dir=tmp_path, relax_method="GFN1-xTB", relax_method_source="config")
+    run_csp(cfg)
+    assert "relax method GFN1-xTB (from config)" in (tmp_path / "run.log").read_text()
+
+
+def test_cli_relax_method_overrides_config(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli, "run_csp", lambda cfg: seen.update(m=cfg.relax_method, s=cfg.relax_method_source))
+    p = tmp_path / "csp.toml"
+    p.write_text('molecule = "data/benzene.toml"\nrelax_method = "GFN2-xTB"\n')
+    assert cli.main([str(p), "--relax-method", "GFN1-xTB"]) == 0
+    assert seen == {"m": "GFN1-xTB", "s": "cli"}
+
+
+def test_cli_rejects_unknown_relax_method(capsys):
+    with pytest.raises(SystemExit) as ei:
+        cli.main(["x.toml", "--relax-method", "EMT"])
+    assert ei.value.code == 2 and "--relax-method" in capsys.readouterr().err

@@ -65,12 +65,15 @@ class CSPConfig:
     time_budget_min: float = 60
     rng: int = 1
     out_dir: Path = Path("csp_out")
+    relax_method: str = "GFN2-xTB"
+    #: Where ``relax_method`` came from (not an input key): ``"default"``, ``"config"`` or ``"cli"``.
+    relax_method_source: str = field(default="default", repr=False, compare=False)
     #: Warnings issued while loading the file (not an input key); ``run_csp`` repeats them in ``run.log``.
     config_warnings: list[str] = field(default_factory=list, repr=False, compare=False)
 
 
 #: Fields of :class:`CSPConfig` that are set by the loader, not read from the TOML file.
-_NOT_INPUT_KEYS = {"config_warnings"}
+_NOT_INPUT_KEYS = {"config_warnings", "relax_method_source"}
 
 
 def _is_int(x: Any) -> bool:
@@ -110,6 +113,9 @@ def _check_types(raw: dict[str, Any]) -> None:
         need(isinstance(raw["generators"], dict), "generators", "a table such as { random = 0.6, voronoi = 0.4 }")
     if "rng" in raw:
         need(_is_int(raw["rng"]) and raw["rng"] >= 0, "rng", "a non-negative integer")
+    if "relax_method" in raw:
+        allowed = ", ".join(repr(m) for m in CONFIG_RELAX_METHODS)
+        need(raw["relax_method"] in CONFIG_RELAX_METHODS, "relax_method", f"one of {allowed}")
     if "seed_structures" in raw:
         ss = raw["seed_structures"]
         need(
@@ -194,7 +200,8 @@ def load_csp_config(path: str | Path) -> CSPConfig:
         its range: ``0 < packing_range[0] < packing_range[1] <= 1``; space groups (and ``z`` keys)
         1..230; positive integers ``z`` values, ``z_prime``, ``n_candidates_per_sg``,
         ``n_prescreen_keep``, ``n_procs``; non-negative integer ``relax_steps``; positive finite
-        ``relax_fmax``, ``max_mol_rmsd``, ``time_budget_min``, ``overlap_factor``.
+        ``relax_fmax``, ``max_mol_rmsd``, ``time_budget_min``, ``overlap_factor``; ``relax_method``
+        other than ``"GFN2-xTB"``, ``"GFN1-xTB"`` or ``"OrbMol-v2"``.
     """
     warnings: list[str] = []
 
@@ -287,4 +294,5 @@ def load_csp_config(path: str | Path) -> CSPConfig:
     cfg = CSPConfig(**kwargs)
     _check_ranges(cfg)
     cfg.config_warnings = warnings
+    cfg.relax_method_source = "config" if "relax_method" in raw else "default"
     return cfg
