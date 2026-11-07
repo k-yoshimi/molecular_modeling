@@ -1,4 +1,4 @@
-"""Cell relaxation of crystal candidates with a tight-binding (or test) calculator, in parallel."""
+"""Cell relaxation of crystal candidates in parallel, with the calculator of the chosen method."""
 
 from __future__ import annotations
 
@@ -9,47 +9,15 @@ from dataclasses import replace
 
 import numpy as np
 from ase import Atoms
-from ase.calculators.calculator import Calculator
 from ase.filters import FrechetCellFilter
 from ase.neighborlist import natural_cutoffs, neighbor_list
 from ase.optimize import FIRE
+from molecular_modeling.csp.backends import METHODS, make_calculator  # noqa: F401 - re-exported
 from molecular_modeling.csp.candidate import Candidate
 from molecular_modeling.csp.config import CSPConfig
 from molecular_modeling.csp.molecule import molecule_rmsd
 from molecular_modeling.csp.screen import crystal_density, whole_molecules
 from molecular_modeling.molecule_unwrap import bond_pairs, is_connected, unwrap_molecule
-
-#: Calculator names accepted by :func:`make_calculator` (``EMT`` variants are for tests).
-METHODS = ("GFN2-xTB", "GFN1-xTB", "EMT", "EMT-CRASH-ON-AU")
-
-
-def make_calculator(method: str = "GFN2-xTB") -> Calculator:
-    """Return an ASE calculator for ``method`` (``"GFN2-xTB"``, ``"GFN1-xTB"``, or ``"EMT"`` for tests).
-
-    Raises
-    ------
-    ValueError
-        If ``method`` is not supported.
-    """
-    if method in ("GFN2-xTB", "GFN1-xTB"):
-        from tblite.ase import TBLite
-
-        return TBLite(method=method, verbosity=0)
-    if method == "EMT":
-        from ase.calculators.emt import EMT
-
-        return EMT()
-    if method == "EMT-CRASH-ON-AU":  # test-only: kills the worker process when gold is present
-        from ase.calculators.emt import EMT
-
-        class _CrashOnAu(EMT):
-            def calculate(self, atoms=None, properties=("energy",), system_changes=("positions",)):
-                if atoms is not None and 79 in atoms.numbers:
-                    os._exit(1)
-                super().calculate(atoms, properties, system_changes)
-
-        return _CrashOnAu()
-    raise ValueError(f"unsupported method {method!r}; use 'GFN2-xTB', 'GFN1-xTB' or 'EMT'")
 
 
 def _mirror(mol: Atoms) -> Atoms:

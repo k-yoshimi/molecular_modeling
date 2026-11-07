@@ -19,6 +19,8 @@ DEFAULT_GENERATORS: dict[str, float] = {"random": 0.6, "voronoi": 0.4}
 SEED_GENERATOR_WEIGHT = 0.5
 #: Generator names accepted in ``generators``.
 GENERATOR_NAMES = ("random", "voronoi", "seed")
+#: Relaxation methods accepted in ``relax_method`` (and by ``--relax-method``).
+CONFIG_RELAX_METHODS = ("GFN2-xTB", "GFN1-xTB", "OrbMol-v2")
 
 
 @dataclass

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import logging
 import math
 import os
 import shutil
+import sys
 import time
 from collections import defaultdict
 from collections.abc import Iterator
@@ -18,6 +20,7 @@ import numpy as np
 from ase import Atoms
 from ase.io import write
 
+from .backends import METHODS, ML_INSTALL_HINT, ML_METHODS
 from .candidate import MAX_CIF, Candidate
 from .config import SEED_GENERATOR_WEIGHT, CSPConfig, SeedSpec
 from .dedupe import deduplicate
@@ -27,7 +30,7 @@ from .gen_seed import generate_from_seed
 from .gen_voronoi import orient_candidate
 from .molecule import load_molecule, molecule_volume
 from .outdir import INCOMPLETE_NAME, check_single_process, hold_lock, mark_incomplete
-from .relax import METHODS, relax_many
+from .relax import relax_many
 from .screen import check_supported_elements, prescreen
 
 logger = logging.getLogger(__name__)
@@ -41,18 +44,33 @@ SAFETY_MARGIN = 0.9
 
 #: Packages of the ``csp`` extra needed by every run; ``tblite`` is needed in addition for GFN methods.
 REQUIRED_PACKAGES = ("pyxtal", "pymatgen", "spglib")
+#: Packages of the ``csp-ml`` extra needed by the machine-learned methods; only their presence is checked,
+#: so that the parent process never imports PyTorch.
+ML_PACKAGES = ("orb_models", "torch")
 
 
 def check_dependencies(method: str = "GFN2-xTB") -> None:
-    """Raise ``ImportError`` naming every missing package of the ``csp`` extra needed for ``method``.
+    """Raise ``ImportError`` naming every missing package needed for ``method``.
 
     An unknown ``method`` raises ``ValueError``.
 
     For the GFN methods ``tblite.ase`` (which loads the compiled tblite library) must import and provide
-    ``TBLite``; importing the root ``tblite`` package alone does not prove the calculator works.
+    ``TBLite``; importing the root ``tblite`` package alone does not prove the calculator works. For the
+    machine-learned methods the packages of the ``csp-ml`` extra are only looked up, not imported;
+    whether they work is checked by :func:`~molecular_modeling.csp.backends.preflight` in a child process.
     """
     if method not in METHODS:
         raise ValueError(f"unsupported method {method!r}; use one of {', '.join(METHODS)}")
+    if method in ML_METHODS:
+        require(list(REQUIRED_PACKAGES), purpose="crystal structure prediction")
+        missing = [name for name in ML_PACKAGES if importlib.util.find_spec(name) is None]
+        if missing:
+            py = "" if sys.version_info >= (3, 12) else " (it needs Python 3.12 or newer)"
+            raise ImportError(
+                f"relaxation method {method}{py} needs {', '.join(missing)}, which cannot be imported; "
+                f"{ML_INSTALL_HINT}"
+            )
+        return
     names = list(REQUIRED_PACKAGES) + (["tblite", "tblite.ase"] if method.startswith("GFN") else [])
     require(names, {"tblite.ase": "TBLite"}, purpose="crystal structure prediction")
 
